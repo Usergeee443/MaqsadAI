@@ -1,0 +1,19 @@
+# Bot konfiguratsiyasi
+BOT_TOKEN=your_bot_token_here
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Ma'lumotlar bazasi konfiguratsiyasi
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=your_db_password_here
+DB_NAME=MaqsadAiBot
+
+# Click payment konfiguratsiyasi (kelajakda)
+CLICK_MERCHANT_ID=your_click_merchant_id
+CLICK_SERVICE_ID=your_click_service_id
+CLICK_SECRET_KEY=your_click_secret_key
+
+# Boshqa sozlamalar
+DEBUG=False
+LOG_LEVEL=INFO
