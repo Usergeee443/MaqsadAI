@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery, WebAppInfo
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -45,11 +45,68 @@ def get_main_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📝 To-Do"), KeyboardButton(text="📊 Hisobotlar")],
-            [KeyboardButton(text="🎯 Maqsad AI"), KeyboardButton(text="⚙️ Sozlamalar")]
+            [KeyboardButton(text="🎯 Maqsad AI"), KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True
     )
     return keyboard
+
+# Profil menyusi
+def get_profile_menu():
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings")],
+            [InlineKeyboardButton(text="💳 Tarif", callback_data="tariff_info")]
+        ]
+    )
+    return keyboard
+
+# Sozlamalar menyusi
+def get_settings_menu():
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🎯 Maqsad AI sozlamalari", callback_data="goal_ai_settings")],
+            [InlineKeyboardButton(text="📝 To-Do sozlamalari", callback_data="todo_settings")],
+            [InlineKeyboardButton(text="💰 Moliyaviy sozlamalar", callback_data="financial_settings")],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_profile")]
+        ]
+    )
+    return keyboard
+
+# Maqsad AI sozlamalari menyusi
+def get_goal_ai_settings_menu():
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔔 Eslatmalar", callback_data="reminder_settings")],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_settings")]
+        ]
+    )
+    return keyboard
+
+# Vaqt tanlash tugmalari
+def get_time_selection_keyboard(reminder_type):
+    """Eslatmalar vaqtini tanlash tugmalari"""
+    times = [
+        "05:00", "06:00", "07:00", "08:00", "09:00", "10:00",
+        "11:00", "12:00", "13:00", "14:00", "15:00", "16:00",
+        "17:00", "18:00", "19:00", "20:00", "21:00", "22:00"
+    ]
+    
+    keyboard = []
+    for i in range(0, len(times), 3):
+        row = []
+        for j in range(3):
+            if i + j < len(times):
+                row.append(InlineKeyboardButton(
+                    text=times[i + j], 
+                    callback_data=f"set_time_{reminder_type}_{times[i + j]}"
+                ))
+        keyboard.append(row)
+    
+    # Orqaga qaytish tugmasi
+    keyboard.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="reminder_settings")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 # Tarif tanlash tugmalari
 def get_tariff_keyboard():
@@ -110,7 +167,7 @@ Iltimos, tarifingizni tanlang:
         )
         await state.clear()
 
-@dp.callback_query(lambda c: c.data.startswith("tariff_"))
+@dp.callback_query(lambda c: c.data.startswith("tariff_") and c.data.split("_")[1] in ["FREE", "PRO", "MAX"])
 async def process_tariff_selection(callback_query: types.CallbackQuery, state: FSMContext):
     """Tarif tanlashni qayta ishlash"""
     tariff = callback_query.data.split("_")[1]
@@ -206,7 +263,7 @@ async def add_today_todo(callback_query: types.CallbackQuery, state: FSMContext)
     )
     await state.set_state(UserStates.waiting_for_todo_title)
 
-@dp.callback_query(lambda c: c.data.startswith("todo_"))
+@dp.callback_query(lambda c: c.data.startswith("todo_") and c.data.split("_")[1].isdigit())
 async def show_todo_details(callback_query: types.CallbackQuery):
     """Vazifa tafsilotlarini ko'rsatish"""
     todo_id = int(callback_query.data.split("_")[1])
@@ -844,7 +901,7 @@ async def finish_setup(callback_query: types.CallbackQuery, state: FSMContext):
 
 @dp.message(lambda message: message.text == "📊 Hisobotlar")
 async def reports_menu(message: types.Message, state: FSMContext):
-    """Hisobotlar menyusi - soddalashtirilgan"""
+    """Hisobotlar menyusi - Mini App"""
     # Agar maqsad yaratish jarayonida bo'lsa
     if await state.get_state() == UserStates.waiting_for_goal_answer:
         await message.answer(
@@ -855,40 +912,44 @@ async def reports_menu(message: types.Message, state: FSMContext):
         return
     
     user_id = message.from_user.id
+    user_tariff = await get_user_tariff(user_id)
     
-    # Moliyaviy xulosa
-    summary = await reports_module.get_financial_summary(user_id)
+    # Faqat PRO va MAX tariflar uchun Mini App
+    if user_tariff not in ['PRO', 'MAX']:
+        # Oddiy hisobot
+        summary = await reports_module.get_financial_summary(user_id)
+        balance = await reports_module.get_balance_report(user_id)
+        
+        message_text = f"{summary}\n\n"
+        message_text += f"💰 *Balans:* {balance['balance']:,.0f} so'm\n"
+        message_text += f"📈 *Kirim:* {balance['income']:,.0f} so'm\n"
+        message_text += f"📉 *Chiqim:* {balance['expense']:,.0f} so'm\n\n"
+        message_text += "📱 *Kengaytirilgan hisobotlar*\n\n"
+        message_text += "Kengaytirilgan hisobotlar va grafiklar uchun Pro yoki Max tarifga o'ting.\n"
+        message_text += "Tarifni o'zgartirish uchun Profil > Tarif bo'limiga o'ting."
+        
+        await message.answer(
+            message_text,
+            reply_markup=get_main_menu(),
+            parse_mode="Markdown"
+        )
+        return
     
-    # Balans ma'lumotlari
-    balance = await reports_module.get_balance_report(user_id)
-    
-    # Kategoriyalar bo'yicha hisobot
-    categories = await reports_module.get_category_report(user_id, 30)
-    
-    # Xabar tuzish
-    message_text = f"{summary}\n\n"
-    
-    # Balans
-    message_text += f"💰 *Balans:* {balance['balance']:,.0f} so'm\n"
-    message_text += f"📈 *Kirim:* {balance['income']:,.0f} so'm\n"
-    message_text += f"📉 *Chiqim:* {balance['expense']:,.0f} so'm\n\n"
-    
-    # Eng ko'p chiqim kategoriyasi
-    if categories['expense_categories']:
-        top_category = max(categories['expense_categories'].items(), key=lambda x: x[1]['total'])
-        message_text += f"🔥 *Eng ko'p chiqim:* {top_category[0]} ({top_category[1]['total']:,.0f} so'm)\n\n"
-    
-    # So'nggi tranzaksiyalar
-    recent = await reports_module.get_recent_transactions(user_id, 5)
-    if recent:
-        message_text += "📋 *So'nggi tranzaksiyalar:*\n"
-        for trans in recent:
-            type_emoji = {"income": "📈", "expense": "📉", "debt": "💳"}.get(trans["type"], "❓")
-            message_text += f"• {type_emoji} {trans['amount']:,.0f} so'm - {trans['category']}\n"
+    # Mini App uchun tugma
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="📊 Kengaytirilgan hisobotlar", 
+                web_app=WebAppInfo(url="https://591df3796396.ngrok-free.app")
+            )],
+            [InlineKeyboardButton(text="📋 Oddiy hisobot", callback_data="simple_report")]
+        ]
+    )
     
     await message.answer(
-        message_text,
-        reply_markup=get_main_menu(),
+        "📊 **Moliyaviy hisobotlar**\n\n"
+        "Quyidagi variantlardan birini tanlang:",
+        reply_markup=keyboard,
         parse_mode="Markdown"
     )
 
@@ -953,8 +1014,15 @@ async def add_user_if_not_exists(user_id: int, user_data):
 async def update_user_tariff(user_id: int, tariff: str):
     """Foydalanuvchi tarifini yangilash"""
     try:
+        # Tarif qiymatini tekshirish
+        valid_tariffs = ["FREE", "PRO", "MAX"]
+        if tariff not in valid_tariffs:
+            logger.error(f"Noto'g'ri tarif qiymati: {tariff}")
+            return
+        
         query = "UPDATE users SET tariff = %s WHERE user_id = %s"
         await db.execute_query(query, (tariff, user_id))
+        logger.info(f"Foydalanuvchi {user_id} tarifi {tariff} ga yangilandi")
     except Exception as e:
         logger.error(f"Tarif yangilashda xatolik: {e}")
 
@@ -969,8 +1037,67 @@ async def get_user_tariff(user_id: int) -> str:
         return "FREE"
 
 
+# Audio xabarlarni qayta ishlash
+@dp.message(lambda message: message.voice or message.audio)
+async def process_audio_message(message: types.Message, state: FSMContext):
+    """Audio xabarlarni qayta ishlash"""
+    # Agar foydalanuvchi tarif tanlash jarayonida bo'lsa
+    if await state.get_state() == UserStates.waiting_for_tariff:
+        return
+    
+    # Agar foydalanuvchi boshqa holatda bo'lsa
+    if await state.get_state() in [UserStates.waiting_for_goal_description, UserStates.waiting_for_goal_answer,
+                                   UserStates.waiting_for_todo_title, UserStates.waiting_for_todo_description]:
+        return
+    
+    user_id = message.from_user.id
+    user_tariff = await get_user_tariff(user_id)
+    
+    # Faqat PRO va MAX tariflar uchun audio qo'llab-quvvatlash
+    if user_tariff not in ['PRO', 'MAX']:
+        await message.answer(
+            "🎵 **Audio qo'llab-quvvatlash**\n\n"
+            "Audio xabarlarni qayta ishlash faqat Pro va Max tariflar uchun mavjud.\n"
+            "Tarifni yangilash uchun Profil > Tarif bo'limiga o'ting.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    try:
+        # Audio faylni yuklab olish
+        file_id = message.voice.file_id if message.voice else message.audio.file_id
+        file = await bot.get_file(file_id)
+        
+        # Audio faylni saqlash
+        import os
+        audio_dir = "temp_audio"
+        os.makedirs(audio_dir, exist_ok=True)
+        
+        audio_path = f"{audio_dir}/audio_{user_id}_{datetime.now().timestamp()}.ogg"
+        await bot.download_file(file.file_path, audio_path)
+        
+        # Audio faylni qayta ishlash
+        result = await financial_module.process_audio_input(audio_path, user_id)
+        
+        # Natijani yuborish
+        await message.answer(result['message'], parse_mode='Markdown')
+        
+        # Audio faylni o'chirish
+        try:
+            os.remove(audio_path)
+        except:
+            pass
+            
+    except Exception as e:
+        logging.error(f"Audio qayta ishlashda xatolik: {e}")
+        await message.answer(
+            "❌ Audio faylni qayta ishlashda xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.",
+            parse_mode='Markdown'
+        )
+
 # Moliyaviy yordamchi - oxirgi handler
-@dp.message()
+@dp.message(lambda message: message.text and not message.text.startswith('/') and 
+           message.text not in ["📝 To-Do", "📊 Hisobotlar", "🎯 Maqsad AI", "👤 Profil"])
 async def process_financial_message(message: types.Message, state: FSMContext):
     """Har qanday matnni moliyaviy ma'lumot sifatida qayta ishlash"""
     # Agar foydalanuvchi tarif tanlash jarayonida bo'lsa
@@ -1003,9 +1130,12 @@ async def process_financial_message(message: types.Message, state: FSMContext):
             "• 📝 To-Do - Kunlik vazifalar\n"
             "• 📊 Hisobotlar - Moliyaviy hisobotlar\n"
             "• 🎯 Maqsad AI - Maqsad yaratish (Max tarifda)\n"
-            "• ⚙️ Sozlamalar - Bot sozlamalari\n\n"
+            "• 👤 Profil - Profil va sozlamalar\n\n"
             "Yoki moliyaviy ma'lumot yuboring:\n"
-            "Masalan: 'Bugun 50 ming so'm ovqatga ketdi'",
+            "• 📝 Matn: 'Bugun 50 ming so'm ovqatga ketdi'\n"
+            "• 🎵 Audio: Ovozli xabar (Pro/Max tarifda)\n\n"
+            "Bir xabarda ko'p tranzaksiya yuborishingiz mumkin:\n"
+            "'Bugun 3 ta kirim, 3 ta chiqim va 1 qarz berdim'",
             reply_markup=get_main_menu(),
             parse_mode="Markdown"
         )
@@ -1066,6 +1196,330 @@ async def show_goal_progress(callback_query: types.CallbackQuery):
         parse_mode="Markdown"
     )
 
+
+@dp.message(lambda message: message.text == "👤 Profil")
+async def profile_handler(message: Message, state: FSMContext):
+    """Profil menyusini ko'rsatish"""
+    # Agar maqsad yaratish jarayonida bo'lsa
+    if await state.get_state() == UserStates.waiting_for_goal_answer:
+        await message.answer(
+            "⏳ *Maqsad yaratish jarayonida!*\n\n"
+            "Profilni ko'rish uchun avval maqsad yaratishni yakunlang yoki bekor qiling.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    user_id = message.from_user.id
+    
+    # Foydalanuvchi ma'lumotlarini olish
+    user_data = await db.get_user_data(user_id)
+    if not user_data:
+        await message.answer("❌ Foydalanuvchi ma'lumotlari topilmadi!")
+        return
+    
+    # Profil ma'lumotlarini tayyorlash
+    profile_text = f"👤 **Profil ma'lumotlari**\n\n"
+    profile_text += f"🆔 **Telegram ID:** `{user_id}`\n"
+    profile_text += f"📅 **Ro'yxatdan o'tgan sana:** {user_data['created_at'].strftime('%d.%m.%Y')}\n"
+    profile_text += f"💳 **Tarif:** {TARIFFS.get(user_data['tariff'], 'Nomalum')}\n"
+    
+    # Agar pullik tarif bo'lsa, muddatini ko'rsatish
+    if user_data['tariff'] in ['PRO', 'MAX'] and user_data.get('tariff_expires_at'):
+        profile_text += f"⏰ **Faol bo'lish muddati:** {user_data['tariff_expires_at'].strftime('%d.%m.%Y %H:%M')}\n"
+    elif user_data['tariff'] in ['PRO', 'MAX']:
+        profile_text += f"⏰ **Faol bo'lish muddati:** Cheksiz\n"
+    
+    await message.answer(profile_text, reply_markup=get_profile_menu(), parse_mode='Markdown')
+
+# Callback handlerlar
+@dp.callback_query(lambda c: c.data == "settings")
+async def settings_callback(callback_query: CallbackQuery):
+    """Sozlamalar menyusini ko'rsatish"""
+    await callback_query.message.edit_text(
+        "⚙️ **Sozlamalar**\n\n"
+        "Quyidagi sozlamalardan birini tanlang:",
+        reply_markup=get_settings_menu(),
+        parse_mode='Markdown'
+    )
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "back_to_profile")
+async def back_to_profile_callback(callback_query: CallbackQuery):
+    """Profilga qaytish"""
+    user_id = callback_query.from_user.id
+    user_data = await db.get_user_data(user_id)
+    
+    if not user_data:
+        await callback_query.message.edit_text("❌ Foydalanuvchi ma'lumotlari topilmadi!")
+        return
+    
+    profile_text = f"👤 **Profil ma'lumotlari**\n\n"
+    profile_text += f"🆔 **Telegram ID:** `{user_id}`\n"
+    profile_text += f"📅 **Ro'yxatdan o'tgan sana:** {user_data['created_at'].strftime('%d.%m.%Y')}\n"
+    profile_text += f"💳 **Tarif:** {TARIFFS.get(user_data['tariff'], 'Nomalum')}\n"
+    
+    if user_data['tariff'] in ['PRO', 'MAX'] and user_data.get('tariff_expires_at'):
+        profile_text += f"⏰ **Faol bo'lish muddati:** {user_data['tariff_expires_at'].strftime('%d.%m.%Y %H:%M')}\n"
+    elif user_data['tariff'] in ['PRO', 'MAX']:
+        profile_text += f"⏰ **Faol bo'lish muddati:** Cheksiz\n"
+    
+    await callback_query.message.edit_text(profile_text, reply_markup=get_profile_menu(), parse_mode='Markdown')
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "goal_ai_settings")
+async def goal_ai_settings_callback(callback_query: CallbackQuery):
+    """Maqsad AI sozlamalari"""
+    await callback_query.message.edit_text(
+        "🎯 **Maqsad AI sozlamalari**\n\n"
+        "Maqsad AI bilan bog'liq sozlamalarni boshqaring:",
+        reply_markup=get_goal_ai_settings_menu(),
+        parse_mode='Markdown'
+    )
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "back_to_settings")
+async def back_to_settings_callback(callback_query: CallbackQuery):
+    """Sozlamalarga qaytish"""
+    await callback_query.message.edit_text(
+        "⚙️ **Sozlamalar**\n\n"
+        "Quyidagi sozlamalardan birini tanlang:",
+        reply_markup=get_settings_menu(),
+        parse_mode='Markdown'
+    )
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "reminder_settings")
+async def reminder_settings_callback(callback_query: CallbackQuery):
+    """Eslatmalar sozlamalari"""
+    user_id = callback_query.from_user.id
+    
+    # Hozirgi eslatmalar sozlamalarini olish
+    settings = await db.get_goal_reminder_settings(user_id)
+    
+    if settings:
+        text = f"🔔 **Eslatmalar sozlamalari**\n\n"
+        text += f"📝 **Kunlik vazifalar:** {settings['daily_task_time']}\n"
+        text += f"💪 **Motivatsiya:** {settings['motivation_time']}\n"
+        text += f"📊 **Progress tekshirish:** {settings['progress_check_time']}\n\n"
+        text += "Eslatmalar vaqtini o'zgartirish uchun tugmalardan foydalaning:"
+    else:
+        text = "🔔 **Eslatmalar sozlamalari**\n\n"
+        text += "Hozircha eslatmalar sozlanmagan. Quyidagi tugmalardan foydalanib sozlang:"
+    
+    # Vaqt tanlash tugmalari
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📝 Kunlik vazifalar vaqtini o'zgartirish", callback_data="change_daily_task_time")],
+            [InlineKeyboardButton(text="💪 Motivatsiya vaqtini o'zgartirish", callback_data="change_motivation_time")],
+            [InlineKeyboardButton(text="📊 Progress tekshirish vaqtini o'zgartirish", callback_data="change_progress_time")],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_settings")]
+        ]
+    )
+    
+    await callback_query.message.edit_text(text, reply_markup=keyboard, parse_mode='Markdown')
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "todo_settings")
+async def todo_settings_callback(callback_query: CallbackQuery):
+    """To-Do sozlamalari"""
+    await callback_query.message.edit_text(
+        "📝 **To-Do sozlamalari**\n\n"
+        "Bu funksiya tez orada qo'shiladi!",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_settings")]]
+        ),
+        parse_mode='Markdown'
+    )
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "financial_settings")
+async def financial_settings_callback(callback_query: CallbackQuery):
+    """Moliyaviy sozlamalar"""
+    await callback_query.message.edit_text(
+        "💰 **Moliyaviy sozlamalar**\n\n"
+        "Bu funksiya tez orada qo'shiladi!",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_settings")]]
+        ),
+        parse_mode='Markdown'
+    )
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "tariff_info")
+async def tariff_info_callback(callback_query: CallbackQuery):
+    """Tarif ma'lumotlari"""
+    user_id = callback_query.from_user.id
+    user_data = await db.get_user_data(user_id)
+    
+    if not user_data:
+        await callback_query.message.edit_text("❌ Foydalanuvchi ma'lumotlari topilmadi!")
+        return
+    
+    text = f"💳 **Tarif ma'lumotlari**\n\n"
+    text += f"🎯 **Joriy tarif:** {TARIFFS.get(user_data['tariff'], 'Nomalum')}\n"
+    
+    if user_data['tariff'] in ['PRO', 'MAX'] and user_data.get('tariff_expires_at'):
+        text += f"⏰ **Faol bo'lish muddati:** {user_data['tariff_expires_at'].strftime('%d.%m.%Y %H:%M')}\n"
+    elif user_data['tariff'] in ['PRO', 'MAX']:
+        text += f"⏰ **Faol bo'lish muddati:** Cheksiz\n"
+    
+    text += "\n📋 **Tariflar:**\n"
+    text += "• **Bepul:** Asosiy funksiyalar\n"
+    text += "• **Pro:** Kengaytirilgan hisobotlar\n"
+    text += "• **Max:** Maqsad AI va barcha funksiyalar\n\n"
+    text += "Tarifni o'zgartirish uchun admin bilan bog'laning."
+    
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_profile")]]
+    )
+    
+    await callback_query.message.edit_text(text, reply_markup=keyboard, parse_mode='Markdown')
+    await callback_query.answer()
+
+# Vaqt tanlash callback handlerlari
+@dp.callback_query(lambda c: c.data.startswith("change_daily_task_time"))
+async def change_daily_task_time_callback(callback_query: CallbackQuery):
+    """Kunlik vazifalar vaqtini o'zgartirish"""
+    await callback_query.message.edit_text(
+        "📝 **Kunlik vazifalar vaqtini tanlang**\n\n"
+        "Har kuni qaysi vaqtda kunlik vazifalar yuborilishi kerak?",
+        reply_markup=get_time_selection_keyboard("daily_task"),
+        parse_mode='Markdown'
+    )
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("change_motivation_time"))
+async def change_motivation_time_callback(callback_query: CallbackQuery):
+    """Motivatsiya vaqtini o'zgartirish"""
+    await callback_query.message.edit_text(
+        "💪 **Motivatsiya vaqtini tanlang**\n\n"
+        "Har kuni qaysi vaqtda motivatsiya xabari yuborilishi kerak?",
+        reply_markup=get_time_selection_keyboard("motivation"),
+        parse_mode='Markdown'
+    )
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("change_progress_time"))
+async def change_progress_time_callback(callback_query: CallbackQuery):
+    """Progress tekshirish vaqtini o'zgartirish"""
+    await callback_query.message.edit_text(
+        "📊 **Progress tekshirish vaqtini tanlang**\n\n"
+        "Har kuni qaysi vaqtda progress tekshirish xabari yuborilishi kerak?",
+        reply_markup=get_time_selection_keyboard("progress"),
+        parse_mode='Markdown'
+    )
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("set_time_"))
+async def set_time_callback(callback_query: CallbackQuery):
+    """Vaqtni sozlash"""
+    user_id = callback_query.from_user.id
+    data_parts = callback_query.data.split("_")
+    reminder_type = data_parts[2]  # daily_task, motivation, progress
+    selected_time = data_parts[3]  # 08:00
+    
+    # Vaqtni ma'lumotlar bazasiga saqlash
+    message = ""
+    if reminder_type == "daily_task":
+        await db.update_goal_reminder_settings(user_id, daily_task_time=selected_time)
+        message = f"✅ Kunlik vazifalar vaqti {selected_time} ga o'zgartirildi!"
+    elif reminder_type == "motivation":
+        await db.update_goal_reminder_settings(user_id, motivation_time=selected_time)
+        message = f"✅ Motivatsiya vaqti {selected_time} ga o'zgartirildi!"
+    elif reminder_type == "progress":
+        await db.update_goal_reminder_settings(user_id, progress_check_time=selected_time)
+        message = f"✅ Progress tekshirish vaqti {selected_time} ga o'zgartirildi!"
+    
+    # Yangilangan sozlamalarni ko'rsatish
+    settings = await db.get_goal_reminder_settings(user_id)
+    
+    if settings:
+        text = f"🔔 **Eslatmalar sozlamalari**\n\n"
+        text += f"📝 **Kunlik vazifalar:** {settings['daily_task_time']}\n"
+        text += f"💪 **Motivatsiya:** {settings['motivation_time']}\n"
+        text += f"📊 **Progress tekshirish:** {settings['progress_check_time']}\n\n"
+        text += "Eslatmalar vaqtini o'zgartirish uchun tugmalardan foydalaning:"
+    else:
+        text = "🔔 **Eslatmalar sozlamalari**\n\n"
+        text += "Hozircha eslatmalar sozlanmagan. Quyidagi tugmalardan foydalanib sozlang:"
+    
+    # Vaqt tanlash tugmalari
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📝 Kunlik vazifalar vaqtini o'zgartirish", callback_data="change_daily_task_time")],
+            [InlineKeyboardButton(text="💪 Motivatsiya vaqtini o'zgartirish", callback_data="change_motivation_time")],
+            [InlineKeyboardButton(text="📊 Progress tekshirish vaqtini o'zgartirish", callback_data="change_progress_time")],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_settings")]
+        ]
+    )
+    
+    await callback_query.message.edit_text(text, reply_markup=keyboard, parse_mode='Markdown')
+    await callback_query.answer(message)
+
+@dp.callback_query(lambda c: c.data == "simple_report")
+async def simple_report_callback(callback_query: CallbackQuery):
+    """Oddiy hisobot ko'rsatish"""
+    user_id = callback_query.from_user.id
+    
+    # Moliyaviy xulosa
+    summary = await reports_module.get_financial_summary(user_id)
+    
+    # Balans ma'lumotlari
+    balance = await reports_module.get_balance_report(user_id)
+    
+    # Kategoriyalar bo'yicha hisobot
+    categories = await reports_module.get_category_report(user_id, 30)
+    
+    # Xabar tuzish
+    message_text = f"{summary}\n\n"
+    
+    # Balans
+    message_text += f"💰 *Balans:* {balance['balance']:,.0f} so'm\n"
+    message_text += f"📈 *Kirim:* {balance['income']:,.0f} so'm\n"
+    message_text += f"📉 *Chiqim:* {balance['expense']:,.0f} so'm\n\n"
+    
+    # Eng ko'p chiqim kategoriyasi
+    if categories['expense_categories']:
+        top_category = max(categories['expense_categories'].items(), key=lambda x: x[1]['total'])
+        message_text += f"🔥 *Eng ko'p chiqim:* {top_category[0]} ({top_category[1]['total']:,.0f} so'm)\n\n"
+    
+    # So'nggi tranzaksiyalar
+    recent = await reports_module.get_recent_transactions(user_id, 5)
+    if recent:
+        message_text += "📋 *So'nggi tranzaksiyalar:*\n"
+        for trans in recent:
+            type_emoji = {"income": "📈", "expense": "📉", "debt": "💳"}.get(trans["type"], "❓")
+            message_text += f"• {type_emoji} {trans['amount']:,.0f} so'm - {trans['category']}\n"
+    
+    await callback_query.message.edit_text(
+        message_text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_reports")]]
+        ),
+        parse_mode="Markdown"
+    )
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "back_to_reports")
+async def back_to_reports_callback(callback_query: CallbackQuery):
+    """Hisobotlar menyusiga qaytish"""
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="📊 Kengaytirilgan hisobotlar", 
+                web_app=WebAppInfo(url="http://localhost:8000")
+            )],
+            [InlineKeyboardButton(text="📋 Oddiy hisobot", callback_data="simple_report")]
+        ]
+    )
+    
+    await callback_query.message.edit_text(
+        "📊 **Moliyaviy hisobotlar**\n\n"
+        "Quyidagi variantlardan birini tanlang:",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback_query.answer()
 
 async def main():
     """Asosiy dastur"""

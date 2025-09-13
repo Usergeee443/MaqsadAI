@@ -1,32 +1,21 @@
 #!/usr/bin/env python3
 """
-HamyonAI&MaqsadAI Bot + Mini App ishga tushirish skripti
-Bot va Mini App birlashtirilgan
+Mini App serverini ishga tushirish uchun script
+HTTPS tunnel bilan
 """
 
-import asyncio
-import sys
-import os
-import threading
 import subprocess
 import time
-
 import requests
 import json
-from pathlib import Path
-
-# Loyiha papkasini Python pathiga qo'shish
-project_dir = Path(__file__).parent
-sys.path.insert(0, str(project_dir))
-
-from main import main
+import os
 from mini_app import app
 import uvicorn
 
 def get_ngrok_url():
     """Ngrok tunnel URLini olish"""
     try:
-        response = requests.get("http://localhost:4040/api/tunnels", timeout=5)
+        response = requests.get("http://localhost:4040/api/tunnels")
         data = response.json()
         
         for tunnel in data['tunnels']:
@@ -57,7 +46,7 @@ def start_ngrok():
         return None
         
     except FileNotFoundError:
-        print("❌ Ngrok o'rnatilmagan. Mini App ishlamaydi")
+        print("❌ Ngrok o'rnatilmagan. Iltimos, https://ngrok.com/ dan o'rnating")
         return None
 
 def update_bot_webapp_url(webapp_url):
@@ -68,7 +57,7 @@ def update_bot_webapp_url(webapp_url):
             content = f.read()
         
         # URLni yangilash
-        old_url = 'web_app=WebAppInfo(url="https://c0cad5e8bc2d.ngrok-free.app")'
+        old_url = 'web_app=WebAppInfo(url="http://localhost:8000")'
         new_url = f'web_app=WebAppInfo(url="{webapp_url}")'
         
         if old_url in content:
@@ -88,47 +77,30 @@ def update_bot_webapp_url(webapp_url):
         print(f"❌ Bot faylini yangilashda xatolik: {e}")
         return False
 
-def run_mini_app():
-    """Mini App serverini ishga tushirish"""
-    print("🌐 Mini App server ishga tushmoqda...")
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")
-
-def run_bot():
-    """Bot serverini ishga tushirish"""
-    print("🤖 Bot server ishga tushmoqda...")
-    asyncio.run(main())
-
-if __name__ == "__main__":
-    print("🚀 HamyonAI&MaqsadAI Bot + Mini App ishga tushmoqda...")
-    print("📊 Ma'lumotlar bazasi ulanishi tekshirilmoqda...")
-    print("🔗 OpenAI API ulanishi tekshirilmoqda...")
-    print("✅ Barcha tizimlar tayyor!")
+def main():
+    print("🚀 Mini App serverini ishga tushirish...")
     
     # Ngrok tunnel ishga tushirish
     webapp_url = start_ngrok()
     
-    if webapp_url:
-        # Bot faylida URLni yangilash
-        update_bot_webapp_url(webapp_url)
-        print(f"🌐 Mini App URL: {webapp_url}")
-    else:
-        print("⚠️ Mini App ishlamaydi (Ngrok yo'q)")
+    if not webapp_url:
+        print("❌ Ngrok tunnel ishga tushmadi. Oddiy HTTP server ishga tushiramiz...")
+        print("📝 Eslatma: Telegram Web App faqat HTTPS URLlarni qabul qiladi")
+        print("🌐 Mini App: http://localhost:8000")
+        
+        # Oddiy server ishga tushirish
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+        return
     
-    print("🚀 Barcha serverlar ishga tushdi. Ctrl+C bilan to'xtating.")
+    # Bot faylida URLni yangilash
+    update_bot_webapp_url(webapp_url)
     
-    try:
-        # Mini App va Bot ni parallel ishga tushirish
-        mini_app_thread = threading.Thread(target=run_mini_app, daemon=True)
-        mini_app_thread.start()
-        
-        # Kichik kutish Mini App ishga tushishi uchun
-        time.sleep(2)
-        
-        # Bot ni ishga tushirish
-        run_bot()
-        
-    except KeyboardInterrupt:
-        print("\n⏹️ Barcha serverlar to'xtatildi.")
-    except Exception as e:
-        print(f"\n❌ Xatolik: {e}")
-        sys.exit(1)
+    print(f"🌐 Mini App URL: {webapp_url}")
+    print("🤖 Endi botni qayta ishga tushiring")
+    print("📱 Mini App server ishga tushmoqda...")
+    
+    # Mini App serverini ishga tushirish
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+if __name__ == "__main__":
+    main()

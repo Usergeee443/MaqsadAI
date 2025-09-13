@@ -28,6 +28,9 @@ ENV/
 env/
 .env
 
+# Temporary audio files
+temp_audio/
+
 # IDE
 .vscode/
 .idea/

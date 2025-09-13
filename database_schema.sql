@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
     first_name VARCHAR(255),
     last_name VARCHAR(255),
     tariff ENUM('FREE', 'PRO', 'MAX') DEFAULT 'FREE',
+    tariff_expires_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     is_active BOOLEAN DEFAULT TRUE,
     INDEX idx_user_id (user_id),
@@ -174,4 +175,17 @@ CREATE TABLE IF NOT EXISTS goal_answers (
     FOREIGN KEY (session_id) REFERENCES goal_creation_sessions(id) ON DELETE CASCADE,
     INDEX idx_session_id (session_id),
     INDEX idx_step (step)
+);
+
+-- Maqsad AI eslatmalar sozlamalari
+CREATE TABLE IF NOT EXISTS goal_reminder_settings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT UNIQUE NOT NULL,
+    daily_task_time TIME DEFAULT '08:00:00',
+    motivation_time TIME DEFAULT '09:00:00',
+    progress_check_time TIME DEFAULT '21:00:00',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    INDEX idx_user_id (user_id)
 );
