@@ -1,1 +1,1 @@
-Maqsad AI 1.0.1 Beta (Profil va Sozlamlar funksiyasi qo'shildi, HIsoboltar Mini ilovaga aylantirildi va Moliyaviy taranzatsiyalar uchun ovozli tushunish qo'shildi.)
+Maqsad AI 1.0.2 Beta (Mini ilova Bugi tuzatildi)

@@ -1,18 +1,12 @@
 #!/usr/bin/env python3
 """
-HamyonAI&MaqsadAI Bot + Mini App ishga tushirish skripti
-Bot va Mini App birlashtirilgan
+HamyonAI&MaqsadAI Bot ishga tushirish skripti
+To'liq funksional bot - Ngrok va Mini App kerak emas
 """
 
 import asyncio
 import sys
 import os
-import threading
-import subprocess
-import time
-
-import requests
-import json
 from pathlib import Path
 
 # Loyiha papkasini Python pathiga qo'shish
@@ -20,115 +14,18 @@ project_dir = Path(__file__).parent
 sys.path.insert(0, str(project_dir))
 
 from main import main
-from mini_app import app
-import uvicorn
-
-def get_ngrok_url():
-    """Ngrok tunnel URLini olish"""
-    try:
-        response = requests.get("http://localhost:4040/api/tunnels", timeout=5)
-        data = response.json()
-        
-        for tunnel in data['tunnels']:
-            if tunnel['proto'] == 'https':
-                return tunnel['public_url']
-        
-        return None
-    except:
-        return None
-
-def start_ngrok():
-    """Ngrok tunnel ishga tushirish"""
-    try:
-        # Ngrok ishga tushirish
-        subprocess.Popen(['ngrok', 'http', '8000'], 
-                        stdout=subprocess.DEVNULL, 
-                        stderr=subprocess.DEVNULL)
-        
-        # Ngrok ishga tushishini kutish
-        for i in range(30):  # 30 soniya kutish
-            time.sleep(1)
-            url = get_ngrok_url()
-            if url:
-                print(f"✅ Ngrok tunnel tayyor: {url}")
-                return url
-        
-        print("❌ Ngrok tunnel ishga tushmadi")
-        return None
-        
-    except FileNotFoundError:
-        print("❌ Ngrok o'rnatilmagan. Mini App ishlamaydi")
-        return None
-
-def update_bot_webapp_url(webapp_url):
-    """Bot faylida Web App URLini yangilash"""
-    try:
-        # main.py faylini o'qish
-        with open('main.py', 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # URLni yangilash
-        old_url = 'web_app=WebAppInfo(url="https://c0cad5e8bc2d.ngrok-free.app")'
-        new_url = f'web_app=WebAppInfo(url="{webapp_url}")'
-        
-        if old_url in content:
-            content = content.replace(old_url, new_url)
-            
-            # Faylni saqlash
-            with open('main.py', 'w', encoding='utf-8') as f:
-                f.write(content)
-            
-            print(f"✅ Bot faylida Web App URL yangilandi: {webapp_url}")
-            return True
-        else:
-            print("⚠️ Web App URL topilmadi")
-            return False
-            
-    except Exception as e:
-        print(f"❌ Bot faylini yangilashda xatolik: {e}")
-        return False
-
-def run_mini_app():
-    """Mini App serverini ishga tushirish"""
-    print("🌐 Mini App server ishga tushmoqda...")
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")
-
-def run_bot():
-    """Bot serverini ishga tushirish"""
-    print("🤖 Bot server ishga tushmoqda...")
-    asyncio.run(main())
 
 if __name__ == "__main__":
-    print("🚀 HamyonAI&MaqsadAI Bot + Mini App ishga tushmoqda...")
+    print("🤖 HamyonAI&MaqsadAI Bot ishga tushmoqda...")
     print("📊 Ma'lumotlar bazasi ulanishi tekshirilmoqda...")
     print("🔗 OpenAI API ulanishi tekshirilmoqda...")
     print("✅ Barcha tizimlar tayyor!")
-    
-    # Ngrok tunnel ishga tushirish
-    webapp_url = start_ngrok()
-    
-    if webapp_url:
-        # Bot faylida URLni yangilash
-        update_bot_webapp_url(webapp_url)
-        print(f"🌐 Mini App URL: {webapp_url}")
-    else:
-        print("⚠️ Mini App ishlamaydi (Ngrok yo'q)")
-    
-    print("🚀 Barcha serverlar ishga tushdi. Ctrl+C bilan to'xtating.")
+    print("🚀 Bot ishga tushdi. Ctrl+C bilan to'xtating.")
     
     try:
-        # Mini App va Bot ni parallel ishga tushirish
-        mini_app_thread = threading.Thread(target=run_mini_app, daemon=True)
-        mini_app_thread.start()
-        
-        # Kichik kutish Mini App ishga tushishi uchun
-        time.sleep(2)
-        
-        # Bot ni ishga tushirish
-        run_bot()
-        
+        asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n⏹️ Barcha serverlar to'xtatildi.")
+        print("\n⏹️ Bot to'xtatildi.")
     except Exception as e:
         print(f"\n❌ Xatolik: {e}")
         sys.exit(1)

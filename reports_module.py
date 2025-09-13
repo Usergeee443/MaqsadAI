@@ -297,3 +297,47 @@ class ReportsModule:
         except Exception as e:
             logging.error(f"Moliyaviy xulosa yaratishda xatolik: {e}")
             return "❌ Moliyaviy xulosa yaratishda xatolik yuz berdi."
+    
+    async def get_monthly_summary(self, user_id: int, months: int = 6) -> List[Dict[str, Any]]:
+        """Oylik xulosa ma'lumotlari"""
+        try:
+            monthly_data = []
+            
+            for i in range(months):
+                # Har bir oy uchun ma'lumotlarni olish
+                start_date = datetime.now() - timedelta(days=30 * (i + 1))
+                end_date = datetime.now() - timedelta(days=30 * i)
+                
+                # Kirimlar
+                income_query = """
+                SELECT COALESCE(SUM(amount), 0) FROM transactions 
+                WHERE user_id = %s AND transaction_type = 'income' 
+                AND created_at >= %s AND created_at < %s
+                """
+                income_result = await db.execute_one(income_query, (user_id, start_date, end_date))
+                income = float(income_result[0]) if income_result else 0.0
+                
+                # Chiqimlar
+                expense_query = """
+                SELECT COALESCE(SUM(amount), 0) FROM transactions 
+                WHERE user_id = %s AND transaction_type = 'expense' 
+                AND created_at >= %s AND created_at < %s
+                """
+                expense_result = await db.execute_one(expense_query, (user_id, start_date, end_date))
+                expense = float(expense_result[0]) if expense_result else 0.0
+                
+                balance = income - expense
+                month_name = start_date.strftime("%B %Y")
+                
+                monthly_data.append({
+                    "month": month_name,
+                    "income": income,
+                    "expense": expense,
+                    "balance": balance
+                })
+            
+            return list(reversed(monthly_data))  # Eski oylardan yangi oylarga
+            
+        except Exception as e:
+            logging.error(f"Oylik xulosa olishda xatolik: {e}")
+            return []

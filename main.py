@@ -935,21 +935,50 @@ async def reports_menu(message: types.Message, state: FSMContext):
         )
         return
     
-    # Mini App uchun tugma
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(
-                text="📊 Kengaytirilgan hisobotlar", 
-                web_app=WebAppInfo(url="https://591df3796396.ngrok-free.app")
-            )],
-            [InlineKeyboardButton(text="📋 Oddiy hisobot", callback_data="simple_report")]
-        ]
-    )
+    # Kengaytirilgan hisobot ko'rsatish (Mini App o'rniga)
+    summary = await reports_module.get_financial_summary(user_id)
+    balance = await reports_module.get_balance_report(user_id)
+    categories = await reports_module.get_category_report(user_id, 30)
+    
+    message_text = f"{summary}\n\n"
+    message_text += f"💰 *Balans:* {balance['balance']:,.0f} so'm\n"
+    message_text += f"📈 *Kirim:* {balance['income']:,.0f} so'm\n"
+    message_text += f"📉 *Chiqim:* {balance['expense']:,.0f} so'm\n\n"
+    
+    # Eng ko'p chiqim kategoriyasi
+    if categories['expense_categories']:
+        top_category = max(categories['expense_categories'].items(), key=lambda x: x[1]['total'])
+        message_text += f"🔥 *Eng ko'p chiqim:* {top_category[0]} ({top_category[1]['total']:,.0f} so'm)\n\n"
+    
+    # So'nggi tranzaksiyalar
+    recent = await reports_module.get_recent_transactions(user_id, 10)
+    if recent:
+        message_text += "📋 *So'nggi tranzaksiyalar:*\n"
+        for i, trans in enumerate(recent, 1):
+            type_emoji = {"income": "📈", "expense": "📉", "debt": "💳"}.get(trans["type"], "❓")
+            message_text += f"{i}. {type_emoji} {trans['amount']:,.0f} so'm - {trans['category']}\n"
+            if trans.get('description'):
+                message_text += f"   💬 {trans['description']}\n"
+    
+    # Kategoriyalar bo'yicha tafsilot
+    if categories['expense_categories']:
+        message_text += "\n📊 *Chiqimlar kategoriyalar bo'yicha:*\n"
+        for category, data in sorted(categories['expense_categories'].items(), key=lambda x: x[1]['total'], reverse=True):
+            percentage = (data['total'] / balance['expense'] * 100) if balance['expense'] > 0 else 0
+            message_text += f"• {category}: {data['total']:,.0f} so'm ({percentage:.1f}%)\n"
+    
+    # Oylik tendensiya
+    monthly_data = await reports_module.get_monthly_summary(user_id, 6)
+    if monthly_data:
+        message_text += "\n📈 *Oylik tendensiya (6 oy):*\n"
+        for month_data in monthly_data[-3:]:  # So'nggi 3 oy
+            message_text += f"• {month_data['month']}: +{month_data['income']:,.0f} -{month_data['expense']:,.0f} = {month_data['balance']:,.0f}\n"
+    
+    message_text += "\n🎯 *Maqsad AI* bo'limida kengaytirilgan tahlillar mavjud!"
     
     await message.answer(
-        "📊 **Moliyaviy hisobotlar**\n\n"
-        "Quyidagi variantlardan birini tanlang:",
-        reply_markup=keyboard,
+        message_text,
+        reply_markup=get_main_menu(),
         parse_mode="Markdown"
     )
 
