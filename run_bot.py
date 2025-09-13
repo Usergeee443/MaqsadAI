@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-HamyonAI&MaqsadAI Bot ishga tushirish skripti
-To'liq funksional bot - Ngrok va Mini App kerak emas
+Balans AI Bot - Moliyaviy yordamchi
+Faqat moliyaviy funksiyalar
 """
 
 import asyncio
 import sys
-import os
 from pathlib import Path
 
 # Loyiha papkasini Python pathiga qo'shish
@@ -16,11 +15,11 @@ sys.path.insert(0, str(project_dir))
 from main import main
 
 if __name__ == "__main__":
-    print("🤖 HamyonAI&MaqsadAI Bot ishga tushmoqda...")
+    print("🚀 Balans AI Bot ishga tushmoqda...")
     print("📊 Ma'lumotlar bazasi ulanishi tekshirilmoqda...")
     print("🔗 OpenAI API ulanishi tekshirilmoqda...")
     print("✅ Barcha tizimlar tayyor!")
-    print("🚀 Bot ishga tushdi. Ctrl+C bilan to'xtating.")
+    print("🤖 Bot ishga tushdi. Ctrl+C bilan to'xtating.")
     
     try:
         asyncio.run(main())

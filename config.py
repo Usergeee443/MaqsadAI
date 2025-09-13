@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Bot konfiguratsiyasi
+BOT_NAME = "Balans AI"
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
@@ -20,7 +21,8 @@ MYSQL_CONFIG = {
 TARIFFS = {
     'FREE': 'Bepul',
     'PRO': 'Pro',
-    'MAX': 'Max'
+    'MAX': 'Max',
+    'PREMIUM': 'Premium'
 }
 
 # Kategoriyalar
