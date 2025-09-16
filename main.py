@@ -36,6 +36,8 @@ class UserStates(StatesGroup):
     waiting_for_amount = State()
     waiting_for_description = State()
     waiting_for_category = State()
+    waiting_for_debt_type = State() # Qarz turi uchun
+    waiting_for_debt_person = State() # Qarz olgan odam ismi uchun
 
 # Bepul tarif menyusi
 def get_free_menu():
@@ -59,12 +61,22 @@ def get_premium_menu():
     )
     return keyboard
 
+def get_cancel_keyboard():
+    """Bekor qilish tugmasi"""
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="❌ Bekor qilish")]],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+    return keyboard
+
 # Profil menyusi
 def get_profile_menu():
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings")],
-            [InlineKeyboardButton(text="💳 Tarif", callback_data="tariff_info")]
+            [InlineKeyboardButton(text="💳 Tarif", callback_data="tariff_info")],
+            [InlineKeyboardButton(text="🔄 Tarifni o'zgartirish", callback_data="change_tariff")]
         ]
     )
     return keyboard
@@ -131,12 +143,25 @@ def get_expense_category_menu():
     )
     return keyboard
 
+# Qarz turini tanlash menyusi
+def get_debt_type_menu():
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💰 Qarz oldim", callback_data="debt_type_borrowed")],
+            [InlineKeyboardButton(text="💸 Qarz berdim", callback_data="debt_type_lent")]
+        ]
+    )
+    return keyboard
+
 # Kategoriya tanlash menyusi (qarz)
 def get_debt_category_menu():
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💰 Qarz berish", callback_data="cat_qarz_berish")],
-            [InlineKeyboardButton(text="💸 Qarz olish", callback_data="cat_qarz_olish")],
+            [InlineKeyboardButton(text="👥 Do'st", callback_data="cat_dost")],
+            [InlineKeyboardButton(text="👨‍👩‍👧‍👦 Oilaviy", callback_data="cat_oilaviy")],
+            [InlineKeyboardButton(text="🏦 Bank", callback_data="cat_bank")],
+            [InlineKeyboardButton(text="💼 Biznes", callback_data="cat_biznes")],
+            [InlineKeyboardButton(text="📝 Boshqa", callback_data="cat_boshqa")],
             [InlineKeyboardButton(text="⏭️ O'tkazib yuborish", callback_data="cat_skip")]
         ]
     )
@@ -366,7 +391,7 @@ async def add_income(message: types.Message, state: FSMContext):
     await message.answer(
         "💰 *Kirim qo'shish*\n\n"
         "Summani kiriting (masalan: 100000):",
-        reply_markup=ReplyKeyboardMarkup(keyboard=[], resize_keyboard=True),
+        reply_markup=get_cancel_keyboard(),
         parse_mode="Markdown"
     )
     await state.set_state(UserStates.waiting_for_amount)
@@ -383,7 +408,7 @@ async def add_expense(message: types.Message, state: FSMContext):
     await message.answer(
         "💸 *Chiqim qo'shish*\n\n"
         "Summani kiriting (masalan: 50000):",
-        reply_markup=ReplyKeyboardMarkup(keyboard=[], resize_keyboard=True),
+        reply_markup=get_cancel_keyboard(),
         parse_mode="Markdown"
     )
     await state.set_state(UserStates.waiting_for_amount)
@@ -399,12 +424,83 @@ async def add_debt(message: types.Message, state: FSMContext):
     
     await message.answer(
         "💳 *Qarz qo'shish*\n\n"
+        "Qarz olingan yoki berilgan?",
+        reply_markup=get_debt_type_menu(),
+        parse_mode="Markdown"
+    )
+    await state.set_state(UserStates.waiting_for_debt_type)
+
+# Qarz turini qabul qilish
+@dp.callback_query(UserStates.waiting_for_debt_type, lambda c: c.data.startswith("debt_type_"))
+async def process_debt_type(callback_query: CallbackQuery, state: FSMContext):
+    """Qarz turini qabul qilish"""
+    debt_type = callback_query.data.replace("debt_type_", "")
+    
+    # Qarz turini saqlash
+    await state.update_data(debt_type=debt_type)
+    
+    if debt_type == "lent":  # Qarz berish
+        # Qarz olgan odamni ismini so'rash
+        await callback_query.message.edit_text(
+            "💸 *Qarz berish*\n\n"
+            "Qarz olgan odamning ismini kiriting:",
+            parse_mode="Markdown"
+        )
+        await callback_query.message.answer(
+            "Qarz olgan odamning ismini kiriting:",
+            reply_markup=get_cancel_keyboard()
+        )
+        await state.set_state(UserStates.waiting_for_debt_person)
+    else:  # Qarz olish
+        # Summa so'rash
+        await callback_query.message.edit_text(
+            "💰 *Qarz olish*\n\n"
+            "Summani kiriting (masalan: 200000):",
+            parse_mode="Markdown"
+        )
+        await callback_query.message.answer(
+            "Summa kiriting:",
+            reply_markup=get_cancel_keyboard()
+        )
+        await state.set_state(UserStates.waiting_for_amount)
+    
+    await callback_query.answer()
+
+# Qarz olgan odamni ismini qabul qilish
+@dp.message(UserStates.waiting_for_debt_person)
+async def process_debt_person(message: types.Message, state: FSMContext):
+    """Qarz olgan odamni ismini qabul qilish"""
+    debt_person = message.text.strip()
+    
+    if not debt_person:
+        await message.answer("Ism kiritilmadi. Qaytadan kiriting:")
+        return
+    
+    # Qarz olgan odamni ismini saqlash
+    await state.update_data(debt_person=debt_person)
+    
+    # Summa so'rash
+    await message.answer(
+        "💸 *Qarz berish*\n\n"
         "Summani kiriting (masalan: 200000):",
-        reply_markup=ReplyKeyboardMarkup(keyboard=[], resize_keyboard=True),
+        reply_markup=get_cancel_keyboard(),
         parse_mode="Markdown"
     )
     await state.set_state(UserStates.waiting_for_amount)
-    await state.update_data(transaction_type="debt")
+
+# Bekor qilish funksiyasi
+@dp.message(lambda message: message.text == "❌ Bekor qilish")
+async def cancel_operation(message: types.Message, state: FSMContext):
+    """Amalni bekor qilish"""
+    user_tariff = await get_user_tariff(message.from_user.id)
+    
+    await message.answer(
+        "❌ *Amal bekor qilindi*\n\n"
+        "Asosiy menyuga qaytildi.",
+        reply_markup=get_free_menu() if user_tariff == "FREE" else get_premium_menu(),
+        parse_mode="Markdown"
+    )
+    await state.clear()
 
 # Summa qabul qilish
 @dp.message(UserStates.waiting_for_amount)
@@ -475,6 +571,10 @@ async def process_category(callback_query: CallbackQuery, state: FSMContext):
     amount = data.get('amount')
     description = data.get('description', '')
     
+    # Qarzlar uchun transaction_type ni to'g'ri o'rnatish
+    if not transaction_type:
+        transaction_type = "debt"  # Default qarz
+    
     # Tranzaksiyani saqlash
     try:
         await db.execute_query(
@@ -485,9 +585,21 @@ async def process_category(callback_query: CallbackQuery, state: FSMContext):
         type_emoji = {"income": "📈", "expense": "📉", "debt": "💳"}.get(transaction_type, "❓")
         type_name = {"income": "Kirim", "expense": "Chiqim", "debt": "Qarz"}.get(transaction_type, "Tranzaksiya")
         
+        # Qarzlar uchun qarz turini ko'rsatish
+        debt_type_text = ""
+        if transaction_type == "debt":
+            debt_type = data.get('debt_type', 'borrowed')
+            debt_person = data.get('debt_person', '')
+            debt_type_name = "Qarz oldim" if debt_type == "borrowed" else "Qarz berdim"
+            debt_type_text = f"🔄 {debt_type_name}"
+            if debt_person:
+                debt_type_text += f" ({debt_person})"
+            debt_type_text += "\n"
+        
         await callback_query.message.edit_text(
             f"✅ *{type_name} qo'shildi!*\n\n"
             f"{type_emoji} {amount:,.0f} so'm\n"
+            f"{debt_type_text}"
             f"📂 {category}\n"
             f"📝 {description if description else 'Tavsif yoq'}\n\n"
             "Boshqa amal bajarish uchun menyudan foydalaning:",
@@ -534,8 +646,7 @@ async def reports_menu(message: types.Message, state: FSMContext):
         
         await message.answer(
             message_text,
-            reply_markup=get_free_menu() if user_tariff == "FREE" else get_premium_menu(),
-            parse_mode="Markdown"
+            reply_markup=get_free_menu() if user_tariff == "FREE" else get_premium_menu()
         )
         return
     
@@ -611,10 +722,7 @@ async def profile_handler(message: Message, state: FSMContext):
     elif user_data['tariff'] in ['PRO', 'MAX', 'PREMIUM']:
         profile_text += f"⏰ **Faol bo'lish muddati:** Cheksiz\n"
     
-    user_tariff = await get_user_tariff(user_id)
-    menu = get_premium_menu() if user_tariff in ['PRO', 'MAX', 'PREMIUM'] else get_free_menu()
-    
-    await message.answer(profile_text, reply_markup=menu, parse_mode='Markdown')
+    await message.answer(profile_text, reply_markup=get_profile_menu(), parse_mode='Markdown')
 
 # Profil callback handlerlari
 @dp.callback_query(lambda c: c.data == "settings")
@@ -647,6 +755,69 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
     
     keyboard = get_profile_menu()
     await callback_query.message.edit_text(profile_text, reply_markup=keyboard, parse_mode='Markdown')
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "change_tariff")
+async def change_tariff_callback(callback_query: CallbackQuery):
+    """Tarifni o'zgartirish"""
+    user_id = callback_query.from_user.id
+    user_data = await db.get_user_data(user_id)
+    
+    if not user_data:
+        await callback_query.message.edit_text("❌ Foydalanuvchi ma'lumotlari topilmadi!")
+        return
+    
+    current_tariff = user_data['tariff']
+    
+    text = f"🔄 **Tarifni o'zgartirish**\n\n"
+    text += f"🎯 **Joriy tarif:** {TARIFFS.get(current_tariff, 'Nomalum')}\n\n"
+    text += "Yangi tarifni tanlang:"
+    
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🆓 Bepul tarif", callback_data="change_to_FREE")],
+            [InlineKeyboardButton(text="💎 Premium tarif", callback_data="change_to_PREMIUM")],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_profile")]
+        ]
+    )
+    
+    await callback_query.message.edit_text(text, reply_markup=keyboard, parse_mode='Markdown')
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("change_to_"))
+async def process_tariff_change(callback_query: CallbackQuery):
+    """Tarif o'zgartirishni qayta ishlash"""
+    user_id = callback_query.from_user.id
+    new_tariff = callback_query.data.replace("change_to_", "")
+    
+    # Tarifni yangilash
+    await update_user_tariff(user_id, new_tariff)
+    
+    user_name = await get_user_name(user_id)
+    
+    if new_tariff == "FREE":
+        await callback_query.message.edit_text(
+            f"✅ *Bepul tarifga o'tildi!*\n\n"
+            f"Salom, {user_name}!\n\n"
+            "Quyidagi tugmalardan foydalaning:",
+            parse_mode="Markdown"
+        )
+        await callback_query.message.answer(
+            "Bepul tarif menyusi:",
+            reply_markup=get_free_menu()
+        )
+    else: # PREMIUM
+        await callback_query.message.edit_text(
+            f"✅ *Premium tarifga o'tildi!*\n\n"
+            f"Salom, {user_name}!\n\n"
+            "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
+            parse_mode="Markdown"
+        )
+        await callback_query.message.answer(
+            "Premium tarif menyusi:",
+            reply_markup=get_premium_menu()
+        )
+    
     await callback_query.answer()
 
 @dp.callback_query(lambda c: c.data == "tariff_info")
