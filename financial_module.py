@@ -18,19 +18,19 @@ class FinancialModule:
         try:
             # Audio faylni matnga aylantirish - bir nechta til bilan sinab ko'ramiz
             with open(audio_file_path, "rb") as audio_file:
-                # Avval Uzbek tilida sinab ko'ramiz
+                # Avval Uzbek tilida sinab ko'ramiz (Whisper Large-v3)
                 try:
                     transcript = await self.openai_client.audio.transcriptions.create(
-                        model="whisper-1",
+                        model="whisper-1",  # OpenAI API da bu avtomatik ravishda Large-v3 ni ishlatadi
                         file=audio_file,
                         language="uz"
                     )
                     text = transcript.text
                     logging.info(f"Audio transkript (Uzbek): {text}")
                 except:
-                    # Agar Uzbek ishlamasa, avtomatik aniqlash
+                    # Agar Uzbek ishlamasa, avtomatik aniqlash (Whisper Large-v3)
                     transcript = await self.openai_client.audio.transcriptions.create(
-                        model="whisper-1",
+                        model="whisper-1",  # OpenAI API da bu avtomatik ravishda Large-v3 ni ishlatadi
                         file=audio_file
                     )
                     text = transcript.text
@@ -54,7 +54,7 @@ class FinancialModule:
         """Audio transkriptni yaxshilash va to'g'ri tilga o'tkazish"""
         try:
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4o-2024-08-06",
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
@@ -62,9 +62,15 @@ class FinancialModule:
 
 MUHIM:
 1. Agar transkript noto'g'ri til yoki noto'g'ri yozilgan bo'lsa, uni O'zbek tilida to'g'ri qilib yozing
-2. Raqamlarni to'g'ri aniqlang (masalan: "100 ming" = "100000", "50 bin" = "50000")
+2. Raqamlarni to'g'ri aniqlang (masalan: "100 ming" = "100000", "50 bin" = "50000", "100k" = "100000")
 3. Moliyaviy atamalarni to'g'ri tarjima qiling
 4. Faqat to'g'ri va aniq matn qaytaring
+5. NOISY, CHALA, SIFATSIZ gapirilgan audio transkriptlarni ham mukammal tushunish va to'g'ri qayta ishlash
+6. Har qanday til yoki lahja bilan gapirilgan bo'lsa ham, O'zbek tilida to'g'ri qilib yozish
+7. Raqamlarni har qanday formatda aytilgan bo'lsa ham to'g'ri aniqlash
+8. AGAR MATNDA HAR QANDAY RAQAM (summa) VA PUL BILAN BOG'LIQ SO'ZLAR BO'LSA, BU MOLIYAVIY MA'LUMOT HISOBLANADI
+9. "ishlab topdim", "topdim", "oldim", "qildim", "ishladim", "ishlash", "pul", "so'm", "dollar", "summa" kabi so'zlar mavjud bo'lsa, bu MOLIYAVIY MA'LUMOT
+10. Faqat raqam va pul haqida gapirilgan bo'lsa ham, bu MOLIYAVIY MA'LUMOT
 
 MISOL:
 Noto'g'ri: "Бүгін, ең күріме минсуым такси ү总шылатып, 53 минсуым ахат ү гоншылатып"
@@ -74,18 +80,30 @@ MISOL:
 Noto'g'ri: "Bugün 50 bin lira yemek, 30 bin lira ulaşım"
 To'g'ri: "Bugun 50 ming so'm ovqat, 30 ming so'm transport"
 
+MISOL (ishlab topish):
+Noto'g'ri: "Bugun 100000 ishlab topdim"
+To'g'ri: "Bugun 100000 so'm ishlab topdim"
+
+MISOL (pul haqida):
+Noto'g'ri: "Bugun 50000 pul oldim"
+To'g'ri: "Bugun 50000 so'm pul oldim"
+
 Faqat to'g'ri va aniq matn qaytaring, boshqa izoh bermang."""
                     },
                     {
                         "role": "user",
-                        "content": f"Bu audio transkriptni O'zbek tilida to'g'ri qilib yozing: {text}"
+                        "content": f"Bu audio transkriptni O'zbek tilida to'g'ri qilib yozing (agar moliyaviy ma'lumot bo'lsa, uni saqlang): {text}"
                     }
                 ],
                 temperature=0.0,
-                max_tokens=500
+                max_tokens=2000,
+                top_p=0.1,
+                frequency_penalty=0.0,
+                presence_penalty=0.0
             )
             
             improved_text = response.choices[0].message.content.strip()
+            logging.info(f"Yaxshilangan transkript: {improved_text}")
             return improved_text
             
         except Exception as e:
@@ -95,9 +113,9 @@ Faqat to'g'ri va aniq matn qaytaring, boshqa izoh bermang."""
     async def process_ai_input(self, text: str, user_id: int) -> Dict[str, Any]:
         """AI yordamida moliyaviy ma'lumotni qayta ishlash - ko'p tranzaksiyalarni qo'llab-quvvatlash"""
         try:
-            # OpenAI API orqali matnni tahlil qilish
+            # OpenAI API orqali matnni tahlil qilish - eng kuchli model
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4o-2024-08-06",  # Eng yangi va kuchli model
+                model="gpt-4o",  # Eng kuchli va eng yangi model
                 
                 messages=[
                     {
@@ -110,6 +128,18 @@ MUHIM QOIDALAR:
 3. Description (tafsilot) maydonida faqat O'ZBEK tilida yozing.
 4. Kategoriya nomlari ham O'ZBEK tilida bo'lishi kerak.
 5. Sifatli yoki sifatsiz gapirilgan bo'lsa ham, barcha moliyaviy ma'lumotlarni toping.
+6. NOISY, CHALA, SIFATSIZ gapirilgan matnlarni ham mukammal tushunish va to'g'ri qayta ishlash.
+7. Raqamlarni har qanday formatda yozilgan bo'lsa ham to'g'ri aniqlash (ming, bin, тыс, k, so'm, сом, руб, лира, ريال, dollar).
+8. Har qanday til yoki lahja bilan yozilgan bo'lsa ham, moliyaviy ma'lumotlarni topish.
+9. MUHIM: "ishlab topdim", "topdim", "oldim", "qildim" kabi so'zlar PUL ISHLAB TOPISHNI anglatadi va KIRIM tranzaksiyasi hisoblanadi.
+10. "ketdi", "sarfladim", "to'ladim", "berdim" kabi so'zlar CHIQIM tranzaksiyasi hisoblanadi.
+11. "qarz", "qarzni qaytardim", "qarz berdim" kabi so'zlar QARZ tranzaksiyasi hisoblanadi.
+
+KRITIK MUHIM: 
+- AGAR MATNDA HAR QANDAY RAQAM (summa) VA PUL BILAN BOG'LIQ SO'ZLAR BO'LSA, BU MOLIYAVIY MA'LUMOT HISOBLANADI
+- "ishlab topdim", "topdim", "oldim", "qildim", "ishladim", "ishlash", "pul", "so'm", "dollar", "summa" kabi so'zlar mavjud bo'lsa, bu MOLIYAVIY MA'LUMOT
+- Faqat raqam va pul haqida gapirilgan bo'lsa ham, bu MOLIYAVIY MA'LUMOT
+- Hech qachon "Bu moliyaviy ma'lumot emas" deb javob bermang - har doim moliyaviy ma'lumotlarni toping
 
 Har bir tranzaksiya uchun:
 1. Summa (raqam) - faqat raqam
@@ -119,6 +149,9 @@ Har bir tranzaksiya uchun:
 
 MISOL:
 Matn: "Bugun 100 ming so'm taksi uchun ketdi, 120 ming so'm oziq-ovqatga sarfladim, 200 ming so'm ish haqi oldim, 50 ming so'm telefon uchun to'ladim, 100 ming so'm qarzni qaytardim, 50 ming so'm qarz berdim"
+
+YANA MISOL (ishlab topish):
+Matn: "Bugun 100000 ishlab topdim, 50000 qo'shimcha ish qildim"
 
 Javob:
 {
@@ -158,6 +191,27 @@ Javob:
             "type": "debt",
             "category": "boshqa",
             "description": "qarz berish"
+        }
+    ]
+}
+
+YANA MISOL JAVOBI (ishlab topish):
+Matn: "Bugun 100000 ishlab topdim, 50000 qo'shimcha ish qildim"
+
+Javob:
+{
+    "transactions": [
+        {
+            "amount": 100000,
+            "type": "income",
+            "category": "ish haqi",
+            "description": "ishlab topish"
+        },
+        {
+            "amount": 50000,
+            "type": "income",
+            "category": "ish haqi",
+            "description": "qo'shimcha ish"
         }
     ]
 }
@@ -282,8 +336,10 @@ MUHIM:
                     }
                 ],
                 temperature=0.0,  # Eng aniq javob uchun
-                max_tokens=2000,  # Katta javoblar uchun
-                top_p=0.1  # Eng aniq variantlarni tanlash
+                max_tokens=3000,  # Katta javoblar uchun
+                top_p=0.1,  # Eng aniq variantlarni tanlash
+                frequency_penalty=0.0,  # Takrorlanishni oldini olish
+                presence_penalty=0.0  # Mavjudlik penalizatsiyasi
             )
             
             # JSON javobni parse qilish
@@ -395,27 +451,31 @@ MUHIM:
         try:
             import re
             
-            # Raqamlarni topish (ko'proq tilli qo'llab-quvvatlash)
-            amounts = re.findall(r'(\d+(?:\.\d+)?)\s*(?:ming|тысяч|тыс|k|so\'m|сом|руб|рублей|bin|мың|тың|лира|ريال|دولار|dollar)', text, re.IGNORECASE)
+            # Raqamlarni topish (ko'proq tilli qo'llab-quvvatlash va sifatsiz matnlar uchun)
+            amounts = re.findall(r'(\d+(?:\.\d+)?)\s*(?:ming|тысяч|тыс|k|so\'m|сом|руб|рублей|bin|мың|тың|лира|ريال|دولار|dollar|мин|тыс|к|млн|миллион|миллиард)', text, re.IGNORECASE)
             
             if not amounts:
-                return {
-                    "success": False,
-                    "message": "❌ Moliyaviy ma'lumot topilmadi. Iltimos, summa va maqsadni aniq yozing."
-                }
+                # Agar aniq raqam topilmasa, barcha raqamlarni qidirish
+                all_numbers = re.findall(r'\d+(?:\.\d+)?', text)
+                if not all_numbers:
+                    return {
+                        "success": False,
+                        "message": "❌ Moliyaviy ma'lumot topilmadi. Iltimos, summa va maqsadni aniq yozing."
+                    }
+                amounts = all_numbers
             
-            # Kategoriyalarni aniqlash (ko'p tilli qo'llab-quvvatlash)
+            # Kategoriyalarni aniqlash (ko'p tilli qo'llab-quvvatlash va sifatsiz matnlar uchun)
             categories = {
-                'ovqat': ['ovqat', 'oziq', 'tushlik', 'non', 'sut', 'go\'sht', 'sabzavot', 'meva', 'yemek', 'yemek', 'еда', 'тамак'],
-                'transport': ['taksi', 'avtobus', 'metro', 'mashina', 'yo\'l', 'bilet', 'ulaşım', 'транспорт', 'көлік'],
-                'ish haqi': ['ish haqi', 'maosh', 'oylik', 'ish', 'ishchi', 'maaş', 'зарплата', 'жалақы'],
-                'biznes': ['biznes', 'savdo', 'sotish', 'sotuv', 'iş', 'бизнес', 'сауда'],
-                'investitsiya': ['investitsiya', 'invest', 'aksiya', 'obligatsiya', 'yatırım', 'инвестиция'],
-                'kiyim': ['kiyim', 'ko\'ylak', 'shim', 'oyoq kiyim', 'kostyum', 'giyim', 'одежда', 'киім'],
-                'uy': ['uy', 'kvartira', 'kommunal', 'elektr', 'gaz', 'suv', 'ev', 'дом', 'үй'],
-                'sog\'liq': ['sog\'liq', 'doktor', 'dori', 'shifoxona', 'tibbiyot', 'sağlık', 'здоровье', 'денсаулық'],
-                'ta\'lim': ['ta\'lim', 'maktab', 'universitet', 'kitob', 'kurs', 'eğitim', 'образование', 'білім'],
-                'o\'yin-kulgi': ['o\'yin', 'kino', 'teatr', 'restoran', 'kafe', 'kulgi', 'eğlence', 'развлечение', 'көңіл-көтеру']
+                'ovqat': ['ovqat', 'oziq', 'tushlik', 'non', 'sut', 'go\'sht', 'sabzavot', 'meva', 'yemek', 'еда', 'тамак', 'еда', 'тамак', 'ахат', 'аш', 'тамак'],
+                'transport': ['taksi', 'avtobus', 'metro', 'mashina', 'yo\'l', 'bilet', 'ulaşım', 'транспорт', 'көлік', 'транспорт', 'көлік', 'ү总шылатып'],
+                'ish haqi': ['ish haqi', 'maosh', 'oylik', 'ish', 'ishchi', 'maaş', 'зарплата', 'жалақы', 'жалақы', 'мааш', 'иш', 'ishlab topdim', 'topdim', 'oldim', 'qildim'],
+                'biznes': ['biznes', 'savdo', 'sotish', 'sotuv', 'iş', 'бизнес', 'сауда', 'бизнес', 'сауда'],
+                'investitsiya': ['investitsiya', 'invest', 'aksiya', 'obligatsiya', 'yatırım', 'инвестиция', 'инвестиция'],
+                'kiyim': ['kiyim', 'ko\'ylak', 'shim', 'oyoq kiyim', 'kostyum', 'giyim', 'одежда', 'киім', 'одежда', 'киім'],
+                'uy': ['uy', 'kvartira', 'kommunal', 'elektr', 'gaz', 'suv', 'ev', 'дом', 'үй', 'дом', 'үй'],
+                'sog\'liq': ['sog\'liq', 'doktor', 'dori', 'shifoxona', 'tibbiyot', 'sağlık', 'здоровье', 'денсаулық', 'здоровье', 'денсаулық'],
+                'ta\'lim': ['ta\'lim', 'maktab', 'universitet', 'kitob', 'kurs', 'eğitim', 'образование', 'білім', 'образование', 'білім'],
+                'o\'yin-kulgi': ['o\'yin', 'kino', 'teatr', 'restoran', 'kafe', 'kulgi', 'eğlence', 'развлечение', 'көңіл-көтеру', 'развлечение', 'көңіл-көтеру']
             }
             
             transactions = []
@@ -449,10 +509,10 @@ MUHIM:
                     if category != 'boshqa':
                         break
                 
-                # Tranzaksiya turini aniqlash (ko'p tilli)
+                # Tranzaksiya turini aniqlash (ko'p tilli va sifatsiz matnlar uchun)
                 transaction_type = 'expense'
-                income_words = ['oldim', 'keldi', 'kirim', 'ish haqi', 'maosh', 'aldım', 'aldim', 'алдым', 'жалақы', 'мааш']
-                debt_words = ['qarz', 'berdim', 'qaytardim', 'verdım', 'verdim', 'қарз', 'бердім', 'қайтардым']
+                income_words = ['oldim', 'keldi', 'kirim', 'ish haqi', 'maosh', 'aldım', 'aldim', 'алдым', 'жалақы', 'мааш', 'жалақы', 'мааш', 'иш', 'алдым', 'келді', 'ishlab topdim', 'topdim', 'qildim', 'qozondim', 'ishladim', 'ishlash', 'pul', 'so\'m', 'dollar', 'summa', 'ish', 'ishchi', 'ishlash', 'qozonish', 'topish', 'olish', 'kiritish', 'kirim', 'daromad', 'foyda', 'qozonish', 'qozondim', 'qozondi', 'qozonish', 'qozonish', 'qozonish']
+                debt_words = ['qarz', 'berdim', 'qaytardim', 'verdım', 'verdim', 'қарз', 'бердім', 'қайтардым', 'қарз', 'бердім', 'қайтардым', 'бердім', 'қайтардым']
                 
                 if any(word in text.lower() for word in income_words):
                     transaction_type = 'income'

@@ -96,6 +96,37 @@ class Database:
                 )
             """)
             
+            # Income settings jadvali
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS income_settings (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT,
+                    income_type ENUM('business', 'monthly', 'weekly', 'daily', 'yearly') NOT NULL,
+                    amount DECIMAL(15,2),
+                    frequency_day INT,
+                    frequency_month INT,
+                    frequency_weekday INT,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                )
+            """)
+            
+            # Income reminders jadvali
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS income_reminders (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT,
+                    reminder_date DATE,
+                    expected_amount DECIMAL(15,2),
+                    received_amount DECIMAL(15,2),
+                    status ENUM('pending', 'received_full', 'received_partial', 'not_received') DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                )
+            """)
+            
             # Yangi ustunlarni qo'shish (agar mavjud bo'lmasa)
             await self.add_missing_columns()
             
@@ -241,6 +272,57 @@ class Database:
                 stats['debt_categories'][category] = {'total': total, 'count': count}
         
         return stats
+    
+    # Income settings funksiyalari
+    async def save_income_settings(self, user_id, income_type, amount=None, frequency_day=None, frequency_month=None, frequency_weekday=None):
+        """Daromad sozlamalarini saqlash"""
+        query = """
+        INSERT INTO income_settings (user_id, income_type, amount, frequency_day, frequency_month, frequency_weekday)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+        income_type = VALUES(income_type),
+        amount = VALUES(amount),
+        frequency_day = VALUES(frequency_day),
+        frequency_month = VALUES(frequency_month),
+        frequency_weekday = VALUES(frequency_weekday),
+        updated_at = CURRENT_TIMESTAMP
+        """
+        return await self.execute_insert(query, (user_id, income_type, amount, frequency_day, frequency_month, frequency_weekday))
+    
+    async def get_income_settings(self, user_id):
+        """Foydalanuvchining daromad sozlamalarini olish"""
+        query = """
+        SELECT income_type, amount, frequency_day, frequency_month, frequency_weekday, is_active
+        FROM income_settings 
+        WHERE user_id = %s AND is_active = TRUE
+        """
+        return await self.execute_one(query, (user_id,))
+    
+    async def create_income_reminder(self, user_id, reminder_date, expected_amount):
+        """Daromad eslatmasini yaratish"""
+        query = """
+        INSERT INTO income_reminders (user_id, reminder_date, expected_amount)
+        VALUES (%s, %s, %s)
+        """
+        return await self.execute_insert(query, (user_id, reminder_date, expected_amount))
+    
+    async def update_income_reminder(self, user_id, reminder_date, received_amount, status):
+        """Daromad eslatmasini yangilash"""
+        query = """
+        UPDATE income_reminders 
+        SET received_amount = %s, status = %s
+        WHERE user_id = %s AND reminder_date = %s
+        """
+        return await self.execute_query(query, (received_amount, status, user_id, reminder_date))
+    
+    async def get_pending_reminders(self, user_id):
+        """Kutilayotgan eslatmalarni olish"""
+        query = """
+        SELECT id, reminder_date, expected_amount, status
+        FROM income_reminders 
+        WHERE user_id = %s AND status = 'pending' AND reminder_date <= CURDATE()
+        """
+        return await self.execute_query(query, (user_id,))
 
     async def get_monthly_stats(self, user_id, months=6):
         """Oylik statistikalar"""
