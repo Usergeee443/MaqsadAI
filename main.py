@@ -47,6 +47,9 @@ class UserStates(StatesGroup):
     waiting_for_income_weekday = State()
     waiting_for_income_month = State()
     waiting_for_income_day = State()
+    
+    # Tranzaksiya tasdiqlash uchun state'lar
+    waiting_for_transaction_confirmation = State()
 
 # Bepul tarif menyusi
 def get_free_menu():
@@ -79,6 +82,30 @@ def get_cancel_keyboard():
         resize_keyboard=True,
         one_time_keyboard=True
     )
+    return keyboard
+
+def get_transaction_confirmation_keyboard(buttons_data: dict):
+    """Tranzaksiya tasdiqlash tugmalari"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+    
+    # Asosiy tugmalar
+    main_buttons = [
+        InlineKeyboardButton(text="✅ Hammasini qabul qilish", callback_data="confirm_all_transactions"),
+        InlineKeyboardButton(text="❌ Hammasini bekor qilish", callback_data="cancel_all_transactions")
+    ]
+    keyboard.inline_keyboard.append(main_buttons)
+    
+    # Har bir tranzaksiya uchun alohida tugmalar
+    transactions = buttons_data.get('transactions', [])
+    if transactions:
+        # Har bir tranzaksiya uchun 2 ta tugma
+        for i, item in enumerate(transactions, 1):
+            trans_buttons = [
+                InlineKeyboardButton(text=f"✅ {i}", callback_data=f"confirm_transaction_{i}"),
+                InlineKeyboardButton(text=f"❌ {i}", callback_data=f"cancel_transaction_{i}")
+            ]
+            keyboard.inline_keyboard.append(trans_buttons)
+    
     return keyboard
 
 # Profil menyusi
@@ -936,7 +963,54 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         pass
     
     if result['success']:
-        await message.answer(result['message'], parse_mode='Markdown')
+        if result.get('type') == 'single_confirmation':
+            # Bitta tranzaksiya tasdiqlash
+            await state.set_state(UserStates.waiting_for_transaction_confirmation)
+            await state.update_data(transaction_data=result['transaction_data'])
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💾 Saqlash", callback_data="trans_single")],
+                [InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_cancel_single")]
+            ])
+            
+            await message.answer(result['message'], parse_mode='Markdown', reply_markup=keyboard)
+            
+        elif result.get('type') == 'multiple_preview':
+            # Ko'p tranzaksiyalar oldindan ko'rinishi
+            await state.set_state(UserStates.waiting_for_transaction_confirmation)
+            await state.update_data(transaction_data=result['buttons_data'])
+            
+            # Tugmalarni yaratish
+            buttons_data = result['buttons_data']
+            transactions = buttons_data.get('transactions', [])
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+            
+            # Har bir tranzaksiya uchun tugmalar - 2 qator bo'lib
+            delete_buttons = []
+            for item in transactions:
+                index = item['index']
+                delete_buttons.append(InlineKeyboardButton(text=f"🗑️ #{index}", callback_data=f"trans_delete_{index}"))
+                
+                # Har 2 ta tugma bo'lganda yangi qatorga o'tamiz
+                if len(delete_buttons) == 2:
+                    keyboard.inline_keyboard.append(delete_buttons)
+                    delete_buttons = []
+            
+            # Qolgan tugmalarni qo'shamiz
+            if delete_buttons:
+                keyboard.inline_keyboard.append(delete_buttons)
+            
+            # Umumiy tugmalar
+            keyboard.inline_keyboard.append([
+                InlineKeyboardButton(text="✅ Hammasini saqlash", callback_data="trans_all"),
+                InlineKeyboardButton(text="❌ Hammasini o'chirish", callback_data="trans_cancel")
+            ])
+            
+            await message.answer(result['message'], parse_mode='Markdown', reply_markup=keyboard)
+        else:
+            # Oddiy natija
+            await message.answer(result['message'], parse_mode='Markdown')
     else:
         await message.answer(result['message'], parse_mode='Markdown')
 
@@ -997,7 +1071,57 @@ async def process_audio_message(message: types.Message, state: FSMContext):
             pass
         
         # Natijani yuborish
-        await message.answer(result['message'], parse_mode='Markdown')
+        if result['success']:
+            if result.get('type') == 'single_confirmation':
+                # Bitta tranzaksiya tasdiqlash
+                await state.set_state(UserStates.waiting_for_transaction_confirmation)
+                await state.update_data(transaction_data=result['transaction_data'])
+                
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="💾 Saqlash", callback_data="trans_single")],
+                    [InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_cancel_single")]
+                ])
+                
+                await message.answer(result['message'], parse_mode='Markdown', reply_markup=keyboard)
+                
+            elif result.get('type') == 'multiple_preview':
+                # Ko'p tranzaksiyalar oldindan ko'rinishi
+                await state.set_state(UserStates.waiting_for_transaction_confirmation)
+                await state.update_data(transaction_data=result['buttons_data'])
+                
+                # Tugmalarni yaratish
+                buttons_data = result['buttons_data']
+                transactions = buttons_data.get('transactions', [])
+                
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+                
+                # Har bir tranzaksiya uchun tugmalar - 2 qator bo'lib
+                delete_buttons = []
+                for item in transactions:
+                    index = item['index']
+                    delete_buttons.append(InlineKeyboardButton(text=f"🗑️ #{index}", callback_data=f"trans_delete_{index}"))
+                    
+                    # Har 2 ta tugma bo'lganda yangi qatorga o'tamiz
+                    if len(delete_buttons) == 2:
+                        keyboard.inline_keyboard.append(delete_buttons)
+                        delete_buttons = []
+                
+                # Qolgan tugmalarni qo'shamiz
+                if delete_buttons:
+                    keyboard.inline_keyboard.append(delete_buttons)
+                
+                # Umumiy tugmalar
+                keyboard.inline_keyboard.append([
+                    InlineKeyboardButton(text="✅ Hammasini saqlash", callback_data="trans_all"),
+                    InlineKeyboardButton(text="❌ Hammasini o'chirish", callback_data="trans_cancel")
+                ])
+                
+                await message.answer(result['message'], parse_mode='Markdown', reply_markup=keyboard)
+            else:
+                # Oddiy natija
+                await message.answer(result['message'], parse_mode='Markdown')
+        else:
+            await message.answer(result['message'], parse_mode='Markdown')
         
         # Audio faylni o'chirish
         try:
@@ -1400,6 +1524,85 @@ async def process_income_date(message: types.Message, state: FSMContext):
             f"❌ Xatolik yuz berdi: {str(e)}",
             parse_mode="Markdown"
         )
+
+# ==================== TRANSACTION CONFIRMATION HANDLERS ====================
+
+@dp.callback_query(lambda c: c.data.startswith("trans_"))
+async def handle_transaction_callback(callback_query: CallbackQuery, state: FSMContext):
+    """Tranzaksiya tugmalari uchun umumiy handler"""
+    try:
+        data = await state.get_data()
+        transaction_data = data.get('transaction_data', {})
+        
+        if not transaction_data:
+            await callback_query.answer("❌ Tranzaksiya ma'lumotlari topilmadi!")
+            return
+        
+        # Financial module orqali ishlov berish
+        result = await financial_module.handle_transaction_action(
+            callback_query.data, 
+            callback_query.from_user.id, 
+            transaction_data
+        )
+        
+        if result['success']:
+            if result.get('type') == 'completed':
+                # Barcha ish tugadi
+                await state.clear()
+                await callback_query.message.edit_text(
+                    result['message'], 
+                    parse_mode='Markdown',
+                    reply_markup=None
+                )
+            elif result.get('type') == 'updated_preview':
+                # Yangi preview ko'rsatish
+                buttons_data = result['buttons_data']
+                transactions = buttons_data.get('transactions', [])
+                
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+                
+                # Har bir tranzaksiya uchun tugmalar - 2 qator bo'lib
+                delete_buttons = []
+                for item in transactions:
+                    index = item['index']
+                    delete_buttons.append(InlineKeyboardButton(text=f"🗑️ #{index}", callback_data=f"trans_delete_{index}"))
+                    
+                    # Har 2 ta tugma bo'lganda yangi qatorga o'tamiz
+                    if len(delete_buttons) == 2:
+                        keyboard.inline_keyboard.append(delete_buttons)
+                        delete_buttons = []
+                
+                # Qolgan tugmalarni qo'shamiz
+                if delete_buttons:
+                    keyboard.inline_keyboard.append(delete_buttons)
+                
+                # Umumiy tugmalar
+                keyboard.inline_keyboard.append([
+                    InlineKeyboardButton(text="✅ Hammasini saqlash", callback_data="trans_all"),
+                    InlineKeyboardButton(text="❌ Hammasini o'chirish", callback_data="trans_cancel")
+                ])
+                
+                await callback_query.message.edit_text(
+                    result['message'], 
+                    parse_mode='Markdown',
+                    reply_markup=keyboard
+                )
+            else:
+                # Oddiy xabar
+                await callback_query.message.edit_text(
+                    result['message'], 
+                    parse_mode='Markdown',
+                    reply_markup=None
+                )
+        else:
+            await callback_query.answer(result['message'])
+        
+        await callback_query.answer()
+        
+    except Exception as e:
+        logging.error(f"Tranzaksiya callback ishlov berishda xatolik: {e}")
+        await callback_query.answer("❌ Xatolik yuz berdi!")
+
 
 async def main():
     """Asosiy dastur"""
