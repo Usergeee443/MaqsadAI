@@ -157,7 +157,7 @@ class Database:
             
             # Tarif enum ni yangilash
             try:
-                await self.execute_query("ALTER TABLE users MODIFY COLUMN tariff ENUM('FREE', 'PRO', 'MAX', 'PREMIUM') DEFAULT 'FREE'")
+                await self.execute_query("ALTER TABLE users MODIFY COLUMN tariff ENUM('FREE', 'PLUS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'PREMIUM') DEFAULT 'FREE'")
                 logging.info("Tarif enum yangilandi")
             except Exception as e:
                 logging.error(f"Tarif enum yangilashda xatolik: {e}")

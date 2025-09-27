@@ -27,6 +27,172 @@ dp = Dispatcher(storage=MemoryStorage())
 financial_module = FinancialModule()
 reports_module = ReportsModule()
 
+PREMIUM_TARIFFS = {
+    'PLUS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX',
+    'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'PREMIUM'
+}
+
+# Tarif helperlari
+def get_tariff_overview_text() -> str:
+    return (
+        "Zo‘r yo‘nalishda ketyapsiz, xo‘jayin!\n\n"
+        "Balans AI sizga mos keladigan turli xil tariflarni taklif etadi. "
+        "Shaxsiy byudjetingizni nazorat qilmoqchimisiz, oilaviy xarajatlarni boshqarmoqchimisiz yoki "
+        "biznesingizni avtomatlashtirmoqchimisiz — bu yerda albatta sizga mos yechim bor.\n\n"
+        "Quyidagi bo‘limlardan birini tanlang va imkoniyatlar bilan tanishing:\n"
+        "• Bepul — yoshlar yoki test qilishni xohlovchilar uchun\n"
+        "• Plus — AI yordamida shaxsiy boshqaruv\n"
+        "• Max — ko‘p tranzaksiyali foydalanuvchilar uchun\n"
+        "• Oila tariflari — butun oila uchun maxsus imkoniyatlar\n"
+        "• Biznes tariflari — kichik va yirik bizneslar uchun yechimlar"
+    )
+
+def build_tariff_detail_keyboard(tariff_code: str, back_callback: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback),
+            InlineKeyboardButton(text="🚀 Aktivlashtirish", callback_data=f"activate_{tariff_code}")
+        ]
+    ])
+
+def build_main_tariff_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🆓 Bepul", callback_data="tariff_FREE"),
+            InlineKeyboardButton(text="✨ Plus", callback_data="tariff_PLUS"),
+            InlineKeyboardButton(text="💎 Max", callback_data="tariff_MAX")
+        ],
+        [InlineKeyboardButton(text="👨‍👩‍👧‍👦 Oila tariflari", callback_data="tariff_FAMILY_MENU")],
+        [InlineKeyboardButton(text="🏢 Biznes tariflari", callback_data="tariff_BUSINESS_MENU")]
+    ])
+
+def get_family_tariff_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👨‍👩‍👧‍👦 Oila", callback_data="tariff_FAMILY")],
+        [InlineKeyboardButton(text="👪 Oila Plus", callback_data="tariff_FAMILY_PLUS")],
+        [InlineKeyboardButton(text="🏡 Oila Max", callback_data="tariff_FAMILY_MAX")],
+        [InlineKeyboardButton(text="⬅️ Asosiy tariflar", callback_data="tariff_BACK_MAIN")]
+    ])
+
+def get_business_tariff_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏢 Biznes", callback_data="tariff_BUSINESS")],
+        [InlineKeyboardButton(text="🏬 Biznes Plus", callback_data="tariff_BUSINESS_PLUS")],
+        [InlineKeyboardButton(text="🏦 Biznes Max", callback_data="tariff_BUSINESS_MAX")],
+        [InlineKeyboardButton(text="⬅️ Asosiy tariflar", callback_data="tariff_BACK_MAIN")]
+    ])
+
+def get_family_overview_text() -> str:
+    return (
+        "👨‍👩‍👧‍👦 **Oila tariflari**\n\n"
+        "Oilaviy byudjetni boshqarish — endi yanada qulay. Balans AI ota-onalarga bolalar xarajatlarini"
+        " nazorat qilish, barcha daromad va chiqimlarni yagona tizimda jamlash imkonini beradi."
+        " Oilaviy shaffoflik va moliyaviy intizom sizning qo‘lingizda.\n\n"
+        "📌 Quyidagi tariflardan birini tanlang:\n"
+        "• Family — kichik va o‘rtacha oila uchun\n"
+        "• Family Plus — ko‘proq a’zoli katta oilalar uchun\n"
+        "• Family Max — cheksiz imkoniyatlar va to‘liq nazorat"
+    )
+
+def get_business_overview_text() -> str:
+    return (
+        "🏢 **Biznes tariflari**\n\n"
+        "Kichikdan yirikgacha bo‘lgan biznesingizni samarali boshqaring. Balans AI xodimlarni kuzatish,"
+        " filiallarni qo‘shish, daromad va xarajatlarni avtomatlashtirish hamda chuqur AI tahlillari bilan"
+        " biznesingizni yangi bosqichga olib chiqadi.\n\n"
+        "📌 Quyidagi tariflardan birini tanlang:\n"
+        "• Business — kichik biznes uchun\n"
+        "• Business Plus — filiallarga ega o‘rta va yirik bizneslar uchun\n"
+        "• Business Max — cheksiz imkoniyatlar va to‘liq AI prognozlari"
+    )
+
+def get_tariff_detail_text(tariff_code: str) -> str:
+    if tariff_code == "FREE":
+        return (
+            "🆓 **Bepul tarif**\n\n"
+            "Bu tarif 100% bepul. Hech qanday to'lov talab qilinmaydi.\n\n"
+            "Funksiyalar:\n"
+            "• Shaxsiy byudjetni kiritish va kuzatish\n"
+            "• Kirim/chiqimlarni qo'lda kiritish\n"
+            "• Minimal interfeys, reklamasiz\n\n"
+            "Kim uchun: yangi foydalanuvchilar va test qiluvchilar"
+        )
+    if tariff_code == "PLUS":
+        return (
+            "✨ **Plus tarif**\n\n"
+            "Tarif nomi va narxi: Plus — 29 990 so'm/oy\n\n"
+            "Funksiyalar:\n"
+            "• AI yordamida ovozli va matnli kiritish\n"
+            "• Tezkor moliyaviy tahlillar\n"
+            "• Shaxsiy byudjetni kuzatish\n\n"
+            "Kim uchun: 5–10 mln so'm aylanmaga ega foydalanuvchilar"
+        )
+    if tariff_code == "MAX":
+        return (
+            "💎 **Max tarif**\n\n"
+            "Tarif nomi va narxi: Max — 49 990 so'm/oy\n\n"
+            "Funksiyalar:\n"
+            "• Cheksiz tranzaksiyalar\n"
+            "• Premium AI tahlillari\n"
+            "• Kengaytirilgan hisobotlar\n\n"
+            "Kim uchun: katta oila yoki yuqori daromad/harajatga ega foydalanuvchilar"
+        )
+    if tariff_code == "FAMILY":
+        return (
+            "👨‍👩‍👧‍👦 **Family tarif**\n\n"
+            "Tarif nomi va narxi: Family — 99 990 so'm/oy\n\n"
+            "Funksiyalar:\n"
+            "• Oila bo'lib foydalanish (ota-ona + bolalar)\n"
+            "• Ota-onalar bolalarning xarajatlarini ko'ra oladi\n"
+            "• Oila byudjetini yagona joyda boshqarish"
+        )
+    if tariff_code == "FAMILY_PLUS":
+        return (
+            "👪 **Family Plus tarif**\n\n"
+            "Tarif nomi va narxi: Family Plus — 179 990 so'm/oy\n\n"
+            "Funksiyalar:\n"
+            "• Family'dagi barcha imkoniyatlar\n"
+            "• Ko'proq a'zolarni qo'shish\n"
+            "• Katta oilalar uchun kengaytirilgan imkoniyatlar"
+        )
+    if tariff_code == "FAMILY_MAX":
+        return (
+            "🏡 **Family Max tarif**\n\n"
+            "Tarif nomi va narxi: Family Max — 249 990 so'm/oy\n\n"
+            "Funksiyalar:\n"
+            "• Family Plus'dagi barcha imkoniyatlar\n"
+            "• Cheksiz oila a'zolarini qo'shish\n"
+            "• Mukammal AI yordamchi"
+        )
+    if tariff_code == "BUSINESS":
+        return (
+            "🏢 **Business tarif**\n\n"
+            "Tarif nomi va narxi: Business — 99 990 so'm/oy\n\n"
+            "Funksiyalar:\n"
+            "• Kichik biznes uchun\n"
+            "• 1 boshliq + 1 xodim\n"
+            "• Moliyaviy boshqaruvni avtomatlashtirish"
+        )
+    if tariff_code == "BUSINESS_PLUS":
+        return (
+            "🏬 **Business Plus tarif**\n\n"
+            "Tarif nomi va narxi: Business Plus — 249 990 so'm/oy\n\n"
+            "Funksiyalar:\n"
+            "• Filiallarni qo'shish imkoniyati\n"
+            "• Juda ko'p xodim qo'shish\n"
+            "• Kengaytirilgan boshqaruv funksiyalari"
+        )
+    if tariff_code == "BUSINESS_MAX":
+        return (
+            "🏦 **Business Max tarif**\n\n"
+            "Tarif nomi va narxi: Business Max — 499 990 so'm/oy\n\n"
+            "Funksiyalar:\n"
+            "• Business Plus'dagi barcha imkoniyatlar\n"
+            "• Cheksiz xodim va filial\n"
+            "• To'liq AI tahlil va prognozlar"
+        )
+    return f"❌ Tarif '{tariff_code}' topilmadi"
+
 # Foydalanuvchi holatlari
 class UserStates(StatesGroup):
     waiting_for_phone = State()
@@ -130,13 +296,7 @@ def get_settings_menu():
 
 # Tarif menyusi
 def get_tariff_menu():
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🆓 Bepul (davom etish)", callback_data="tariff_FREE")],
-            [InlineKeyboardButton(text="⭐ Premium (To'lov qilish)", callback_data="tariff_PREMIUM")]
-        ]
-    )
-    return keyboard
+    return build_main_tariff_keyboard()
 
 # Manba tanlash menyusi
 def get_source_menu():
@@ -258,7 +418,7 @@ async def start_command(message: types.Message, state: FSMContext):
         else:
             await message.answer(
                 f"👋 Salom, {user_name}!\n\n"
-                "Balans AI Premium ga xush kelibsiz!\n\n"
+                "Balans AI ga xush kelibsiz!\n\n"
                 "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
                 reply_markup=get_premium_menu(),
                 parse_mode="Markdown"
@@ -357,53 +517,6 @@ async def process_source(callback_query: CallbackQuery, state: FSMContext):
     )
     await state.set_state(UserStates.waiting_for_tariff)
 
-# Tarif tanlash
-@dp.callback_query(lambda c: c.data.startswith("tariff_"), UserStates.waiting_for_tariff)
-async def process_tariff(callback_query: CallbackQuery, state: FSMContext):
-    """Tarifni qabul qilish"""
-    user_id = callback_query.from_user.id
-    tariff = callback_query.data.split("_")[1]
-    
-    # Tarifni saqlash
-    await db.execute_query(
-        "UPDATE users SET tariff = %s WHERE user_id = %s",
-        (tariff, user_id)
-    )
-    
-    user_name = await get_user_name(user_id)
-    
-    if tariff == "FREE":
-        await callback_query.message.edit_text(
-            f"✅ *Bepul (davom etish) tanlandi!*\n\n"
-            f"Salom, {user_name}!\n\n"
-            "Quyidagi tugmalardan foydalaning:",
-            parse_mode="Markdown"
-        )
-        await callback_query.message.answer(
-            "Bepul tarif menyusi:",
-            reply_markup=get_free_menu()
-        )
-    else:
-        # Premium tanlanganda onboarding final step boshlanadi
-        await callback_query.message.edit_text(
-            f"🎉 *Tabriklaymiz! Siz Premium foydalanuvchiga aylandingiz.*\n\n"
-            f"Endi hisobingizni o'z ehtiyojlaringizga moslab sozlab olishingiz mumkin.\n"
-            f"Hozircha faqat bitta sozlama mavjud — *Daromad sozlamalari.*\n"
-            f"(Kelajakda yangi sozlamalar qo'shamiz. Har doim Profil > Sozlamalardan o'zgartirish mumkin.)",
-            parse_mode="Markdown"
-        )
-        
-        # Onboarding final step tugmalari
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="▶️ Sozlashni boshlash", callback_data="start_income_setup")],
-            [InlineKeyboardButton(text="⏭ Keyinga o'tish", callback_data="skip_income_setup")]
-        ])
-        await callback_query.message.answer(
-            "Daromad sozlamalarini sozlashni xohlaysizmi?",
-            reply_markup=keyboard
-        )
-    
-    await state.clear()
 
 # Help komandasi
 @dp.message(Command("help"))
@@ -878,49 +991,205 @@ async def process_tariff_change(callback_query: CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "tariff_info")
 async def tariff_info_callback(callback_query: CallbackQuery):
-    """Tarif ma'lumotlarini ko'rsatish"""
-    text = """💳 **Tariflar**
-
-🆓 **Bepul**
-• Qo'lda kirim/chiqim kiritish
-• Asosiy hisobotlar
-• 10 ta tranzaksiya/oy
-
-⭐ **Premium - 50,000 so'm/oy**
-• AI yordamida avtomatik qayta ishlash
-• Ovozli xabarlar qo'llab-quvvatlash
-• Kengaytirilgan hisobotlar
-• Cheksiz tranzaksiyalar
-
-Tarifni tanlang:"""
-    
-    keyboard = get_tariff_menu()
-    await callback_query.message.edit_text(text, reply_markup=keyboard, parse_mode='Markdown')
+    await callback_query.message.edit_text(
+        get_tariff_overview_text(),
+        reply_markup=build_main_tariff_keyboard()
+    )
     await callback_query.answer()
 
-@dp.callback_query(lambda c: c.data.startswith("tariff_") and c.data.split("_")[1] in ["FREE", "PREMIUM"])
-async def process_tariff_selection(callback_query: CallbackQuery):
-    """Tarif tanlashni qayta ishlash"""
-    tariff = callback_query.data.split("_")[1]
-    user_id = callback_query.from_user.id
+@dp.callback_query()
+async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext):
+    print(f"DEBUG: Any callback received: {callback_query.data}")
     
-    # Tarifni yangilash
+    # Tarif tanlash callbacklari
+    if callback_query.data.startswith("tariff_"):
+        code = callback_query.data.split("_", 1)[1]
+        user_id = callback_query.from_user.id
+        
+        if code == "FAMILY_MENU":
+            await callback_query.message.edit_text(
+                get_family_overview_text(),
+                reply_markup=get_family_tariff_keyboard()
+            )
+            await callback_query.answer()
+            return
+
+        if code == "BUSINESS_MENU":
+            await callback_query.message.edit_text(
+                get_business_overview_text(),
+                reply_markup=get_business_tariff_keyboard()
+            )
+            await callback_query.answer()
+            return
+        
+        if code == "BACK_MAIN":
+            await callback_query.message.edit_text(
+                get_tariff_overview_text(),
+                reply_markup=build_main_tariff_keyboard()
+            )
+            await callback_query.answer()
+            return
+        
+        tariff_code = code
+        if tariff_code not in TARIFFS:
+            await callback_query.answer("🚧 Tez kunda: bu tarifni tez orada faollashtirasiz!", show_alert=True)
+            return
+
+        detail_text = get_tariff_detail_text(tariff_code)
+        back_callback = "tariff_BACK_MAIN"
+        if tariff_code in {"FAMILY", "FAMILY_PLUS", "FAMILY_MAX"}:
+            back_callback = "tariff_FAMILY_MENU"
+        elif tariff_code in {"BUSINESS", "BUSINESS_PLUS", "BUSINESS_MAX"}:
+            back_callback = "tariff_BUSINESS_MENU"
+
+        keyboard = build_tariff_detail_keyboard(tariff_code, back_callback)
+        await callback_query.message.edit_text(detail_text, reply_markup=keyboard, parse_mode='Markdown')
+        await callback_query.answer()
+        return
+    
+    # Aktivlashtirish callbacklari
+    if callback_query.data.startswith("activate_"):
+        tariff_code = callback_query.data.replace("activate_", "")
+        print(f"DEBUG: Activation callback received for tariff: {tariff_code}")
+        
+        if tariff_code == "FREE":
+            print("DEBUG: Processing FREE activation")
+            user_id = callback_query.from_user.id
+            user_name = await get_user_name(user_id)
+            await db.execute_query(
+                "UPDATE users SET tariff = %s WHERE user_id = %s",
+                ("FREE", user_id)
+            )
+            await callback_query.message.edit_text(
+                f"✅ *Bepul tarif aktivlashtirildi!*\n\n"
+                f"Salom, {user_name}!\n\n"
+                "Quyidagi tugmalardan foydalaning:",
+                parse_mode="Markdown"
+            )
+            await callback_query.message.answer(
+                "Bepul tarif menyusi:",
+                reply_markup=get_free_menu()
+            )
+            await callback_query.answer()
+            return
+
+        if tariff_code == "PLUS":
+            print("DEBUG: Processing PLUS activation")
+            user_id = callback_query.from_user.id
+            user_name = await get_user_name(user_id)
+            await db.execute_query(
+                "UPDATE users SET tariff = %s WHERE user_id = %s",
+                ("PLUS", user_id)
+            )
+            await callback_query.message.edit_text(
+                f"✅ *Plus tarif aktivlashtirildi!*\n\n"
+                f"Salom, {user_name}!\n\n"
+                "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
+                parse_mode="Markdown"
+            )
+            await callback_query.message.answer(
+                "Plus tarif menyusi:",
+                reply_markup=get_premium_menu()
+            )
+            await callback_query.answer()
+            return
+
+        # Boshqa barcha tariflar uchun
+        print(f"DEBUG: Processing other tariff activation: {tariff_code}")
+        await callback_query.answer(
+            "🚧 Tez orada: hozircha faqat Bepul va Plus tariflari ishlayotgani. Kuzatishda davom eting!",
+            show_alert=True
+        )
+        return
+
+# Tarif tanlash (faqat onboarding paytida) - oxirida qo'yilgan
+@dp.callback_query(lambda c: c.data.startswith("tariff_"), UserStates.waiting_for_tariff)
+async def process_tariff_onboarding_only(callback_query: CallbackQuery, state: FSMContext):
+    """Tarifni qabul qilish (onboarding)"""
+    user_id = callback_query.from_user.id
+    tariff = callback_query.data.split("_", 1)[1]
+
+
+    if tariff == "FAMILY_MENU":
+        await callback_query.message.edit_text(
+            get_family_overview_text(),
+            reply_markup=get_family_tariff_keyboard()
+        )
+        await callback_query.answer()
+        return
+
+    if tariff == "BUSINESS_MENU":
+        await callback_query.message.edit_text(
+            get_business_overview_text(),
+            reply_markup=get_business_tariff_keyboard()
+        )
+        await callback_query.answer()
+        return
+    
+    if tariff == "BACK_MAIN":
+        await callback_query.message.edit_text(
+            get_tariff_overview_text(),
+            reply_markup=build_main_tariff_keyboard()
+        )
+        await callback_query.answer()
+        return
+
+    if tariff == "PLUS":
+        # Plus tarifni aktiv qilish
+        await db.execute_query(
+            "UPDATE users SET tariff = %s WHERE user_id = %s",
+            ("PLUS", user_id)
+        )
+
+        user_name = await get_user_name(user_id)
+        await callback_query.message.edit_text(
+            f"✅ *Plus tarif tanlandi!*\n\n"
+            f"Salom, {user_name}!\n\n"
+            "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
+            parse_mode="Markdown"
+        )
+        await callback_query.message.answer(
+            "Plus tarif menyusi:",
+            reply_markup=get_premium_menu()
+        )
+
+        await state.clear()
+        await callback_query.answer()
+        return
+
+    if tariff != "FREE":
+        # Boshqa tariflar uchun faqat ma'lumot ko'rsatish
+        detail_text = get_tariff_detail_text(tariff)
+        back_callback = "tariff_BACK_MAIN"
+        if tariff in {"FAMILY", "FAMILY_PLUS", "FAMILY_MAX"}:
+            back_callback = "tariff_FAMILY_MENU"
+        elif tariff in {"BUSINESS", "BUSINESS_PLUS", "BUSINESS_MAX"}:
+            back_callback = "tariff_BUSINESS_MENU"
+
+        keyboard = build_tariff_detail_keyboard(tariff, back_callback)
+        await callback_query.message.edit_text(detail_text, reply_markup=keyboard, parse_mode='Markdown')
+        await callback_query.answer()
+        return
+
+    # Faqat FREE tarifni aktiv qilish
     await db.execute_query(
         "UPDATE users SET tariff = %s WHERE user_id = %s",
-        (tariff, user_id)
+        ("FREE", user_id)
     )
-    
-    tariff_name = TARIFFS.get(tariff, "Nomalum")
+
     user_name = await get_user_name(user_id)
-    
-    if tariff == "FREE":
-        message = f"✅ Tarif '{tariff_name}' ga o'zgartirildi!\n\nSalom, {user_name}!\n\nQuyidagi tugmalardan foydalaning:"
-        keyboard = get_free_menu()
-    else:
-        message = f"✅ Tarif '{tariff_name}' ga o'zgartirildi!\n\nSalom, {user_name}!\n\nMatn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:"
-        keyboard = get_premium_menu()
-    
-    await callback_query.message.edit_text(message, reply_markup=keyboard, parse_mode='Markdown')
+    await callback_query.message.edit_text(
+        f"✅ *Bepul tarif tanlandi!*\n\n"
+        f"Salom, {user_name}!\n\n"
+        "Quyidagi tugmalardan foydalaning:",
+        parse_mode="Markdown"
+    )
+    await callback_query.message.answer(
+        "Bepul tarif menyusi:",
+        reply_markup=get_free_menu()
+    )
+
+    await state.clear()
     await callback_query.answer()
 
 # Premium tarif - AI yordamida moliyaviy ma'lumotlarni qayta ishlash
@@ -931,7 +1200,7 @@ async def process_financial_message(message: types.Message, state: FSMContext):
     user_tariff = await get_user_tariff(user_id)
     
     # Faqat Premium tarif uchun AI qayta ishlash
-    if user_tariff not in ['PRO', 'MAX', 'PREMIUM']:
+    if user_tariff not in PREMIUM_TARIFFS:
         return
     
     # Agar foydalanuvchi boshqa holatda bo'lsa (onboarding yoki boshqa state'lar)
@@ -1022,7 +1291,7 @@ async def process_audio_message(message: types.Message, state: FSMContext):
     user_tariff = await get_user_tariff(user_id)
     
     # Faqat Premium tarif uchun audio qo'llab-quvvatlash
-    if user_tariff not in ['PRO', 'MAX', 'PREMIUM']:
+    if user_tariff not in PREMIUM_TARIFFS:
         await message.answer(
             "🎵 **Audio qo'llab-quvvatlash**\n\n"
             "Audio xabarlarni qayta ishlash faqat Premium tarifda mavjud.\n"

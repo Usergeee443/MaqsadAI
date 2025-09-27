@@ -22,8 +22,14 @@ MYSQL_CONFIG = {
 # Tariflar
 TARIFFS = {
     'FREE': 'Bepul',
-    'PRO': 'Pro',
+    'PLUS': 'Plus',
     'MAX': 'Max',
+    'FAMILY': 'Family',
+    'FAMILY_PLUS': 'Family Plus',
+    'FAMILY_MAX': 'Family Max',
+    'BUSINESS': 'Business',
+    'BUSINESS_PLUS': 'Business Plus',
+    'BUSINESS_MAX': 'Business Max',
     'PREMIUM': 'Premium'
 }
 
