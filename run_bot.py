@@ -18,6 +18,7 @@ if __name__ == "__main__":
     print("🚀 Balans AI Bot ishga tushmoqda...")
     print("📊 Ma'lumotlar bazasi ulanishi tekshirilmoqda...")
     print("🔗 OpenAI API ulanishi tekshirilmoqda...")
+    print("🔊 Google Cloud Speech ulanishi tekshirilmoqda...")
     print("✅ Barcha tizimlar tayyor!")
     print("🤖 Bot ishga tushdi. Ctrl+C bilan to'xtating.")
     

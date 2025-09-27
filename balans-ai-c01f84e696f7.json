@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "balans-ai",
+  "private_key_id": "c01f84e696f72288a5c918b3936c6a28fffa4a5b",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC2hRSlrfVR+N6r\nivIZ003BiLwWAdgHsZbw7ZOQeXrbq07Y/YQwJT3lFHXgBg4n0HMCuThf9wy6vjIj\nFIYGFnScAZaHAhGMGYhUT73BIWMCkG25IZjjRySs41xTZdUqFRBcOKamt6b1BVLr\nEAfqLBJx1xi0MSe1KGaxocBTkv52L3HPQ5PSQpWLla/pif5tGehEjwH1M2Gc+1D/\nFFvzxHT6STyUD4yQcnOIEY30je0a11xiGYl5hc5uvmrzjQTmxJYtD2DcSWqyzK/x\nOz9nmb8IQ1hRV9A6k8f1VU6FSlaN47NFhqtHdAjgILwLaVR1vkyim5LLLRmc892z\nNWh5Fd8lAgMBAAECggEALSKKwQ/cJwm6ksQ4618ADvhvvqd1Ey387BZsE+Gempzp\n0iobGsbS4AfnwF7u+DSJhGZmRQD0YmevQVKNdArwijWwUjGWQkV8G5FelNhbQiKS\nJ6Jhyu5oaOKOjccUaCQuWAfgWkD3JgdLgnqD4opEg2dUIhc3wQo9HvcnduNWTsYw\n1/vizGmmiXb8sdNumJ890uViNPJwRH0IN3xu5+pCTqgf/F+pKV5B5n6TTjXx/OZ3\nMsbaybT5wjRGoOtqAR8VUDEmm2ZqxHhlTWU6fG9QZYvA4BWRqmMiGWkVKrQSmZRF\n9nENuRworQLmOPHow7VA/yHOVUCTo3Vty1I7fjD8wQKBgQDdSaVDYnW+h9U4nhdU\nxP5rk9CFI9jnlm2lWRmYAeW8kICMGWulUWnKBMkaLt0Q7NIIZ3VEQ83Hxj/8z4f5\nMXMrPdUqPgfDTIdaTlAGhMREoNTrTi13Y7laOCkAqUcoi2Wk/vDBnpH4UEqLSuxE\nwOVbtdeRv79dOqBwjhKkB6H/xQKBgQDTJp3qMw6TiCGD0OxXb9wjNgdQYs1JloG3\nrURgiMSQ/MaiNRBZ4NfAytcB8NeIpPVhWsSox5+hIjPX8rAOTFv4dqXwMLnH5Ne4\nig4kNNOuF1e0T45vba2JSWZ862LcKOEGmGzTC4IRLNtgMrNLR5nhNaLlXGq2b7A3\ne02kGAn34QKBgGLeQaFev162T7SxJZlxPn8QFs01m/a0xh5nNcEtr9hU86okvWyq\neEqTYsp4/7pNJPYuSz2J0codMH+itYzH5D4ArVnnRw6iBaN6c9TFwu8qsJbFYhkC\njFDb4K3z8+AQkARtB2Jql6tLLFMZ0YBScudL0pnDAxwDUqWXRIrXAjFFAoGAWtzh\nU6kI+r+3/GtpaO8AAj77wsHhqWsVAx+Srx/rxqCgMak4EhVJgvNGttUXSvwBhBV1\nT1QoA0Ueni0XSe/eG/uiyMuPBtAZbJYsI7R/6wisezFJD/ZYmR129wasEiWdQCNT\noTXwkMeG18y5jwmO1HUqVh0A5uUFJbrv3E9j6sECgYAfKDEzXWbj0qqHYAERgiJc\nxT/DDsCqAVywIH+qtvM58Zd6xR24Gj6fzoXyiMifH1Npc+pUpyyLVpnmknOcUUUc\nYtrigWC1tsfB1mWpHBkmEzyjeVAPNiT0G0OgeVfm+7RIz5k8FHza74XAubNqwgH1\nY8RLgW75L311xI+fs9RhHw==\n-----END PRIVATE KEY-----\n",
+  "client_email": "balans-ai@balans-ai.iam.gserviceaccount.com",
+  "client_id": "104598024324079093479",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/balans-ai%40balans-ai.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

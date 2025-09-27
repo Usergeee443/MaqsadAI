@@ -4,85 +4,167 @@ import json
 import aiofiles
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+
 from openai import AsyncOpenAI
-from config import OPENAI_API_KEY, CATEGORIES
+from google.cloud import speech_v1p1beta1 as speech
+
+from config import (
+    OPENAI_API_KEY,
+    GOOGLE_CLOUD_PROJECT,
+    GOOGLE_APPLICATION_CREDENTIALS,
+    CATEGORIES,
+)
 from database import db
 from models import Transaction, TransactionType
 
 class FinancialModule:
     def __init__(self):
         self.openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+        self.speech_client = None
+
+    def _format_amount_with_sign(self, amount: float, trans_type: str) -> str:
+        """Tranzaksiya summasini foydalanuvchiga qulay ko'rinishda formatlash"""
+        amount_value = float(amount or 0)
+        sign_map = {
+            "income": "+",
+            "expense": "-",
+            "debt": ""
+        }
+        sign = sign_map.get(trans_type, "")
+        formatted = f"{amount_value:,.0f} so'm"
+        return f"{sign} {formatted}".strip()
+
+    def _format_human_date(self, iso_timestamp: Optional[str]) -> str:
+        """Sana va vaqtni foydalanuvchi uchun qulay ko'rinishda chiqarish"""
+        uz_months = {
+            1: "Yanvar",
+            2: "Fevral",
+            3: "Mart",
+            4: "Aprel",
+            5: "May",
+            6: "Iyun",
+            7: "Iyul",
+            8: "Avgust",
+            9: "Sentabr",
+            10: "Oktabr",
+            11: "Noyabr",
+            12: "Dekabr",
+        }
+
+        if not iso_timestamp:
+            dt = datetime.now()
+        else:
+            cleaned = iso_timestamp.replace("Z", "+00:00")
+            try:
+                dt = datetime.fromisoformat(cleaned)
+            except ValueError:
+                dt = datetime.now()
+
+        month_name = uz_months.get(dt.month, "")
+        return f"{dt.day:02d}-{month_name}, {dt.year}".strip().replace("- ,", "-")
+
+    def _ensure_speech_client(self) -> speech.SpeechClient:
+        if self.speech_client is None:
+            if not GOOGLE_APPLICATION_CREDENTIALS:
+                raise RuntimeError(
+                    "Google Cloud Speech kredensial yo'q. Iltimos, GOOGLE_APPLICATION_CREDENTIALS ni .env faylda ko'rsating."
+                )
+            self.speech_client = speech.SpeechClient()
+        return self.speech_client
         
     async def process_audio_input(self, audio_file_path: str, user_id: int) -> Dict[str, Any]:
         """Audio faylni qayta ishlash va moliyaviy ma'lumotlarni ajratish"""
         try:
+            client = self._ensure_speech_client()
+
             with open(audio_file_path, "rb") as audio_file:
-                # O'zbek tilini qo'llab-quvvatlamasligi sababli bir necha usulni sinab ko'ramiz
-                
-                # 1-usul: O'zbek tili uchun rus tilida context
-                try:
-                    transcript = await self.openai_client.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=audio_file,
-                        language="ru",  # Rus tili - O'zbek tiliga eng yaqin
-                        prompt="Финансовая информация, деньги, сом, тысяча, заработал, потратил, долг, молiyaviy ма'lumot, pul, so'm, ming, ishlab topish, sarflash, qarз, do'кон, darомad, biznes, filyal, xudoga shukur, zo'r bo'ldi, pul tushdi, daromad qildim, sarfladim, qarз oldim",
-                        temperature=0.15,
-                        response_format="verbose_json"
-                    )
-                    initial_text = transcript.text
-                    logging.info(f"Rus tili bilan transkript: {initial_text}")
-                    
-                except Exception as e:
-                    logging.warning(f"Rus tili bilan transcription xato: {e}")
-                    
-                    # 2-usul: Avtomatik til aniqlash
-                    try:
-                        # Faylni qayta o'qish
-                        audio_file.seek(0)
-                        transcript = await self.openai_client.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=audio_file,
-                            prompt="Financial information, money, currency, income, expense, debt, молiyavий ма'лумот, pul, so'm, ming, деньги, сом, тысяча, do'kon, daromad, biznes, filyal, xudoga shukur, zo'r bo'ldi, pul tushdi, reklamaga sarfladim, qarz berdim, qarz oldim",
-                            temperature=0.15,
-                            response_format="verbose_json"
-                        )
-                        initial_text = transcript.text
-                        logging.info(f"Avtomatik til aniqlash bilan: {initial_text}")
-                        
-                    except Exception as e2:
-                        logging.warning(f"Avtomatik til aniqlash xato: {e2}")
-                        
-                        # 3-usul: Ingliz tili bilan
-                        audio_file.seek(0)
-                        transcript = await self.openai_client.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=audio_file,
-                            language="en",
-                            prompt="Financial information, money, som, thousand, earned, spent, debt, shop, income, business, branch, gratitude, amazing day, marketing spend, borrowed money",
-                            temperature=0.15,
-                            response_format="verbose_json"
-                        )
-                        initial_text = transcript.text
-                        logging.info(f"Ingliz tili bilan transkript: {initial_text}")
-                
-                # Agar transkript bo'sh bo'lsa
-                if not initial_text or len(initial_text.strip()) < 3:
-                    return {
-                        "success": False,
-                        "message": "❌ Audio aniq eshitilmadi. Iltimos, aniqroq va balandroq gapiring."
-                    }
-                
-                logging.info(f"Final transkript: {initial_text}")
-            
-            # AI orqali transkriptni to'liq yaxshilash va moliyaviy ma'lumotlarni ajratish
+                audio_content = audio_file.read()
+
+            initial_text = await self._transcribe_with_google(client, audio_content)
+            if not initial_text:
+                return {
+                    "success": False,
+                    "message": "❌ Audio aniq eshitilmadi. Iltimos, aniqroq gapiring."
+                }
+
+            logging.info(f"Google Speech transkript: {initial_text}")
+
             return await self.process_ai_input_advanced(initial_text, user_id)
-            
+
         except Exception as e:
-            logging.error(f"Audio qayta ishlashda xatolik: {e}")
+            logging.error(f"Google Speech qayta ishlashda xatolik: {e}")
             return {
                 "success": False,
-                "message": "❌ Audio faylni qayta ishlashda xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring."
+                "message": "❌ Audio faylni Google Speech orqali qayta ishlashda xatolik yuz berdi."
             }
+
+    async def _transcribe_with_google(self, client: speech.SpeechClient, audio_content: bytes) -> Optional[str]:
+        """Google Cloud Speech orqali transkripti olish"""
+        audio = speech.RecognitionAudio(content=audio_content)
+
+        speech_context = speech.SpeechContext(
+            phrases=[
+                "so'm",
+                "ming",
+                "million",
+                "daromad",
+                "xarajat",
+                "qarz",
+                "ishlab topdim",
+                "sarfladim",
+                "pul tushdi",
+                "investitsiya",
+                "marketing",
+                "transport",
+                "bepul",
+                "premium",
+            ],
+            boost=15.0,
+        )
+
+        configs = [
+            {
+                "language_code": "uz-UZ",
+                "alternative_language_codes": ["ru-RU", "kk-KZ", "en-US"],
+            },
+            {
+                "language_code": "ru-RU",
+                "alternative_language_codes": ["uz-UZ", "kk-KZ", "en-US"],
+            },
+            {
+                "language_code": "en-US",
+                "alternative_language_codes": ["ru-RU", "uz-UZ"],
+            },
+        ]
+
+        for cfg in configs:
+            try:
+                recognition_config = speech.RecognitionConfig(
+                    encoding=speech.RecognitionConfig.AudioEncoding.OGG_OPUS,
+                    sample_rate_hertz=48000,
+                    language_code=cfg["language_code"],
+                    alternative_language_codes=cfg.get("alternative_language_codes", []),
+                    enable_automatic_punctuation=True,
+                    enable_word_time_offsets=False,
+                    speech_contexts=[speech_context],
+                )
+
+                response = client.recognize(config=recognition_config, audio=audio)
+                if response.results:
+                    best_alternative = response.results[0].alternatives[0]
+                    transcript = best_alternative.transcript.strip()
+                    if transcript:
+                        logging.info(
+                            f"Google Speech muvaffaqiyatli (lang={cfg['language_code']}): {transcript}"
+                        )
+                        return transcript
+
+            except Exception as e:
+                logging.warning(
+                    f"Google Speech konfiguratsiya sinovi muvaffaqiyatsiz (lang={cfg['language_code']}): {e}"
+                )
+
+        return None
 
     async def process_ai_input_advanced(self, text: str, user_id: int) -> Dict[str, Any]:
         """AI orqali matnni to'liq tahlil qilish va moliyaviy ma'lumotlarni ajratish"""
@@ -96,6 +178,7 @@ class FinancialModule:
             
             # 2-bosqich: Moliyaviy ma'lumotlarni ajratish - GPT-4 Turbo
             financial_data = await self._extract_financial_data_with_gpt4(extract_base)
+            financial_data = await self._ensure_ai_guess(financial_data, extract_base)
             
             # 3-bosqich: Ma'lumotlarni validatsiya qilish
             validation_result = await self._validate_extracted_data(financial_data, extract_base)
@@ -232,6 +315,8 @@ KRITIK MUHIM QOIDALAR:
 5. RAQAMLARNI TO'G'RI HISOBLANG (ming = 1000, million = 1000000)
 6. BIR NECHTA DAROMAD MANBALARINI ALOHIDA TRANZAKSIYA SIFATIDA AJRATISH
 7. JAMI SUMMANI HISOBGA OLMANG - faqat alohida tranzaksiyalarni ajrating
+8. GAP OXIRIDA SO'Z QISQARGAN BO'LSA HAM, MA'NOSINI TAXMIN QILING (masalan "x" = "xarajat" yoki gapning davomi)
+9. FOYDALANUVCHI SUMMANI AYTGAN BO'LSA, UNI HECH QACHON 0 QILMANG – TAXMINIY BO'LSA HAM SONNI ANIQ CHIQARING
 
 TABIIY NUTQ TUSHUNISH:
 - "pul tushdi", "daromad qildim", "ishlab topdim" = income
@@ -268,6 +353,7 @@ MUHIM MISOLLAR:
 "25 ming so'm ishlab topdim" = 25000 so'm income ish haqi
 "20 ming so'm ovqatga sarfladim" = 20000 so'm expense ovqat
 "100 ming so'm qarz oldim" = 100000 so'm debt boshqa
+"bugun 10 ming so'm suv uchun x" = 10000 so'm expense uy kategoriyasi (kommunal suv to'lovi)
 
 JAVOB FORMATI - faqat JSON:
 {
@@ -429,6 +515,7 @@ MUHIM:
             
             for i, transaction_data in enumerate(transactions):
                 confidence = transaction_data.get('confidence', 0)
+                transaction_data['original_text'] = original_text
                 
                 trans_item = {
                     'index': i + 1,
@@ -454,7 +541,7 @@ MUHIM:
             # Agar faqat aniq tranzaksiyalar bo'lsa
             if confirmed_transactions and not suspected_transactions and not unclear_transactions:
                 if len(confirmed_transactions) == 1:
-                    return await self._show_single_transaction_confirmation(confirmed_transactions[0], user_id)
+                    return await self._show_single_transaction_confirmation(confirmed_transactions[0], user_id, original_text)
                 else:
                     # Bir nechta aniq tranzaksiya bo'lsa
                     return await self._show_multiple_confirmed_transactions(confirmed_transactions, user_id, original_text)
@@ -641,22 +728,32 @@ JSON formatida qaytaring:
             }
             return await self._analyze_and_show_transactions(fallback_data, user_id, text)
 
-    async def _show_single_transaction_confirmation(self, transaction_item: Dict[str, Any], user_id: int) -> Dict[str, Any]:
+    async def _show_single_transaction_confirmation(self, transaction_item: Dict[str, Any], user_id: int, original_text: str = "") -> Dict[str, Any]:
         """Bitta aniq tranzaksiya uchun tasdiqlash"""
         try:
             trans = transaction_item['data']
             
             type_emoji = {
-                "income": "📈 Kirim",
-                "expense": "📉 Chiqim", 
-                "debt": "💳 Qarz"
-            }.get(trans['type'], "❓")
-            
-            message = f"💡 *Tranzaksiya aniqlandi*\n\n"
-            message += f"{type_emoji}: **{trans['amount']:,.0f} so'm**\n"
-            message += f"📂 Kategoriya: {trans['category']}\n"
-            message += f"📝 Tavsif: {trans['description']}\n"
-            message += f"🎯 Aniqlik: {trans['confidence']:.1%}\n\n"
+                "income": "📈",
+                "expense": "📉", 
+                "debt": "💳"
+            }.get(trans.get('type'), "❓")
+
+            amount_line = self._format_amount_with_sign(trans.get('amount', 0), trans.get('type', ''))
+            formatted_date = self._format_human_date(trans.get('transaction_time'))
+
+            message = "✅ Tranzaksiya aniqlandi\n\n"
+            message += f"{type_emoji} **{amount_line}**\n"
+            message += f"Kategoriya: {trans.get('category', 'boshqa')}\n"
+            message += f"Tavsif: {trans.get('description', 'Tavsif yoq')}\n"
+
+            original_text_clean = (original_text or "").strip()
+            if not original_text_clean:
+                original_text_clean = trans.get('original_text', '').strip()
+            if original_text_clean:
+                message += f"Izoh: \"{original_text_clean}\"\n"
+
+            message += f"Sana: {formatted_date}\n\n"
             message += "Tranzaksiyani saqlashni xohlaysizmi?"
             
             return {
@@ -1011,3 +1108,77 @@ JSON formatida qaytaring:
         except Exception as e:
             logging.error(f"Tugmalar yaratishda xatolik: {e}")
             return []
+
+    async def _ensure_ai_guess(self, data: Dict[str, Any], text: str) -> Dict[str, Any]:
+        """AI natijasini tekshirib, zarur bo'lsa qo'shimcha taxmin qilish"""
+        transactions = data.get('transactions', [])
+        has_positive_amount = any(
+            isinstance(t.get('amount'), (int, float)) and t.get('amount', 0) > 0
+            for t in transactions
+        )
+
+        if transactions and has_positive_amount:
+            return data
+
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """Siz moliyaviy tahlilchi AI siz. Oldingi natijada summalar topilmadi yoki 0 bo'ldi. Endi aynan shu matndan real summalarni toping yoki eng mantiqli taxminni yozing.
+
+QOIDALAR:
+- Hech qachon "tushunmadim" demang, har doim aniq taxmin qiling
+- "10 ming" = 10000, "25k" = 25000, "50 mingga" = 50000
+- Gap oxiri tushib qolsa ham ma'nosini to'ldiring
+- Har bir tranzaksiya uchun type, category, amount, description, confidence maydonlarini qaytaring
+- JSON formatida javob bering"""
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Matn: {text}\n\nIltimos, summani aniqlab yoki taxmin qilib JSON shaklida qaytaring."
+                    }
+                ],
+                temperature=0.2,
+                max_tokens=1000,
+            )
+
+            ai_response = response.choices[0].message.content.strip()
+            if "```json" in ai_response:
+                ai_response = ai_response.split("```json")[1].split("```")[0]
+            elif "```" in ai_response:
+                ai_response = ai_response.split("```")[1]
+
+            try:
+                guessed_data = json.loads(ai_response)
+            except json.JSONDecodeError:
+                logging.warning("AI taxminiy javob JSON emas, fallback qo'llanadi")
+                guessed_data = {}
+
+            guessed_transactions = guessed_data.get('transactions', [])
+
+            if guessed_transactions:
+                return guessed_data
+
+            # Agar AI javobi bo'sh bo'lsa, 0 dan kamida bitta taxminiy tranzaksiya yaratamiz
+            fallback_guess = {
+                "transactions": [
+                    {
+                        "amount": 0,
+                        "type": "expense",
+                        "category": "boshqa",
+                        "description": f"Taxminiy: {text[:60]}",
+                        "confidence": 0.5
+                    }
+                ],
+                "total_confidence": 0.5
+            }
+            return fallback_guess
+            if guessed_transactions:
+                return guessed_data
+
+        except Exception as e:
+            logging.warning(f"AI taxminiy yordamda xatolik: {e}")
+
+        return data
