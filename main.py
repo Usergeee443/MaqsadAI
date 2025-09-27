@@ -997,9 +997,9 @@ async def tariff_info_callback(callback_query: CallbackQuery):
     )
     await callback_query.answer()
 
-@dp.callback_query()
+@dp.callback_query(lambda c: not c.data.startswith("trans_"))
 async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext):
-    print(f"DEBUG: Any callback received: {callback_query.data}")
+    print(f"DEBUG: Non-transaction callback received: {callback_query.data}")
     
     # Tarif tanlash callbacklari
     if callback_query.data.startswith("tariff_"):
@@ -1799,30 +1799,38 @@ async def process_income_date(message: types.Message, state: FSMContext):
 @dp.callback_query(lambda c: c.data.startswith("trans_"))
 async def handle_transaction_callback(callback_query: CallbackQuery, state: FSMContext):
     """Tranzaksiya tugmalari uchun umumiy handler"""
+    print(f"DEBUG: Transaction callback received: {callback_query.data}")
     try:
         data = await state.get_data()
         transaction_data = data.get('transaction_data', {})
+        print(f"DEBUG: Transaction data from state: {transaction_data}")
         
         if not transaction_data:
+            print("DEBUG: No transaction data found in state")
             await callback_query.answer("❌ Tranzaksiya ma'lumotlari topilmadi!")
             return
         
         # Financial module orqali ishlov berish
+        print(f"DEBUG: Calling financial_module.handle_transaction_action with data: {callback_query.data}")
         result = await financial_module.handle_transaction_action(
             callback_query.data, 
             callback_query.from_user.id, 
             transaction_data
         )
+        print(f"DEBUG: Financial module result: {result}")
         
         if result['success']:
+            print(f"DEBUG: Transaction action successful: {result}")
             if result.get('type') == 'completed':
                 # Barcha ish tugadi
+                print("DEBUG: Clearing state and showing completion message")
                 await state.clear()
                 await callback_query.message.edit_text(
                     result['message'], 
                     parse_mode='Markdown',
                     reply_markup=None
                 )
+                await callback_query.answer()
             elif result.get('type') == 'updated_preview':
                 # Yangi preview ko'rsatish
                 buttons_data = result['buttons_data']
@@ -1858,17 +1866,20 @@ async def handle_transaction_callback(callback_query: CallbackQuery, state: FSMC
                 )
             else:
                 # Oddiy xabar
+                print(f"DEBUG: Showing simple message: {result['message']}")
                 await callback_query.message.edit_text(
                     result['message'], 
                     parse_mode='Markdown',
                     reply_markup=None
                 )
         else:
+            print(f"DEBUG: Transaction action failed: {result['message']}")
             await callback_query.answer(result['message'])
         
         await callback_query.answer()
         
     except Exception as e:
+        print(f"DEBUG: Exception in transaction callback: {e}")
         logging.error(f"Tranzaksiya callback ishlov berishda xatolik: {e}")
         await callback_query.answer("❌ Xatolik yuz berdi!")
 
