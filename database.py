@@ -65,6 +65,7 @@ class Database:
                     name VARCHAR(255) DEFAULT 'Xojayin',
                     source VARCHAR(50),
                     tariff ENUM('FREE', 'PRO', 'MAX', 'PREMIUM') DEFAULT 'FREE',
+                    tariff_expires_at DATETIME NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 )
@@ -79,6 +80,8 @@ class Database:
                     amount DECIMAL(15,2) NOT NULL,
                     category VARCHAR(100),
                     description TEXT,
+                    due_date DATE NULL,
+                    debt_direction ENUM('lent','borrowed') NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
                 )
@@ -130,6 +133,25 @@ class Database:
             # Yangi ustunlarni qo'shish (agar mavjud bo'lmasa)
             await self.add_missing_columns()
             
+            # Payments jadvali
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS payments (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    tariff ENUM('FREE', 'PLUS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'PREMIUM') NOT NULL,
+                    provider VARCHAR(50) DEFAULT 'telegram_click',
+                    total_amount BIGINT NOT NULL,
+                    currency VARCHAR(10) NOT NULL,
+                    payload VARCHAR(255),
+                    telegram_charge_id VARCHAR(255),
+                    provider_charge_id VARCHAR(255),
+                    status ENUM('pending','paid','failed') DEFAULT 'paid',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    paid_at TIMESTAMP NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                )
+            """)
+
             logging.info("Jadvallar muvaffaqiyatli yaratildi")
             
         except Exception as e:
@@ -143,6 +165,7 @@ class Database:
                 ("phone", "VARCHAR(20)"),
                 ("name", "VARCHAR(255) DEFAULT 'Xojayin'"),
                 ("source", "VARCHAR(50)"),
+                ("tariff_expires_at", "DATETIME NULL")
             ]
             
             for column_name, column_definition in columns_to_add:
@@ -161,6 +184,38 @@ class Database:
                 logging.info("Tarif enum yangilandi")
             except Exception as e:
                 logging.error(f"Tarif enum yangilashda xatolik: {e}")
+
+            # Transactions jadvaliga yangi ustunlar
+            trans_columns = [
+                ("due_date", "DATE NULL"),
+                ("debt_direction", "ENUM('lent','borrowed') NULL")
+            ]
+            for column_name, column_definition in trans_columns:
+                try:
+                    await self.execute_query(f"ALTER TABLE transactions ADD COLUMN {column_name} {column_definition}")
+                    logging.info(f"transactions.{column_name} qo'shildi")
+                except Exception as e:
+                    if "Duplicate column name" in str(e):
+                        logging.info(f"transactions.{column_name} allaqachon mavjud")
+                    else:
+                        logging.error(f"transactions.{column_name} qo'shishda xatolik: {e}")
+
+            # Qarz eslatmalari jadvali
+            try:
+                await self.execute_query("""
+                    CREATE TABLE IF NOT EXISTS debt_reminders (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        transaction_id INT NOT NULL,
+                        reminder_date DATE NOT NULL,
+                        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY uniq_user_tx_date (user_id, transaction_id, reminder_date),
+                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                        FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+                    )
+                """)
+            except Exception as e:
+                logging.error(f"debt_reminders jadvalini yaratishda xatolik: {e}")
                 
         except Exception as e:
             logging.error(f"Ustunlar qo'shishda xatolik: {e}")
@@ -168,7 +223,7 @@ class Database:
     async def get_user_data(self, user_id):
         """Foydalanuvchi ma'lumotlarini olish"""
         query = """
-        SELECT user_id, username, first_name, last_name, phone, name, source, tariff, created_at
+        SELECT user_id, username, first_name, last_name, phone, name, source, tariff, created_at, tariff_expires_at
         FROM users 
         WHERE user_id = %s
         """
@@ -184,7 +239,7 @@ class Database:
                 'source': result[6],
                 'tariff': result[7],
                 'created_at': result[8],
-                'tariff_expires_at': None,
+                'tariff_expires_at': result[9],
                 'is_active': True
             }
         return None
@@ -231,17 +286,32 @@ class Database:
         expense_result = await self.execute_one(expense_query, (user_id,))
         expense = float(expense_result[0]) if expense_result else 0.0
         
-        # Qarzlar
-        debt_query = "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s AND transaction_type = 'debt'"
-        debt_result = await self.execute_one(debt_query, (user_id,))
-        debt = float(debt_result[0]) if debt_result else 0.0
+        # Qarzlar (yo'nalma bo'yicha)
+        borrowed_query = "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s AND transaction_type = 'debt' AND debt_direction = 'borrowed'"
+        borrowed_result = await self.execute_one(borrowed_query, (user_id,))
+        borrowed = float(borrowed_result[0]) if borrowed_result else 0.0
+
+        lent_query = "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s AND transaction_type = 'debt' AND debt_direction = 'lent'"
+        lent_result = await self.execute_one(lent_query, (user_id,))
+        lent = float(lent_result[0]) if lent_result else 0.0
+
+        # Naqd balans: kirim + olingan qarz - chiqim - berilgan qarz
+        cash_balance = income + borrowed - expense - lent
+        # Sof balans: faqat kirim - chiqim (qarz olingan pul sof balansga hisoblanmaydi)
+        net_balance = income - expense
         
         return {
             'income': income,
             'expense': expense,
-            'debt': debt,
-            'balance': income - expense
+            'borrowed': borrowed,
+            'lent': lent,
+            'cash_balance': cash_balance,
+            'net_balance': net_balance
         }
+
+    async def get_balances(self, user_id):
+        """Kengaytirilgan balanslarni olish (naqd va sof)"""
+        return await self.get_balance(user_id)
 
     async def get_category_stats(self, user_id, days=30):
         """Kategoriyalar bo'yicha statistikalar"""

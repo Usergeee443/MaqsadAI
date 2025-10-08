@@ -14,6 +14,9 @@ CLICK_MERCHANT_ID=your_click_merchant_id
 CLICK_SERVICE_ID=your_click_service_id
 CLICK_SECRET_KEY=your_click_secret_key
 
+# Telegram Payments provider token (CLICK Terminal Test yoki LIVE)
+TELEGRAM_PAYMENT_PROVIDER_TOKEN=398062629:TEST:999999999_F91D8F69C042267444B74CC0B3C747757EB0E065
+
 # Boshqa sozlamalar
 DEBUG=False
 LOG_LEVEL=INFO

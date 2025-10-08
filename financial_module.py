@@ -69,18 +69,39 @@ class FinancialModule:
                 raise RuntimeError(
                     "Google Cloud Speech kredensial yo'q. Iltimos, GOOGLE_APPLICATION_CREDENTIALS ni .env faylda ko'rsating."
                 )
+            
+            # Serverda kredensial faylini tekshirish
+            import os
+            if not os.path.exists(GOOGLE_APPLICATION_CREDENTIALS):
+                raise RuntimeError(
+                    f"Google Cloud kredensial fayli topilmadi: {GOOGLE_APPLICATION_CREDENTIALS}"
+                )
+            
+            # Environment variable o'rnatish
+            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = GOOGLE_APPLICATION_CREDENTIALS
+            
             self.speech_client = speech.SpeechClient()
         return self.speech_client
         
     async def process_audio_input(self, audio_file_path: str, user_id: int) -> Dict[str, Any]:
         """Audio faylni qayta ishlash va moliyaviy ma'lumotlarni ajratish"""
         try:
+            print(f"DEBUG: Processing audio file: {audio_file_path}")
+            print(f"DEBUG: GOOGLE_APPLICATION_CREDENTIALS: {GOOGLE_APPLICATION_CREDENTIALS}")
             client = self._ensure_speech_client()
+            print("DEBUG: Speech client created successfully")
 
             with open(audio_file_path, "rb") as audio_file:
                 audio_content = audio_file.read()
 
-            initial_text = await self._transcribe_with_google(client, audio_content)
+            try:
+                initial_text = await self._transcribe_with_google(client, audio_content)
+                print(f"DEBUG: Google Speech transcription successful: {initial_text}")
+            except Exception as google_error:
+                print(f"DEBUG: Google Speech failed, trying Whisper: {google_error}")
+                # Google Speech ishlamasa, Whisper ga qaytish
+                initial_text = await self._transcribe_with_whisper(audio_file_path)
+                print(f"DEBUG: Whisper transcription: {initial_text}")
             if not initial_text:
                 return {
                     "success": False,
