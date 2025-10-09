@@ -32,6 +32,10 @@ PREMIUM_TARIFFS = {
     'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'PREMIUM'
 }
 
+# To'lov jarayonida ikki marta invoice yuborilishini bloklash uchun oddiy in-memory holat
+PENDING_PLUS_PAYMENTS = set()  # user_id lar jamlanmasi
+LAST_INVOICE_MESSAGE_ID = {}   # user_id -> message_id (oxirgi yuborilgan invoice)
+
 # Tarif muddatini tekshirish va avtomatik Freega o‘tkazish
 async def ensure_tariff_valid(user_id: int) -> None:
     try:
@@ -460,7 +464,7 @@ async def start_command(message: types.Message, state: FSMContext):
     
     # Foydalanuvchi yangi yoki eski ekanligini tekshirish
     user_data = await db.get_user_data(user_id)
-    if user_data and user_data.get('phone'):
+    if user_data and user_data.get('phone') and (await state.get_state()) != UserStates.waiting_for_tariff.state:
         # Eski foydalanuvchi - asosiy menyuni ko'rsatish
         user_tariff = await get_user_tariff(user_id)
         user_name = await get_user_name(user_id)
@@ -501,6 +505,15 @@ async def start_command(message: types.Message, state: FSMContext):
             parse_mode="Markdown"
         )
         await state.set_state(UserStates.waiting_for_phone)
+        return
+
+    # Agar foydalanuvchi telefon bergan bo'lsa-yu, hali tarif tanlamagan bo'lsa, tarif menyusiga yo'naltiramiz
+    if (await state.get_state()) == UserStates.waiting_for_tariff.state:
+        await message.answer(
+            get_tariff_overview_text(),
+            reply_markup=build_main_tariff_keyboard()
+        )
+        return
 
 # Telefon raqam qabul qilish
 @dp.message(lambda message: message.contact, UserStates.waiting_for_phone)
@@ -1139,7 +1152,7 @@ async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext
 
         # Aktiv foydalanuvchi uchun Aktivlashtirish tugmasini yashirish
         user_tariff = await get_user_tariff(user_id)
-        if user_tariff == tariff_code and user_tariff != 'FREE':
+        if (user_tariff == tariff_code and user_tariff != 'FREE'):
             # Expiry ma'lumotini chiqarish
             user_data = await db.get_user_data(user_id)
             expires_text = ""
@@ -1149,7 +1162,7 @@ async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext
                     exp_str = expires.strftime('%d.%m.%Y %H:%M')
                 except Exception:
                     exp_str = str(expires)
-                expires_text = f"\n\n⏰ Muddati: {exp_str}\n🔁 Qayta to‘lash: Tarif muddati tugaganda bu yerda yana to‘lashingiz mumkin."
+                expires_text = f"\n\n⏰ Muddati: {exp_str}\n🔁 Qayta to‘lash: Tarif muddati tugaganda qayta to‘lashingiz mumkin."
             keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback)]])
             await callback_query.message.edit_text(detail_text + expires_text, reply_markup=keyboard, parse_mode='Markdown')
         else:
@@ -1192,6 +1205,19 @@ async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext
             # Telegram Payments orqali Click Test bilan invoice yuboramiz
             print("DEBUG: Processing PLUS activation via Payments")
             user_id = callback_query.from_user.id
+            # Agar allaqachon aktiv Plus bo'lsa, qayta to'lovga ruxsat bermaymiz
+            try:
+                user_data = await db.get_user_data(user_id)
+                current = user_data.get('tariff') if user_data else 'FREE'
+                if current == 'PLUS' and await is_paid_active(user_id):
+                    await callback_query.answer("Sizda Plus obuna allaqachon aktiv. Muddat tugagach qayta to'lashingiz mumkin.", show_alert=True)
+                    return
+                # Agar to'lov jarayoni allaqachon boshlangan bo'lsa, bloklaymiz
+                if user_id in PENDING_PLUS_PAYMENTS:
+                    await callback_query.answer("To'lov jarayoni davom etmoqda. Iltimos, kuting.", show_alert=True)
+                    return
+            except Exception as _e:
+                logging.error(f"PLUS double-purchase guard error: {_e}")
             await callback_query.answer()
 
             prices = [types.LabeledPrice(label="Plus (1 oy)", amount=2999000)]  # 29 990 so'm (minor units)
@@ -1200,8 +1226,15 @@ async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext
                 if not TELEGRAM_PAYMENT_PROVIDER_TOKEN:
                     await callback_query.message.answer("❌ Payment token topilmadi. Admin tokenni sozlashi kerak.")
                     return
-
-                await bot.send_invoice(
+                # Invoice yuborishdan oldin pendingga qo'shamiz va UI ni yangilaymiz
+                PENDING_PLUS_PAYMENTS.add(user_id)
+                try:
+                    # Hozirgi tarif detal xabari bo'lsa, tugmalarni "Orqaga" bilan almashtiramiz
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data="tariff_BACK_MAIN")]])
+                    await callback_query.message.edit_reply_markup(reply_markup=keyboard)
+                except Exception:
+                    pass
+                inv_msg = await bot.send_invoice(
                     chat_id=user_id,
                     title="Balans AI - Plus tarif (1 oy)",
                     description="Plus tarif: AI yordamida tovush va matnni avtomatik qayta ishlash.",
@@ -1213,8 +1246,18 @@ async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext
                     need_phone_number=False,
                     is_flexible=False
                 )
+                # Oxirgi invoice xabarini saqlaymiz
+                try:
+                    LAST_INVOICE_MESSAGE_ID[user_id] = inv_msg.message_id
+                except Exception:
+                    pass
             except Exception as e:
                 logging.error(f"send_invoice xatolik: {e}")
+                # Xatolik bo'lsa pendingdan olib tashlaymiz
+                try:
+                    PENDING_PLUS_PAYMENTS.discard(user_id)
+                except Exception:
+                    pass
                 await callback_query.message.answer(
                     "❌ To'lov xizmatiga ulanishda xatolik. Iltimos, keyinroq urinib ko'ring yoki admin bilan bog'laning.\n\n"
                     "Agar admin bo'lsangiz: BotFather > Settings > Payments dan aynan shu botga 'CLICK Terminal Test' ni ulang va tokenni .env dagi TELEGRAM_PAYMENT_PROVIDER_TOKEN ga qo'ying."
@@ -1285,13 +1328,32 @@ async def process_tariff_onboarding_only(callback_query: CallbackQuery, state: F
         return
 
     if tariff != "FREE":
-        # Boshqa tariflar uchun faqat ma'lumot ko'rsatish
+        # Boshqa tariflar uchun ma'lumot ko'rsatish; aktiv bo'lsa Aktivlashtirish tugmasini yashirish
         detail_text = get_tariff_detail_text(tariff)
         back_callback = "tariff_BACK_MAIN"
         if tariff in {"FAMILY", "FAMILY_PLUS", "FAMILY_MAX"}:
             back_callback = "tariff_FAMILY_MENU"
         elif tariff in {"BUSINESS", "BUSINESS_PLUS", "BUSINESS_MAX"}:
             back_callback = "tariff_BUSINESS_MENU"
+
+        try:
+            user_data = await db.get_user_data(user_id)
+            current = user_data.get('tariff') if user_data else 'FREE'
+            if current == tariff and current != 'FREE':
+                expires_text = ""
+                if user_data and user_data.get('tariff_expires_at'):
+                    exp = user_data['tariff_expires_at']
+                    try:
+                        exp_str = exp.strftime('%d.%m.%Y %H:%M')
+                    except Exception:
+                        exp_str = str(exp)
+                    expires_text = f"\n\n⏰ Muddati: {exp_str}\n🔁 Qayta to‘lash: Tarif muddati tugaganda qayta sotib olishingiz mumkin."
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback)]])
+                await callback_query.message.edit_text(detail_text + expires_text, reply_markup=keyboard, parse_mode='Markdown')
+                await callback_query.answer()
+                return
+        except Exception as _e:
+            logging.error(f"onboarding detail active-check error: {_e}")
 
         keyboard = build_tariff_detail_keyboard(tariff, back_callback)
         await callback_query.message.edit_text(detail_text, reply_markup=keyboard, parse_mode='Markdown')
@@ -2021,6 +2083,16 @@ async def handle_transaction_callback(callback_query: CallbackQuery, state: FSMC
 async def process_pre_checkout_query(pre_checkout_q: types.PreCheckoutQuery):
     """To'lovdan oldingi tekshiruvni tasdiqlash"""
     try:
+        user_id = pre_checkout_q.from_user.id
+        # Agar foydalanuvchi allaqachon aktiv Plus bo'lsa, chekoutni bloklaymiz
+        try:
+            user_data = await db.get_user_data(user_id)
+            current = user_data.get('tariff') if user_data else 'FREE'
+            if current == 'PLUS' and await is_paid_active(user_id):
+                await bot.answer_pre_checkout_query(pre_checkout_q.id, ok=False, error_message="Sizda Plus obuna allaqachon aktiv. Qayta to'lov kerak emas.")
+                return
+        except Exception as _e:
+            logging.error(f"pre_checkout guard error: {_e}")
         await bot.answer_pre_checkout_query(pre_checkout_q.id, ok=True)
     except Exception as e:
         logging.error(f"PreCheckout xato: {e}")
@@ -2066,6 +2138,19 @@ async def process_successful_payment(message: types.Message):
                 parse_mode="Markdown",
                 reply_markup=get_premium_menu()
             )
+            # Pending holatini tozalash
+            try:
+                PENDING_PLUS_PAYMENTS.discard(user_id)
+            except Exception:
+                pass
+            # Oxirgi invoice xabarini o'chirishga urinamiz
+            try:
+                msg_id = LAST_INVOICE_MESSAGE_ID.get(user_id)
+                if msg_id:
+                    await bot.delete_message(chat_id=user_id, message_id=msg_id)
+                    LAST_INVOICE_MESSAGE_ID.pop(user_id, None)
+            except Exception as _e:
+                logging.error(f"delete invoice message error: {_e}")
     except Exception as e:
         logging.error(f"Successful payment processing error: {e}")
         await message.answer("❌ To'lovdan keyin tarifni faollashtirishda xatolik yuz berdi. Admin bilan bog'laning.")
