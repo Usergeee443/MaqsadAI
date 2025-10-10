@@ -14,7 +14,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from config import BOT_TOKEN, TARIFFS, CATEGORIES, TELEGRAM_PAYMENT_PROVIDER_TOKEN
+from config import BOT_TOKEN, TARIFFS, CATEGORIES, TARIFF_PRICES, DISCOUNT_RATES, PAYMENT_METHODS, TELEGRAM_PAYMENT_PROVIDER_TOKEN
 from database import db
 from financial_module import FinancialModule
 from reports_module import ReportsModule
@@ -33,8 +33,34 @@ PREMIUM_TARIFFS = {
 }
 
 # To'lov jarayonida ikki marta invoice yuborilishini bloklash uchun oddiy in-memory holat
-PENDING_PLUS_PAYMENTS = set()  # user_id lar jamlanmasi
+from time import time as _now
+PENDING_PLUS_PAYMENTS = {}      # user_id -> ts
+PENDING_BUSINESS_PAYMENTS = {}  # user_id -> ts
 LAST_INVOICE_MESSAGE_ID = {}   # user_id -> message_id (oxirgi yuborilgan invoice)
+
+# Pending util (180s ichida faqat bitta invoice)
+PENDING_TTL_SECONDS = 180
+
+def _pending_is_active(storage: dict, user_id: int) -> bool:
+    ts = storage.get(user_id)
+    if not ts:
+        return False
+    if _now() - ts > PENDING_TTL_SECONDS:
+        try:
+            storage.pop(user_id, None)
+        except Exception:
+            pass
+        return False
+    return True
+
+def _pending_add(storage: dict, user_id: int) -> None:
+    storage[user_id] = _now()
+
+def _pending_clear(storage: dict, user_id: int) -> None:
+    try:
+        storage.pop(user_id, None)
+    except Exception:
+        pass
 
 # Tarif muddatini tekshirish va avtomatik Freega o‘tkazish
 async def ensure_tariff_valid(user_id: int) -> None:
@@ -137,8 +163,8 @@ def get_family_tariff_keyboard() -> InlineKeyboardMarkup:
 def get_business_tariff_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🏢 Biznes", callback_data="tariff_BUSINESS")],
-        [InlineKeyboardButton(text="🏬 Biznes Plus", callback_data="tariff_BUSINESS_PLUS")],
-        [InlineKeyboardButton(text="🏦 Biznes Max", callback_data="tariff_BUSINESS_MAX")],
+        [InlineKeyboardButton(text="🏬 Biznes Plus (tez orada)", callback_data="tariff_BUSINESS_PLUS_INFO")],
+        [InlineKeyboardButton(text="🏦 Biznes Max (tez orada)", callback_data="tariff_BUSINESS_MAX_INFO")],
         [InlineKeyboardButton(text="⬅️ Asosiy tariflar", callback_data="tariff_BACK_MAIN")]
     ])
 
@@ -160,10 +186,7 @@ def get_business_overview_text() -> str:
         "Kichikdan yirikgacha bo‘lgan biznesingizni samarali boshqaring. Balans AI xodimlarni kuzatish,"
         " filiallarni qo‘shish, daromad va xarajatlarni avtomatlashtirish hamda chuqur AI tahlillari bilan"
         " biznesingizni yangi bosqichga olib chiqadi.\n\n"
-        "📌 Quyidagi tariflardan birini tanlang:\n"
-        "• Business — kichik biznes uchun\n"
-        "• Business Plus — filiallarga ega o‘rta va yirik bizneslar uchun\n"
-        "• Business Max — cheksiz imkoniyatlar va to‘liq AI prognozlari"
+        "📌 Hozircha faqat ‘Business’ (oddiy) tarifini faollashtirish mumkin. Qolganlari tez orada."
     )
 
 def get_tariff_detail_text(tariff_code: str) -> str:
@@ -277,6 +300,13 @@ class UserStates(StatesGroup):
     
     # Tranzaksiya tasdiqlash uchun state'lar
     waiting_for_transaction_confirmation = State()
+    
+    # Xodim qo'shish uchun state
+    waiting_for_employee_id = State()
+    
+    # Tarif sotib olish uchun state'lar
+    waiting_for_subscription_duration = State()
+    waiting_for_payment_method = State()
 
 # Bepul tarif menyusi
 def get_free_menu():
@@ -298,6 +328,19 @@ def get_premium_menu():
         keyboard=[
             [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/")), KeyboardButton(text="👤 Profil")],
             [KeyboardButton(text="💰 Balans")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False
+    )
+    return keyboard
+
+# Business menyusi
+def get_business_menu():
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="➕ Xodim qo'shish"), KeyboardButton(text="💳 Qarzlar")],
+            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/"))],
+            [KeyboardButton(text="💰 Balans"), KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -342,7 +385,8 @@ def get_profile_menu():
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings")],
-            [InlineKeyboardButton(text="💳 Tarif", callback_data="tariff_info")]
+            [InlineKeyboardButton(text="💳 Tarif", callback_data="tariff_info")],
+            [InlineKeyboardButton(text="🔄 Tarifni o'zgartirish", callback_data="switch_tariff")]
         ]
     )
     return keyboard
@@ -427,13 +471,68 @@ def get_debt_category_menu():
     return keyboard
 
 async def get_user_tariff(user_id: int) -> str:
-    """Foydalanuvchi tarifini olish"""
+    """Foydalanuvchi tarifini olish (yangi ko'p tarif tizimi)"""
     try:
-        query = "SELECT tariff FROM users WHERE user_id = %s"
-        result = await db.execute_one(query, (user_id,))
-        return result[0] if result else "FREE"
+        return await db.get_active_tariff(user_id)
     except:
         return "FREE"
+
+async def get_user_all_subscriptions(user_id: int):
+    """Foydalanuvchining barcha tariflarini olish"""
+    try:
+        return await db.get_user_subscriptions(user_id)
+    except:
+        return []
+
+def calculate_subscription_price(tariff: str, months: int) -> dict:
+    """Obuna narxini hisoblash (chegirma bilan)"""
+    base_price = TARIFF_PRICES.get(tariff, 0)
+    if base_price == 0:
+        return {"error": "Tarif topilmadi"}
+    
+    total_months = months
+    discount_rate = DISCOUNT_RATES.get(months, 0)
+    
+    # Jami narx (chegirmasiz)
+    total_price = base_price * total_months
+    
+    # Chegirma miqdori
+    discount_amount = int(total_price * discount_rate / 100)
+    
+    # Yakuniy narx
+    final_price = total_price - discount_amount
+    
+    return {
+        "base_price": base_price,
+        "total_months": total_months,
+        "discount_rate": discount_rate,
+        "discount_amount": discount_amount,
+        "total_price": total_price,
+        "final_price": final_price
+    }
+
+def get_subscription_duration_keyboard() -> InlineKeyboardMarkup:
+    """Obuna muddati tanlash tugmalari"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="1 oy", callback_data="duration_1")],
+        [InlineKeyboardButton(text="2 oy (5% chegirma)", callback_data="duration_2")],
+        [InlineKeyboardButton(text="3 oy (10% chegirma)", callback_data="duration_3")],
+        [InlineKeyboardButton(text="6 oy (15% chegirma)", callback_data="duration_6")],
+        [InlineKeyboardButton(text="12 oy (25% chegirma)", callback_data="duration_12")],
+        [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_tariff_selection")]
+    ])
+    return keyboard
+
+def get_payment_method_keyboard() -> InlineKeyboardMarkup:
+    """To'lov usuli tanlash tugmalari"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Telegram (Click)", callback_data="payment_telegram_click")],
+        [InlineKeyboardButton(text="🔵 Click", callback_data="payment_click")],
+        [InlineKeyboardButton(text="🟢 Payme", callback_data="payment_payme")],
+        [InlineKeyboardButton(text="🟡 Uzum Pay", callback_data="payment_uzum_pay")],
+        [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_duration_selection")]
+    ])
+    return keyboard
 
 async def get_user_name(user_id: int) -> str:
     """Foydalanuvchi ismini olish"""
@@ -475,6 +574,14 @@ async def start_command(message: types.Message, state: FSMContext):
                 "Balans AI ga xush kelibsiz!\n\n"
                 "Quyidagi tugmalardan foydalaning:",
                 reply_markup=get_free_menu(),
+                parse_mode="Markdown"
+            )
+        elif user_tariff == "BUSINESS":
+            await message.answer(
+                f"👋 Salom, {user_name}!\n\n"
+                "Balans AI Business ga xush kelibsiz!\n\n"
+                "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
+                reply_markup=get_business_menu(),
                 parse_mode="Markdown"
             )
         else:
@@ -1022,21 +1129,33 @@ async def profile_handler(message: Message, state: FSMContext):
     
     # Foydalanuvchi tarifini olish
     user_tariff = await get_user_tariff(user_id)
+    all_subscriptions = await get_user_all_subscriptions(user_id)
     
     # Profil ma'lumotlarini tayyorlash (qisqartirilgan)
     profile_text = f"👤 **Profil**\n\n"
     profile_text += f"🆔 ID: `{user_id}`\n"
     profile_text += f"📅 Ro'yxat: {user_data['created_at'].strftime('%d.%m.%Y')}\n"
-    profile_text += f"💳 Tarif: {TARIFFS.get(user_tariff, 'Nomalum')}\n"
     profile_text += f"👤 Ism: {user_data.get('name', 'Nomalum')}\n"
     if user_data.get('phone'):
-        profile_text += f"📱 Tel: {user_data['phone']}\n"
+        profile_text += f"📱 Tel: {user_data['phone']}\n\n"
+    
+    # Aktiv tarif
+    profile_text += f"🎯 **Aktiv tarif:** {TARIFFS.get(user_tariff, 'Nomalum')}\n"
+    
+    # Barcha tariflar
+    if all_subscriptions:
+        profile_text += f"\n📋 **Sotib olingan tariflar:**\n"
+        for sub in all_subscriptions:
+            tariff_name = TARIFFS.get(sub[0], sub[0])
+            status = "🟢 Aktiv" if sub[1] else "⚪ Mavjud"
+            expires = sub[2].strftime('%d.%m.%Y') if sub[2] else "Cheksiz"
+            profile_text += f"• {tariff_name} - {status} (tugash: {expires})\n"
     
     # Agar pullik tarif bo'lsa, muddatini ko'rsatish
-    if user_tariff in ['PRO', 'MAX', 'PREMIUM'] and user_data.get('tariff_expires_at'):
-        profile_text += f"⏰ Muddati: {user_data['tariff_expires_at'].strftime('%d.%m.%Y')}\n"
+    if user_tariff in ['PRO', 'MAX', 'PREMIUM', 'PLUS', 'BUSINESS'] and user_data.get('tariff_expires_at'):
+        profile_text += f"\n⏰ **Aktiv tarif muddati:** {user_data['tariff_expires_at'].strftime('%d.%m.%Y %H:%M')}\n"
     elif user_tariff in ['PRO', 'MAX', 'PREMIUM']:
-        profile_text += f"⏰ Muddati: Cheksiz\n"
+        profile_text += f"\n⏰ **Muddati:** Cheksiz\n"
     
     await message.answer(profile_text, reply_markup=get_profile_menu(), parse_mode='Markdown')
 
@@ -1080,10 +1199,308 @@ async def change_tariff_callback(callback_query: CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "tariff_info")
 async def tariff_info_callback(callback_query: CallbackQuery):
+    """Tarif ma'lumotlarini ko'rsatish"""
+    user_id = callback_query.from_user.id
+    user_tariff = await get_user_tariff(user_id)
+    all_subscriptions = await get_user_all_subscriptions(user_id)
+    
+    tariff_text = f"💳 **Tarif ma'lumotlari**\n\n"
+    tariff_text += f"🎯 **Joriy aktiv tarif:** {TARIFFS.get(user_tariff, 'Nomalum')}\n"
+    
+    if all_subscriptions:
+        tariff_text += f"\n📋 **Sotib olingan tariflar:**\n"
+        for sub in all_subscriptions:
+            tariff_name = TARIFFS.get(sub[0], sub[0])
+            status = "🟢 Aktiv" if sub[1] else "⚪ Mavjud"
+            expires = sub[2].strftime('%d.%m.%Y') if sub[2] else "Cheksiz"
+            tariff_text += f"• {tariff_name} - {status} (tugash: {expires})\n"
+    
+    if user_tariff == "FREE":
+        tariff_text += "\n🆓 **Bepul tarif imkoniyatlari:**\n"
+        tariff_text += "• Asosiy moliyaviy funksiyalar\n"
+        tariff_text += "• Qarzlar boshqaruvi\n"
+        tariff_text += "• Balans ko'rish\n\n"
+        tariff_text += "💡 **Premium tarifga o'tish uchun:**\n"
+        tariff_text += "• AI yordamida avtomatik qayta ishlash\n"
+        tariff_text += "• Kengaytirilgan hisobotlar\n"
+        tariff_text += "• Shaxsiy maslahatlar"
+    else:
+        tariff_text += "\n⭐ **Premium tarif imkoniyatlari:**\n"
+        tariff_text += "• AI yordamida avtomatik qayta ishlash\n"
+        tariff_text += "• Kengaytirilgan hisobotlar\n"
+        tariff_text += "• Shaxsiy maslahatlar\n"
+        tariff_text += "• Cheksiz tranzaksiya qayta ishlash"
+    
+    # Yangi tarif sotib olish uchun tugma qo'shamiz
+    keyboard_buttons = [
+        [InlineKeyboardButton(text="🆕 Yangi tarif sotib olish", callback_data="buy_new_tariff")],
+        [InlineKeyboardButton(text="🔄 Tarifni o'zgartirish", callback_data="switch_tariff")],
+        [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_profile")]
+    ]
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    
+    await callback_query.message.edit_text(tariff_text, reply_markup=keyboard, parse_mode='Markdown')
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "switch_tariff")
+async def switch_tariff_callback(callback_query: CallbackQuery):
+    """Tarifni o'zgartirish menyusini ko'rsatish"""
+    user_id = callback_query.from_user.id
+    all_subscriptions = await get_user_all_subscriptions(user_id)
+    
+    if not all_subscriptions:
+        await callback_query.answer("❌ Sizda sotib olingan tariflar yo'q!", show_alert=True)
+        return
+    
+    keyboard_buttons = []
+    for sub in all_subscriptions:
+        tariff_name = TARIFFS.get(sub[0], sub[0])
+        status = "🟢" if sub[1] else "⚪"
+        keyboard_buttons.append([InlineKeyboardButton(
+            text=f"{status} {tariff_name}",
+            callback_data=f"activate_tariff_{sub[0]}"
+        )])
+    
+    keyboard_buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_profile")])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    
+    await callback_query.message.edit_text(
+        "🔄 **Tarifni o'zgartirish**\n\n"
+        "Qaysi tarifni aktiv qilmoqchisiz?",
+        reply_markup=keyboard,
+        parse_mode='Markdown'
+    )
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("activate_tariff_"))
+async def activate_tariff_callback(callback_query: CallbackQuery):
+    """Tanlangan tarifni aktiv qilish"""
+    user_id = callback_query.from_user.id
+    tariff = callback_query.data.split("_")[2]
+    
+    try:
+        await db.set_active_tariff(user_id, tariff)
+        tariff_name = TARIFFS.get(tariff, tariff)
+        
+        await callback_query.message.edit_text(
+            f"✅ **Tarif o'zgartirildi!**\n\n"
+            f"🎯 **Aktiv tarif:** {tariff_name}\n\n"
+            f"Endi {tariff_name} imkoniyatlaridan foydalanishingiz mumkin.",
+            parse_mode='Markdown'
+        )
+        
+        # Menyuni yangilash
+        if tariff == "FREE":
+            await callback_query.message.answer("Bepul tarif menyusi:", reply_markup=get_free_menu())
+        elif tariff == "BUSINESS":
+            await callback_query.message.answer("Business tarif menyusi:", reply_markup=get_business_menu())
+        else:
+            await callback_query.message.answer("Premium tarif menyusi:", reply_markup=get_premium_menu())
+            
+    except Exception as e:
+        logging.error(f"Tarif o'zgartirishda xatolik: {e}")
+        await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+    
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "back_to_profile")
+async def back_to_profile_callback(callback_query: CallbackQuery):
+    """Profilga qaytish"""
+    user_id = callback_query.from_user.id
+    user_data = await db.get_user_data(user_id)
+    user_tariff = await get_user_tariff(user_id)
+    all_subscriptions = await get_user_all_subscriptions(user_id)
+    
+    profile_text = f"👤 **Profil**\n\n"
+    profile_text += f"🆔 ID: `{user_id}`\n"
+    profile_text += f"📅 Ro'yxat: {user_data['created_at'].strftime('%d.%m.%Y')}\n"
+    profile_text += f"👤 Ism: {user_data.get('name', 'Nomalum')}\n"
+    if user_data.get('phone'):
+        profile_text += f"📱 Tel: {user_data['phone']}\n\n"
+    
+    profile_text += f"🎯 **Aktiv tarif:** {TARIFFS.get(user_tariff, 'Nomalum')}\n"
+    
+    if all_subscriptions:
+        profile_text += f"\n📋 **Sotib olingan tariflar:**\n"
+        for sub in all_subscriptions:
+            tariff_name = TARIFFS.get(sub[0], sub[0])
+            status = "🟢 Aktiv" if sub[1] else "⚪ Mavjud"
+            expires = sub[2].strftime('%d.%m.%Y') if sub[2] else "Cheksiz"
+            profile_text += f"• {tariff_name} - {status} (tugash: {expires})\n"
+    
+    await callback_query.message.edit_text(
+        profile_text,
+        reply_markup=get_profile_menu(),
+        parse_mode='Markdown'
+    )
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "buy_new_tariff")
+async def buy_new_tariff_callback(callback_query: CallbackQuery):
+    """Yangi tarif sotib olish menyusini ko'rsatish"""
     await callback_query.message.edit_text(
         get_tariff_overview_text(),
         reply_markup=build_main_tariff_keyboard()
     )
+    await callback_query.answer()
+
+# Muddat tanlash handleri
+@dp.callback_query(lambda c: c.data.startswith("duration_"), UserStates.waiting_for_subscription_duration)
+async def process_subscription_duration(callback_query: CallbackQuery, state: FSMContext):
+    """Obuna muddatini qabul qilish"""
+    user_id = callback_query.from_user.id
+    months = int(callback_query.data.split("_")[1])
+    
+    # State dan tarifni olamiz
+    data = await state.get_data()
+    tariff = data.get('selected_tariff')
+    
+    if not tariff:
+        await callback_query.answer("❌ Tarif topilmadi. Qaytadan boshlang.", show_alert=True)
+        return
+    
+    # Narxni hisoblaymiz
+    price_info = calculate_subscription_price(tariff, months)
+    if "error" in price_info:
+        await callback_query.answer("❌ Xatolik yuz berdi.", show_alert=True)
+        return
+    
+    # State ga muddatni saqlaymiz
+    await state.update_data(selected_months=months, price_info=price_info)
+    
+    # To'lov usuli tanlash menyusini ko'rsatamiz
+    tariff_name = TARIFFS.get(tariff, tariff)
+    discount_text = f" ({price_info['discount_rate']}% chegirma)" if price_info['discount_rate'] > 0 else ""
+    
+    text = f"💳 **To'lov usulini tanlang**\n\n"
+    text += f"📋 **Tarif:** {tariff_name}\n"
+    text += f"⏰ **Muddat:** {months} oy{discount_text}\n"
+    text += f"💰 **Narx:** {price_info['final_price']:,} so'm\n"
+    
+    if price_info['discount_rate'] > 0:
+        text += f"💸 **Chegirma:** {price_info['discount_amount']:,} so'm\n"
+    
+    await callback_query.message.edit_text(
+        text,
+        reply_markup=get_payment_method_keyboard(),
+        parse_mode='Markdown'
+    )
+    await state.set_state(UserStates.waiting_for_payment_method)
+    await callback_query.answer()
+
+# To'lov usuli tanlash handleri
+@dp.callback_query(lambda c: c.data.startswith("payment_"), UserStates.waiting_for_payment_method)
+async def process_payment_method(callback_query: CallbackQuery, state: FSMContext):
+    """To'lov usulini qabul qilish"""
+    user_id = callback_query.from_user.id
+    payment_method = callback_query.data.replace("payment_", "")
+    
+    # State dan ma'lumotlarni olamiz
+    data = await state.get_data()
+    tariff = data.get('selected_tariff')
+    months = data.get('selected_months')
+    price_info = data.get('price_info')
+    
+    if not all([tariff, months, price_info]):
+        await callback_query.answer("❌ Ma'lumotlar topilmadi. Qaytadan boshlang.", show_alert=True)
+        return
+    
+    # Hozircha faqat Telegram Click qo'llab-quvvatlanadi
+    if payment_method != "telegram_click":
+        await callback_query.answer("🚧 Bu to'lov usuli tez orada qo'shiladi!", show_alert=True)
+        return
+    
+    # Telegram Payments orqali to'lov
+    try:
+        if not TELEGRAM_PAYMENT_PROVIDER_TOKEN:
+            await callback_query.message.answer("❌ Payment token topilmadi. Admin tokenni sozlashi kerak.")
+            return
+        
+        # Pending holatini qo'shamiz
+        if tariff == 'PLUS':
+            _pending_add(PENDING_PLUS_PAYMENTS, user_id)
+        else:
+            _pending_add(PENDING_BUSINESS_PAYMENTS, user_id)
+        
+        # Invoice yuboramiz
+        tariff_name = TARIFFS.get(tariff, tariff)
+        discount_text = f" ({price_info['discount_rate']}% chegirma)" if price_info['discount_rate'] > 0 else ""
+        
+        prices = [types.LabeledPrice(
+            label=f"{tariff_name} ({months} oy{discount_text})", 
+            amount=price_info['final_price']
+        )]
+        
+        inv_msg = await bot.send_invoice(
+            chat_id=user_id,
+            title=f"Balans AI - {tariff_name} tarif ({months} oy)",
+            description=f"{tariff_name} tarif: {months} oylik obuna{discount_text}",
+            payload=f"{tariff.lower()}:{user_id}:{int(datetime.now().timestamp())}:{months}",
+            provider_token=TELEGRAM_PAYMENT_PROVIDER_TOKEN,
+            currency="UZS",
+            prices=prices,
+            need_name=False,
+            need_phone_number=False,
+            is_flexible=False
+        )
+        
+        # Invoice xabarini saqlaymiz
+        LAST_INVOICE_MESSAGE_ID[user_id] = inv_msg.message_id
+        
+        await callback_query.message.edit_text(
+            f"💳 **To'lov haqida**\n\n"
+            f"📋 **Tarif:** {tariff_name}\n"
+            f"⏰ **Muddat:** {months} oy\n"
+            f"💰 **Jami:** {price_info['final_price']:,} so'm\n\n"
+            f"To'lovni amalga oshirish uchun yuqoridagi tugmani bosing.",
+            parse_mode='Markdown'
+        )
+        
+        await state.clear()
+        await callback_query.answer()
+        
+    except Exception as e:
+        logging.error(f"Payment initiation error: {e}")
+        await callback_query.answer("❌ To'lovni boshlashda xatolik yuz berdi.", show_alert=True)
+        
+        # Pending holatini tozalaymiz
+        if tariff == 'PLUS':
+            _pending_clear(PENDING_PLUS_PAYMENTS, user_id)
+        else:
+            _pending_clear(PENDING_BUSINESS_PAYMENTS, user_id)
+
+# Orqaga qaytish handlerlari
+@dp.callback_query(lambda c: c.data == "back_to_tariff_selection")
+async def back_to_tariff_selection(callback_query: CallbackQuery, state: FSMContext):
+    """Tarif tanlashga qaytish"""
+    await callback_query.message.edit_text(
+        get_tariff_overview_text(),
+        reply_markup=build_main_tariff_keyboard()
+    )
+    await state.clear()
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "back_to_duration_selection")
+async def back_to_duration_selection(callback_query: CallbackQuery, state: FSMContext):
+    """Muddat tanlashga qaytish"""
+    data = await state.get_data()
+    tariff = data.get('selected_tariff')
+    
+    if not tariff:
+        await callback_query.answer("❌ Ma'lumotlar topilmadi.", show_alert=True)
+        return
+    
+    tariff_name = TARIFFS.get(tariff, tariff)
+    await callback_query.message.edit_text(
+        f"📅 **{tariff_name} tarifini tanladingiz**\n\n"
+        f"Qancha oylik obuna olishni xohlaysiz?\n\n"
+        f"Uzoq muddatli obunalar uchun chegirma mavjud:",
+        reply_markup=get_subscription_duration_keyboard(),
+        parse_mode='Markdown'
+    )
+    await state.set_state(UserStates.waiting_for_subscription_duration)
     await callback_query.answer()
 
 @dp.callback_query(lambda c: not c.data.startswith("trans_"))
@@ -1128,6 +1545,9 @@ async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext
                 reply_markup=get_business_tariff_keyboard()
             )
             await callback_query.answer()
+            return
+        if code in ["BUSINESS_PLUS_INFO", "BUSINESS_MAX_INFO"]:
+            await callback_query.answer("🚧 Tez orada: hozircha faqat ‘Biznes’ tarifini faollashtirish mumkin.", show_alert=True)
             return
         
         if code == "BACK_MAIN":
@@ -1201,67 +1621,25 @@ async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext
             await callback_query.answer()
             return
 
-        if tariff_code == "PLUS":
-            # Telegram Payments orqali Click Test bilan invoice yuboramiz
-            print("DEBUG: Processing PLUS activation via Payments")
+        if tariff_code in ("PLUS", "BUSINESS", "MAX", "FAMILY", "FAMILY_PLUS", "FAMILY_MAX", "BUSINESS_PLUS", "BUSINESS_MAX"):
+            # Yangi tarif sotib olish jarayoni - muddat tanlash
+            print(f"DEBUG: Processing paid tariff selection: {tariff_code}")
             user_id = callback_query.from_user.id
-            # Agar allaqachon aktiv Plus bo'lsa, qayta to'lovga ruxsat bermaymiz
-            try:
-                user_data = await db.get_user_data(user_id)
-                current = user_data.get('tariff') if user_data else 'FREE'
-                if current == 'PLUS' and await is_paid_active(user_id):
-                    await callback_query.answer("Sizda Plus obuna allaqachon aktiv. Muddat tugagach qayta to'lashingiz mumkin.", show_alert=True)
-                    return
-                # Agar to'lov jarayoni allaqachon boshlangan bo'lsa, bloklaymiz
-                if user_id in PENDING_PLUS_PAYMENTS:
-                    await callback_query.answer("To'lov jarayoni davom etmoqda. Iltimos, kuting.", show_alert=True)
-                    return
-            except Exception as _e:
-                logging.error(f"PLUS double-purchase guard error: {_e}")
+            
+            # State ga tarifni saqlaymiz
+            await state.update_data(selected_tariff=tariff_code)
+            
+            # Muddat tanlash menyusini ko'rsatamiz
+            tariff_name = TARIFFS.get(tariff_code, tariff_code)
+            await callback_query.message.edit_text(
+                f"📅 **{tariff_name} tarifini tanladingiz**\n\n"
+                f"Qancha oylik obuna olishni xohlaysiz?\n\n"
+                f"Uzoq muddatli obunalar uchun chegirma mavjud:",
+                reply_markup=get_subscription_duration_keyboard(),
+                parse_mode='Markdown'
+            )
+            await state.set_state(UserStates.waiting_for_subscription_duration)
             await callback_query.answer()
-
-            prices = [types.LabeledPrice(label="Plus (1 oy)", amount=2999000)]  # 29 990 so'm (minor units)
-
-            try:
-                if not TELEGRAM_PAYMENT_PROVIDER_TOKEN:
-                    await callback_query.message.answer("❌ Payment token topilmadi. Admin tokenni sozlashi kerak.")
-                    return
-                # Invoice yuborishdan oldin pendingga qo'shamiz va UI ni yangilaymiz
-                PENDING_PLUS_PAYMENTS.add(user_id)
-                try:
-                    # Hozirgi tarif detal xabari bo'lsa, tugmalarni "Orqaga" bilan almashtiramiz
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data="tariff_BACK_MAIN")]])
-                    await callback_query.message.edit_reply_markup(reply_markup=keyboard)
-                except Exception:
-                    pass
-                inv_msg = await bot.send_invoice(
-                    chat_id=user_id,
-                    title="Balans AI - Plus tarif (1 oy)",
-                    description="Plus tarif: AI yordamida tovush va matnni avtomatik qayta ishlash.",
-                    payload=f"plus:{user_id}:{int(datetime.now().timestamp())}",
-                    provider_token=TELEGRAM_PAYMENT_PROVIDER_TOKEN,
-                    currency="UZS",
-                    prices=prices,
-                    need_name=False,
-                    need_phone_number=False,
-                    is_flexible=False
-                )
-                # Oxirgi invoice xabarini saqlaymiz
-                try:
-                    LAST_INVOICE_MESSAGE_ID[user_id] = inv_msg.message_id
-                except Exception:
-                    pass
-            except Exception as e:
-                logging.error(f"send_invoice xatolik: {e}")
-                # Xatolik bo'lsa pendingdan olib tashlaymiz
-                try:
-                    PENDING_PLUS_PAYMENTS.discard(user_id)
-                except Exception:
-                    pass
-                await callback_query.message.answer(
-                    "❌ To'lov xizmatiga ulanishda xatolik. Iltimos, keyinroq urinib ko'ring yoki admin bilan bog'laning.\n\n"
-                    "Agar admin bo'lsangiz: BotFather > Settings > Payments dan aynan shu botga 'CLICK Terminal Test' ni ulang va tokenni .env dagi TELEGRAM_PAYMENT_PROVIDER_TOKEN ga qo'ying."
-                )
             return
 
         # Boshqa barcha tariflar uchun
@@ -1381,8 +1759,115 @@ async def process_tariff_onboarding_only(callback_query: CallbackQuery, state: F
     await state.clear()
     await callback_query.answer()
 
+# Xodim qo'shish handler
+@dp.message(lambda message: message.text == "➕ Xodim qo'shish")
+async def add_employee_handler(message: types.Message, state: FSMContext):
+    """Xodim qo'shish"""
+    user_id = message.from_user.id
+    user_tariff = await get_user_tariff(user_id)
+    
+    if user_tariff != "BUSINESS":
+        await message.answer("❌ Bu funksiya faqat Business tarif uchun mavjud.")
+        return
+    
+    await message.answer(
+        "👥 *Xodim qo'shish*\n\n"
+        "Xodimning Telegram ID sini yuboring:\n"
+        "(Xodim avval botda /start bosgan bo'lishi kerak)",
+        parse_mode="Markdown"
+    )
+    await state.set_state(UserStates.waiting_for_employee_id)
+
+@dp.message(UserStates.waiting_for_employee_id)
+async def process_employee_id(message: types.Message, state: FSMContext):
+    """Xodim ID sini qabul qilish"""
+    user_id = message.from_user.id
+    employee_id = message.text.strip()
+    
+    try:
+        employee_id = int(employee_id)
+    except ValueError:
+        await message.answer("❌ Noto'g'ri ID! Faqat raqam kiriting.")
+        return
+    
+    # Xodimning mavjudligini tekshirish
+    employee_data = await db.get_user_data(employee_id)
+    if not employee_data:
+        await message.answer("❌ Bu ID da foydalanuvchi topilmadi. Xodim avval botda /start bosishi kerak.")
+        return
+    
+    # Xodimga taklif yuborish
+    try:
+        await message.bot.send_message(
+            chat_id=employee_id,
+            text=f"👥 *Xodim taklifi*\n\n"
+                 f"@{message.from_user.username} sizni o'z jamoasiga qo'shmoqchi.\n\n"
+                 f"Qabul qilasizmi?",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Qabul qilish", callback_data=f"accept_employee_{user_id}")],
+                [InlineKeyboardButton(text="❌ Rad etish", callback_data="reject_employee")]
+            ])
+        )
+        
+        username = employee_data.get('username', 'Noma\'lum')
+        await message.answer(
+            f"✅ Taklif yuborildi! Xodim @{username} ga xabar jo'natildi.\n"
+            f"U taklifni qabul qilsa, sizning jamoangizga qo'shiladi."
+        )
+        
+    except Exception as e:
+        logging.error(f"Xodimga xabar yuborishda xatolik: {e}")
+        await message.answer("❌ Xodimga xabar yuborishda xatolik yuz berdi.")
+    
+    await state.clear()
+
+@dp.callback_query(lambda c: c.data.startswith("accept_employee_"))
+async def accept_employee_invite(callback_query: CallbackQuery):
+    """Xodim taklifini qabul qilish"""
+    user_id = callback_query.from_user.id
+    manager_id = int(callback_query.data.split("_")[2])
+    
+    try:
+        # Xodimni jamoaga qo'shish (bu yerda oddiy tarifni o'zgartirish)
+        await db.execute_query(
+            "UPDATE users SET tariff = 'BUSINESS', manager_id = %s WHERE user_id = %s",
+            (manager_id, user_id)
+        )
+        
+        await callback_query.message.edit_text(
+            "✅ *Taklif qabul qilindi!*\n\n"
+            "Endi siz jamoaning bir qismisiz. Boshliq va siz tranzaksiyalar kiritishingiz mumkin.",
+            parse_mode="Markdown"
+        )
+        
+        # Boshliqga xabar yuborish
+        try:
+            await callback_query.bot.send_message(
+                chat_id=manager_id,
+                text=f"✅ @{callback_query.from_user.username} taklifingizni qabul qildi!\n"
+                     f"Endi u jamoangizning bir qismi."
+            )
+        except Exception as e:
+            logging.error(f"Boshliqga xabar yuborishda xatolik: {e}")
+            
+    except Exception as e:
+        logging.error(f"Xodim qo'shishda xatolik: {e}")
+        await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+    
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "reject_employee")
+async def reject_employee_invite(callback_query: CallbackQuery):
+    """Xodim taklifini rad etish"""
+    await callback_query.message.edit_text(
+        "❌ *Taklif rad etildi*",
+        parse_mode="Markdown"
+    )
+    await callback_query.answer()
+
 # Premium tarif - AI yordamida moliyaviy ma'lumotlarni qayta ishlash
-@dp.message(lambda message: message.text and not message.text.startswith('/') and message.text not in ["📊 Hisobotlar", "👤 Profil", "➕ Kirim", "➖ Chiqim", "💳 Qarzlar"])
+@dp.message(lambda message: message.text and not message.text.startswith('/') and message.text not in ["📊 Hisobotlar", "👤 Profil", "➕ Kirim", "➖ Chiqim", "💳 Qarzlar", "➕ Xodim qo'shish"])
 async def process_financial_message(message: types.Message, state: FSMContext):
     """Moliyaviy ma'lumotlarni qayta ishlash (Premium)"""
     user_id = message.from_user.id
@@ -2084,12 +2569,19 @@ async def process_pre_checkout_query(pre_checkout_q: types.PreCheckoutQuery):
     """To'lovdan oldingi tekshiruvni tasdiqlash"""
     try:
         user_id = pre_checkout_q.from_user.id
-        # Agar foydalanuvchi allaqachon aktiv Plus bo'lsa, chekoutni bloklaymiz
+        # Faqat bir xil tarifni qayta sotib olishni bloklaymiz
         try:
             user_data = await db.get_user_data(user_id)
             current = user_data.get('tariff') if user_data else 'FREE'
-            if current == 'PLUS' and await is_paid_active(user_id):
+            payload = pre_checkout_q.invoice_payload or ""
+            
+            # Faqat bir xil tarifni qayta sotib olishni bloklaymiz
+            if current == 'PLUS' and payload.startswith("plus:") and await is_paid_active(user_id):
                 await bot.answer_pre_checkout_query(pre_checkout_q.id, ok=False, error_message="Sizda Plus obuna allaqachon aktiv. Qayta to'lov kerak emas.")
+                return
+            
+            if current == 'BUSINESS' and payload.startswith("business:") and await is_paid_active(user_id):
+                await bot.answer_pre_checkout_query(pre_checkout_q.id, ok=False, error_message="Sizda Business obuna allaqachon aktiv. Qayta to'lov kerak emas.")
                 return
         except Exception as _e:
             logging.error(f"pre_checkout guard error: {_e}")
@@ -2110,11 +2602,14 @@ async def process_successful_payment(message: types.Message):
         user_id = message.from_user.id
         payload = message.successful_payment.invoice_payload or ""
         if payload.startswith("plus:"):
-            # 30 kunlik obuna muddati
-            await db.execute_query(
-                "UPDATE users SET tariff = %s, tariff_expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY) WHERE user_id = %s",
-                ("PLUS", user_id)
-            )
+            # Payload format: plus:user_id:timestamp:months
+            parts = payload.split(":")
+            months = int(parts[3]) if len(parts) > 3 else 1
+            
+            from datetime import datetime, timedelta
+            expires_at = datetime.now() + timedelta(days=30 * months)
+            await db.add_user_subscription(user_id, "PLUS", expires_at)
+            await db.set_active_tariff(user_id, "PLUS")
 
             # To'lov yozuvini saqlash
             sp = message.successful_payment
@@ -2140,10 +2635,56 @@ async def process_successful_payment(message: types.Message):
             )
             # Pending holatini tozalash
             try:
-                PENDING_PLUS_PAYMENTS.discard(user_id)
+                _pending_clear(PENDING_PLUS_PAYMENTS, user_id)
             except Exception:
                 pass
             # Oxirgi invoice xabarini o'chirishga urinamiz
+            try:
+                msg_id = LAST_INVOICE_MESSAGE_ID.get(user_id)
+                if msg_id:
+                    await bot.delete_message(chat_id=user_id, message_id=msg_id)
+                    LAST_INVOICE_MESSAGE_ID.pop(user_id, None)
+            except Exception as _e:
+                logging.error(f"delete invoice message error: {_e}")
+        elif payload.startswith("business:"):
+            # Payload format: business:user_id:timestamp:months
+            parts = payload.split(":")
+            months = int(parts[3]) if len(parts) > 3 else 1
+            
+            from datetime import datetime, timedelta
+            expires_at = datetime.now() + timedelta(days=30 * months)
+            await db.add_user_subscription(user_id, "BUSINESS", expires_at)
+            await db.set_active_tariff(user_id, "BUSINESS")
+
+            sp = message.successful_payment
+            await db.execute_insert(
+                """
+                INSERT INTO payments (user_id, tariff, total_amount, currency, payload, telegram_charge_id, provider_charge_id, status, paid_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'paid', NOW())
+                """,
+                (
+                    user_id,
+                    'BUSINESS',
+                    sp.total_amount,
+                    sp.currency,
+                    payload,
+                    sp.telegram_payment_charge_id,
+                    sp.provider_payment_charge_id
+                )
+            )
+
+            user_name = await get_user_name(user_id)
+            await message.answer(
+                f"✅ To'lov qabul qilindi va Business tarif faollashtirildi!\n\n"
+                f"Salom, {user_name}! Endi biznes menyusidan foydalanishingiz mumkin.",
+                parse_mode="Markdown",
+                reply_markup=get_business_menu()
+            )
+
+            try:
+                _pending_clear(PENDING_BUSINESS_PAYMENTS, user_id)
+            except Exception:
+                pass
             try:
                 msg_id = LAST_INVOICE_MESSAGE_ID.get(user_id)
                 if msg_id:

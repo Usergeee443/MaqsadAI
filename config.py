@@ -40,3 +40,32 @@ CATEGORIES = {
     'expense': ['Ovqat', 'Transport', 'Kiyim', 'Uy', 'Sogʻliq', 'Taʼlim', 'Oʻyin-kulgi', 'Boshqa'],
     'debt': ['Qarz berish', 'Qarz olish']
 }
+
+# Tarif narxlari (1 oy uchun)
+TARIFF_PRICES = {
+    'PLUS': 2999000,  # 29,990 so'm
+    'BUSINESS': 9999000,  # 99,990 so'm
+    'MAX': 4999000,  # 49,990 so'm
+    'FAMILY': 3999000,  # 39,990 so'm
+    'FAMILY_PLUS': 5999000,  # 59,990 so'm
+    'FAMILY_MAX': 7999000,  # 79,990 so'm
+    'BUSINESS_PLUS': 14999000,  # 149,990 so'm
+    'BUSINESS_MAX': 19999000,  # 199,990 so'm
+}
+
+# Chegirma foizlari (muddat bo'yicha)
+DISCOUNT_RATES = {
+    1: 0,    # 1 oy - chegirma yo'q
+    2: 5,    # 2 oy - 5% chegirma
+    3: 10,   # 3 oy - 10% chegirma
+    6: 15,   # 6 oy - 15% chegirma
+    12: 25,  # 12 oy - 25% chegirma
+}
+
+# To'lov usullari
+PAYMENT_METHODS = {
+    'telegram_click': 'Telegram (Click)',
+    'click': 'Click',
+    'payme': 'Payme',
+    'uzum_pay': 'Uzum Pay'
+}

@@ -64,10 +64,12 @@ class Database:
                     phone VARCHAR(20),
                     name VARCHAR(255) DEFAULT 'Xojayin',
                     source VARCHAR(50),
-                    tariff ENUM('FREE', 'PRO', 'MAX', 'PREMIUM') DEFAULT 'FREE',
+                    tariff ENUM('FREE', 'PRO', 'MAX', 'PREMIUM', 'PLUS', 'BUSINESS') DEFAULT 'FREE',
                     tariff_expires_at DATETIME NULL,
+                    manager_id BIGINT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (manager_id) REFERENCES users(user_id) ON DELETE SET NULL
                 )
             """)
             
@@ -132,6 +134,30 @@ class Database:
             
             # Yangi ustunlarni qo'shish (agar mavjud bo'lmasa)
             await self.add_missing_columns()
+            
+            # manager_id ustunini qo'shish (agar mavjud bo'lmasa)
+            try:
+                await self.execute_query("ALTER TABLE users ADD COLUMN manager_id BIGINT NULL")
+                await self.execute_query("ALTER TABLE users ADD FOREIGN KEY (manager_id) REFERENCES users(user_id) ON DELETE SET NULL")
+            except Exception:
+                pass  # Ustun allaqachon mavjud
+            
+            # User subscriptions jadvali - ko'p tarif tizimi uchun
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS user_subscriptions (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    tariff ENUM('PLUS', 'BUSINESS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS_PLUS', 'BUSINESS_MAX') NOT NULL,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    expires_at DATETIME NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    UNIQUE KEY unique_user_tariff (user_id, tariff),
+                    INDEX idx_user_id (user_id),
+                    INDEX idx_tariff (tariff),
+                    INDEX idx_is_active (is_active)
+                )
+            """)
             
             # Payments jadvali
             await self.execute_query("""
@@ -416,6 +442,54 @@ class Database:
             monthly_data[month][trans_type] = float(total)
         
         return monthly_data
+    
+    async def add_user_subscription(self, user_id, tariff, expires_at):
+        """Foydalanuvchiga yangi tarif qo'shish"""
+        query = """
+        INSERT INTO user_subscriptions (user_id, tariff, expires_at)
+        VALUES (%s, %s, %s)
+        ON DUPLICATE KEY UPDATE 
+        is_active = TRUE, expires_at = VALUES(expires_at)
+        """
+        return await self.execute_query(query, (user_id, tariff, expires_at))
+    
+    async def get_user_subscriptions(self, user_id):
+        """Foydalanuvchining barcha tariflarini olish"""
+        query = """
+        SELECT tariff, is_active, expires_at, created_at
+        FROM user_subscriptions
+        WHERE user_id = %s AND expires_at > NOW()
+        ORDER BY created_at DESC
+        """
+        return await self.execute_query(query, (user_id,))
+    
+    async def set_active_tariff(self, user_id, tariff):
+        """Foydalanuvchining aktiv tarifini o'rnatish"""
+        # Avval barcha tariflarni noaktiv qilamiz
+        await self.execute_query(
+            "UPDATE user_subscriptions SET is_active = FALSE WHERE user_id = %s",
+            (user_id,)
+        )
+        # Keyin tanlangan tarifni aktiv qilamiz
+        await self.execute_query(
+            "UPDATE user_subscriptions SET is_active = TRUE WHERE user_id = %s AND tariff = %s",
+            (user_id, tariff)
+        )
+        # Users jadvalidagi tariff ustunini ham yangilaymiz
+        await self.execute_query(
+            "UPDATE users SET tariff = %s WHERE user_id = %s",
+            (tariff, user_id)
+        )
+    
+    async def get_active_tariff(self, user_id):
+        """Foydalanuvchining hozirgi aktiv tarifini olish"""
+        query = """
+        SELECT tariff FROM user_subscriptions
+        WHERE user_id = %s AND is_active = TRUE AND expires_at > NOW()
+        LIMIT 1
+        """
+        result = await self.execute_one(query, (user_id,))
+        return result[0] if result else "FREE"
 
 # Global database instance
 db = Database()
