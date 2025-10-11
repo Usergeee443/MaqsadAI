@@ -730,15 +730,37 @@ async def help_command(message: types.Message):
 async def quick_balance(message: types.Message):
     user_id = message.from_user.id
     balances = await db.get_balances(user_id)
-    text = (
-        "💰 *Tezkor balans*\n\n"
-        f"Naqd balans: {balances['cash_balance']:,.0f} so'm\n"
-        f"Sof balans: {balances['net_balance']:,.0f} so'm\n"
-        f"Jami kirim: {balances['income']:,.0f} so'm\n"
-        f"Jami chiqim: {balances['expense']:,.0f} so'm\n"
-        f"Olingan qarz: {balances['borrowed']:,.0f} so'm\n"
-        f"Berilgan qarz: {balances['lent']:,.0f} so'm"
-    )
+    
+    text = "💰 **Balans ma'lumotlari**\n\n"
+    
+    # Naqd balans (haqiqiy pul)
+    text += f"💵 **Naqd balans:** {balances['cash_balance']:,.0f} so'm\n"
+    text += f"   _(Haqiqiy mavjud pul)_\n\n"
+    
+    # Sof balans (qarzlar hisobga olingan)
+    text += f"📊 **Sof balans:** {balances['net_balance']:,.0f} so'm\n"
+    text += f"   _(Qarzlar hisobga olingan)_\n\n"
+    
+    # Qarzli balans (agar qarz olingan bo'lsa)
+    if balances['total_borrowed_debt'] > 0:
+        qarzli_balans = balances['cash_balance'] - balances['total_borrowed_debt']
+        text += f"⚠️ **Qarzli balans:** {qarzli_balans:,.0f} so'm\n"
+        text += f"   _(Qarz olingan pul)_\n\n"
+    
+    text += f"📈 **Jami kirim:** {balances['total_income']:,.0f} so'm\n"
+    text += f"📉 **Jami chiqim:** {balances['total_expense']:,.0f} so'm\n\n"
+    
+    if balances['total_lent_debt'] > 0:
+        text += f"💸 **Berilgan qarz:** {balances['total_lent_debt']:,.0f} so'm\n"
+    if balances['total_borrowed_debt'] > 0:
+        text += f"💳 **Olingan qarz:** {balances['total_borrowed_debt']:,.0f} so'm\n"
+    
+    # Ogohlantirish
+    if balances['cash_balance'] <= 0:
+        text += f"\n⚠️ **Ogohlantirish:** Naqd balansingiz 0 so'm. Xarajat qilish yoki qarz berish mumkin emas!"
+    elif balances['total_borrowed_debt'] > 0:
+        text += f"\n💡 **Eslatma:** Sizda {balances['total_borrowed_debt']:,.0f} so'm qarz bor. Bu pul qaytarilgunga qadar sof balansingiz kamroq."
+    
     await message.answer(text, parse_mode='Markdown')
 
 # Bepul tarif - Kirim qo'shish
@@ -885,9 +907,55 @@ async def process_amount(message: types.Message, state: FSMContext):
             await message.answer("❌ Summa 0 dan katta bo'lishi kerak!")
             return
         
-        await state.update_data(amount=amount)
+        user_id = message.from_user.id
         data = await state.get_data()
         transaction_type = data.get('transaction_type')
+        
+        # Xarajat qilishda balans tekshirish
+        if transaction_type == "expense":
+            balances = await db.get_balances(user_id)
+            if balances['cash_balance'] <= 0:
+                await message.answer(
+                    "❌ **Naqd balans yetarli emas!**\n\n"
+                    f"💰 **Hozirgi naqd balans:** {balances['cash_balance']:,.0f} so'm\n\n"
+                    "Avval kirim yoki qarz olish kiritib, keyin xarajat qiling.",
+                    parse_mode="Markdown"
+                )
+                return
+            elif amount > balances['cash_balance']:
+                await message.answer(
+                    "❌ **Xarajat miqdori naqd balansdan ko'p!**\n\n"
+                    f"💰 **Hozirgi naqd balans:** {balances['cash_balance']:,.0f} so'm\n"
+                    f"💸 **Xarajat miqdori:** {amount:,.0f} so'm\n"
+                    f"❌ **Yetishmayotgan:** {amount - balances['cash_balance']:,.0f} so'm\n\n"
+                    "Avval kirim yoki qarz olish kiritib, keyin xarajat qiling.",
+                    parse_mode="Markdown"
+                )
+                return
+        
+        # Qarz berishda balans tekshirish
+        elif transaction_type == "debt" and data.get('debt_type') == 'lend':
+            balances = await db.get_balances(user_id)
+            if balances['cash_balance'] <= 0:
+                await message.answer(
+                    "❌ **Naqd balans yetarli emas!**\n\n"
+                    f"💰 **Hozirgi naqd balans:** {balances['cash_balance']:,.0f} so'm\n\n"
+                    "Qarz berish uchun avval kirim kiritib, naqd balansni to'ldiring.",
+                    parse_mode="Markdown"
+                )
+                return
+            elif amount > balances['cash_balance']:
+                await message.answer(
+                    "❌ **Qarz miqdori naqd balansdan ko'p!**\n\n"
+                    f"💰 **Hozirgi naqd balans:** {balances['cash_balance']:,.0f} so'm\n"
+                    f"💸 **Qarz miqdori:** {amount:,.0f} so'm\n"
+                    f"❌ **Yetishmayotgan:** {amount - balances['cash_balance']:,.0f} so'm\n\n"
+                    "Qarz berish uchun avval kirim kiritib, naqd balansni to'ldiring.",
+                    parse_mode="Markdown"
+                )
+                return
+        
+        await state.update_data(amount=amount)
         
         if transaction_type == "income":
             await message.answer(
@@ -978,20 +1046,38 @@ async def process_category(callback_query: CallbackQuery, state: FSMContext):
     if not transaction_type:
         transaction_type = "debt"  # Default qarz
     
-    # Tranzaksiyani saqlashdan oldin: chiqim uchun naqd balans tekshirish
+    # Tranzaksiyani saqlash
     try:
-        if transaction_type == 'expense':
-            balances = await db.get_balances(user_id)
-            if balances['cash_balance'] <= 0 or amount > balances['cash_balance']:
-                await callback_query.answer("❌ Naqd balans yetarli emas. Avval kirim yoki qarz olish kiritib keyin chiqim kiriting.", show_alert=True)
-                await state.clear()
-                return
         due_date = data.get('due_date') if transaction_type == 'debt' else None
         debt_type = data.get('debt_type') if transaction_type == 'debt' else None
-        insert_id = await db.execute_insert(
-            "INSERT INTO transactions (user_id, transaction_type, amount, category, description, due_date, debt_direction) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (user_id, transaction_type, amount, category, description, due_date, debt_type)
-        )
+        
+        # Qarz berishda balansdan kamaytirish
+        if transaction_type == 'debt' and debt_type == 'lend':
+            # Balansni tekshirish (qayta tekshirish)
+            balances = await db.get_balances(user_id)
+            if balances['cash_balance'] < amount:
+                await callback_query.answer("❌ Naqd balans yetarli emas!", show_alert=True)
+                await state.clear()
+                return
+            
+            # Qarz berish tranzaksiyasini saqlash
+            insert_id = await db.execute_insert(
+                "INSERT INTO transactions (user_id, transaction_type, amount, category, description, due_date, debt_direction) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (user_id, transaction_type, amount, category, description, due_date, debt_type)
+            )
+            
+            # Balansni yangilash - qarz berish uchun chiqim qo'shamiz
+            await db.execute_query(
+                "INSERT INTO transactions (user_id, transaction_type, amount, category, description) VALUES (%s, %s, %s, %s, %s)",
+                (user_id, 'expense', amount, f"Qarz berish: {category}", f"Qarz berish - {description}")
+            )
+            
+        else:
+            # Oddiy tranzaksiya (kirim, chiqim, qarz olish)
+            insert_id = await db.execute_insert(
+                "INSERT INTO transactions (user_id, transaction_type, amount, category, description, due_date, debt_direction) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (user_id, transaction_type, amount, category, description, due_date, debt_type)
+            )
         
         type_emoji = {"income": "📈", "expense": "📉", "debt": "💳"}.get(transaction_type, "❓")
         type_name = {"income": "Kirim", "expense": "Chiqim", "debt": "Qarz"}.get(transaction_type, "Tranzaksiya")
@@ -1377,10 +1463,10 @@ async def process_subscription_duration(callback_query: CallbackQuery, state: FS
     text = f"💳 **To'lov usulini tanlang**\n\n"
     text += f"📋 **Tarif:** {tariff_name}\n"
     text += f"⏰ **Muddat:** {months} oy{discount_text}\n"
-    text += f"💰 **Narx:** {price_info['final_price']:,} so'm\n"
+    text += f"💰 **Narx:** {price_info['final_price']/100:,.0f} so'm\n"
     
     if price_info['discount_rate'] > 0:
-        text += f"💸 **Chegirma:** {price_info['discount_amount']:,} so'm\n"
+        text += f"💸 **Chegirma:** {price_info['discount_amount']/100:,.0f} so'm\n"
     
     await callback_query.message.edit_text(
         text,
@@ -1453,7 +1539,7 @@ async def process_payment_method(callback_query: CallbackQuery, state: FSMContex
             f"💳 **To'lov haqida**\n\n"
             f"📋 **Tarif:** {tariff_name}\n"
             f"⏰ **Muddat:** {months} oy\n"
-            f"💰 **Jami:** {price_info['final_price']:,} so'm\n\n"
+            f"💰 **Jami:** {price_info['final_price']/100:,.0f} so'm\n\n"
             f"To'lovni amalga oshirish uchun yuqoridagi tugmani bosing.",
             parse_mode='Markdown'
         )

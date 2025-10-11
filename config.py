@@ -41,16 +41,16 @@ CATEGORIES = {
     'debt': ['Qarz berish', 'Qarz olish']
 }
 
-# Tarif narxlari (1 oy uchun)
+# Tarif narxlari (1 oy uchun) - kopeklarda
 TARIFF_PRICES = {
-    'PLUS': 2999000,  # 29,990 so'm
-    'BUSINESS': 9999000,  # 99,990 so'm
-    'MAX': 4999000,  # 49,990 so'm
-    'FAMILY': 3999000,  # 39,990 so'm
-    'FAMILY_PLUS': 5999000,  # 59,990 so'm
-    'FAMILY_MAX': 7999000,  # 79,990 so'm
-    'BUSINESS_PLUS': 14999000,  # 149,990 so'm
-    'BUSINESS_MAX': 19999000,  # 199,990 so'm
+    'PLUS': 299900,  # 2,999 so'm (29,990 kopek)
+    'BUSINESS': 999900,  # 9,999 so'm (99,990 kopek)
+    'MAX': 499900,  # 4,999 so'm (49,990 kopek)
+    'FAMILY': 399900,  # 3,999 so'm (39,990 kopek)
+    'FAMILY_PLUS': 599900,  # 5,999 so'm (59,990 kopek)
+    'FAMILY_MAX': 799900,  # 7,999 so'm (79,990 kopek)
+    'BUSINESS_PLUS': 1499900,  # 14,999 so'm (149,990 kopek)
+    'BUSINESS_MAX': 1999900,  # 19,999 so'm (199,990 kopek)
 }
 
 # Chegirma foizlari (muddat bo'yicha)

@@ -332,7 +332,11 @@ class Database:
             'borrowed': borrowed,
             'lent': lent,
             'cash_balance': cash_balance,
-            'net_balance': net_balance
+            'net_balance': net_balance,
+            'total_income': income,
+            'total_expense': expense,
+            'total_borrowed_debt': borrowed,
+            'total_lent_debt': lent
         }
 
     async def get_balances(self, user_id):
