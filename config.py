@@ -11,6 +11,12 @@ GOOGLE_CLOUD_PROJECT = os.getenv('GOOGLE_CLOUD_PROJECT')
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
 TELEGRAM_PAYMENT_PROVIDER_TOKEN = os.getenv('TELEGRAM_PAYMENT_PROVIDER_TOKEN')
 
+# Telegram Stars sozlamalari
+STARS_ENABLED = os.getenv('STARS_ENABLED', 'true').lower() == 'true'
+# 1 Star nechchi so'mga tengligini konfiguratsiyalash (masalan, 1 Star = 1000 so'm)
+# Admin o'z kursini shu yerda belgilaydi
+STARS_SOM_PER_STAR = int(os.getenv('STARS_SOM_PER_STAR', '1000'))
+
 # MySQL konfiguratsiyasi
 MYSQL_CONFIG = {
     'host': os.getenv('DB_HOST'),
@@ -25,13 +31,13 @@ TARIFFS = {
     'FREE': 'Bepul',
     'PLUS': 'Plus',
     'MAX': 'Max',
-    'FAMILY': 'Family',
-    'FAMILY_PLUS': 'Family Plus',
-    'FAMILY_MAX': 'Family Max',
-    'BUSINESS': 'Business',
-    'BUSINESS_PLUS': 'Business Plus',
-    'BUSINESS_MAX': 'Business Max',
-    'PREMIUM': 'Premium'
+    'FAMILY': 'Oila',
+    'FAMILY_PLUS': 'Oila Plus',
+    'FAMILY_MAX': 'Oila Max',
+    'BUSINESS': 'Biznes',
+    'BUSINESS_PLUS': 'Biznes Plus',
+    'BUSINESS_MAX': 'Biznes Max',
+    'EMPLOYEE': 'Xodim'
 }
 
 # Kategoriyalar
@@ -43,7 +49,7 @@ CATEGORIES = {
 
 # Tarif narxlari (1 oy uchun) - kopeklarda
 TARIFF_PRICES = {
-    'PLUS': 299900,  # 2,999 so'm (29,990 kopek)
+    'PLUS': 2900000,  # 29,000 so'm (2,900,000 kopek)
     'BUSINESS': 999900,  # 9,999 so'm (99,990 kopek)
     'MAX': 499900,  # 4,999 so'm (49,990 kopek)
     'FAMILY': 399900,  # 3,999 so'm (39,990 kopek)
@@ -64,6 +70,7 @@ DISCOUNT_RATES = {
 
 # To'lov usullari
 PAYMENT_METHODS = {
+    'telegram_stars': 'Telegram Stars',
     'telegram_click': 'Telegram (Click)',
     'click': 'Click',
     'payme': 'Payme',

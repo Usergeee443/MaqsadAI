@@ -64,7 +64,7 @@ class Database:
                     phone VARCHAR(20),
                     name VARCHAR(255) DEFAULT 'Xojayin',
                     source VARCHAR(50),
-                    tariff ENUM('FREE', 'PRO', 'MAX', 'PREMIUM', 'PLUS', 'BUSINESS') DEFAULT 'FREE',
+                    tariff ENUM('FREE', 'PLUS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'EMPLOYEE') DEFAULT 'FREE',
                     tariff_expires_at DATETIME NULL,
                     manager_id BIGINT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -147,7 +147,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS user_subscriptions (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     user_id BIGINT NOT NULL,
-                    tariff ENUM('PLUS', 'BUSINESS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS_PLUS', 'BUSINESS_MAX') NOT NULL,
+                    tariff ENUM('PLUS', 'BUSINESS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'EMPLOYEE') NOT NULL,
                     is_active BOOLEAN DEFAULT TRUE,
                     expires_at DATETIME NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -164,7 +164,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS payments (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     user_id BIGINT NOT NULL,
-                    tariff ENUM('FREE', 'PLUS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'PREMIUM') NOT NULL,
+                    tariff ENUM('FREE', 'PLUS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'EMPLOYEE') NOT NULL,
                     provider VARCHAR(50) DEFAULT 'telegram_click',
                     total_amount BIGINT NOT NULL,
                     currency VARCHAR(10) NOT NULL,
@@ -206,10 +206,33 @@ class Database:
             
             # Tarif enum ni yangilash
             try:
-                await self.execute_query("ALTER TABLE users MODIFY COLUMN tariff ENUM('FREE', 'PLUS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'PREMIUM') DEFAULT 'FREE'")
+                await self.execute_query("ALTER TABLE users MODIFY COLUMN tariff ENUM('FREE', 'PLUS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'EMPLOYEE') DEFAULT 'FREE'")
                 logging.info("Tarif enum yangilandi")
             except Exception as e:
                 logging.error(f"Tarif enum yangilashda xatolik: {e}")
+            
+            # User subscriptions jadvalini yangilash
+            try:
+                await self.execute_query("ALTER TABLE user_subscriptions MODIFY COLUMN tariff ENUM('PLUS', 'BUSINESS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'EMPLOYEE') NOT NULL")
+                logging.info("User subscriptions tariff enum yangilandi")
+            except Exception as e:
+                logging.error(f"User subscriptions tariff enum yangilashda xatolik: {e}")
+            
+            # Payments jadvalini yangilash
+            try:
+                await self.execute_query("ALTER TABLE payments MODIFY COLUMN tariff ENUM('FREE', 'PLUS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'EMPLOYEE') NOT NULL")
+                logging.info("Payments tariff enum yangilandi")
+            except Exception as e:
+                logging.error(f"Payments tariff enum yangilashda xatolik: {e}")
+            
+            # Premium tarifli foydalanuvchilarni FREE ga o'zgartirish
+            try:
+                await self.execute_query("UPDATE users SET tariff = 'FREE' WHERE tariff = 'PREMIUM'")
+                await self.execute_query("UPDATE payments SET tariff = 'FREE' WHERE tariff = 'PREMIUM'")
+                await self.execute_query("UPDATE user_subscriptions SET tariff = 'FREE' WHERE tariff = 'PREMIUM'")
+                logging.info("Premium tarifli foydalanuvchilar FREE ga o'zgartirildi")
+            except Exception as e:
+                logging.error(f"Premium tarifni FREE ga o'zgartirishda xatolik: {e}")
 
             # Transactions jadvaliga yangi ustunlar
             trans_columns = [
