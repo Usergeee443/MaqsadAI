@@ -335,7 +335,6 @@ def get_free_menu():
         keyboard=[
             [KeyboardButton(text="➕ Kirim"), KeyboardButton(text="➖ Chiqim")],
             [KeyboardButton(text="💳 Qarzlar"), KeyboardButton(text="📊 Hisobotlar")],
-            [KeyboardButton(text="💰 Balans")],
             [KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
@@ -347,8 +346,7 @@ def get_free_menu():
 def get_premium_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/")), KeyboardButton(text="👤 Profil")],
-            [KeyboardButton(text="💰 Balans")]
+            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/")), KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -361,7 +359,7 @@ def get_business_menu():
         keyboard=[
             [KeyboardButton(text="➕ Xodim qo'shish"), KeyboardButton(text="💳 Qarzlar")],
             [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/"))],
-            [KeyboardButton(text="💰 Balans"), KeyboardButton(text="👤 Profil")]
+            [KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -374,7 +372,7 @@ def get_employee_menu():
         keyboard=[
             [KeyboardButton(text="➕ Kirim"), KeyboardButton(text="➖ Chiqim")],
             [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/"))],
-            [KeyboardButton(text="💰 Balans"), KeyboardButton(text="👤 Profil")]
+            [KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -469,6 +467,11 @@ async def admin_stats_callback(callback_query: CallbackQuery):
     total_paid = row_paid[0] if row_paid else 0
     row_tx = await db.execute_one("SELECT COUNT(*) FROM transactions")
     total_tx = row_tx[0] if row_tx else 0
+    
+    # Foydalanuvchilar bizni qayerdan eshitganini olish
+    source_rows = await db.execute_query("SELECT source, COUNT(*) cnt FROM users WHERE source IS NOT NULL GROUP BY source")
+    source_map = {r[0]: r[1] for r in source_rows} if source_rows else {}
+    
     # Open AI API balansi
     openai_balance = "N/A"
     try:
@@ -516,6 +519,7 @@ async def admin_stats_callback(callback_query: CallbackQuery):
         "👨‍💻 Admin statistika\n\n"
         f"Jami foydalanuvchilar: {total_users:,}\n"
         "Tariflar bo'yicha:\n" + "\n".join([f"• {TARIFFS.get(k,k)}: {v:,}" for k,v in per_tariff_map.items()]) + "\n\n"
+        "Bizni qayerdan eshitgan:\n" + "\n".join([f"• {k}: {v:,}" for k,v in source_map.items()]) + "\n\n"
         f"Jami to'langan pullar: { (total_paid or 0)/100:,.0f} so'm\n"
         f"Jami tranzaksiyalar: {total_tx:,} ta\n\n"
         f"🤖 Open AI API balansi: {openai_balance}"
@@ -969,30 +973,67 @@ async def start_command(message: types.Message, state: FSMContext):
         # Eski foydalanuvchi - asosiy menyuni ko'rsatish
         user_name = await get_user_name(user_id)
         
-        if user_tariff == "FREE":
-            await message.answer(
-                f"👋 Salom, {user_name}!\n\n"
-                "Balans AI ga xush kelibsiz!\n\n"
-                "Quyidagi tugmalardan foydalaning:",
-                reply_markup=get_free_menu(),
-                parse_mode="Markdown"
-            )
-        elif user_tariff == "BUSINESS":
-            await message.answer(
-                f"👋 Salom, {user_name}!\n\n"
-                "Balans AI Business ga xush kelibsiz!\n\n"
-                "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
-                reply_markup=get_business_menu(),
-                parse_mode="Markdown"
-            )
-        else:
-            await message.answer(
-                f"👋 Salom, {user_name}!\n\n"
-                "Balans AI ga xush kelibsiz!\n\n"
-                "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
-                reply_markup=get_premium_menu(),
-                parse_mode="Markdown"
-            )
+        try:
+            if user_tariff == "FREE":
+                await message.answer_photo(
+                    photo=FSInputFile('welcome.png'),
+                    caption=(
+                        f"👋 Salom, {user_name}!\n\n"
+                        "Balans AI ga xush kelibsiz!\n\n"
+                        "Quyidagi tugmalardan foydalaning:"
+                    ),
+                    reply_markup=get_free_menu(),
+                    parse_mode="Markdown"
+                )
+            elif user_tariff == "BUSINESS":
+                await message.answer_photo(
+                    photo=FSInputFile('welcome.png'),
+                    caption=(
+                        f"👋 Salom, {user_name}!\n\n"
+                        "Balans AI Business ga xush kelibsiz!\n\n"
+                        "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:"
+                    ),
+                    reply_markup=get_business_menu(),
+                    parse_mode="Markdown"
+                )
+            else:
+                await message.answer_photo(
+                    photo=FSInputFile('welcome.png'),
+                    caption=(
+                        f"👋 Salom, {user_name}!\n\n"
+                        "Balans AI ga xush kelibsiz!\n\n"
+                        "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:"
+                    ),
+                    reply_markup=get_premium_menu(),
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            logging.warning(f"Welcome rasm yuborilmadi: {e}")
+            # Rasm yuborishda xatolik bo'lsa, oddiy matn xabar yuboramiz
+            if user_tariff == "FREE":
+                await message.answer(
+                    f"👋 Salom, {user_name}!\n\n"
+                    "Balans AI ga xush kelibsiz!\n\n"
+                    "Quyidagi tugmalardan foydalaning:",
+                    reply_markup=get_free_menu(),
+                    parse_mode="Markdown"
+                )
+            elif user_tariff == "BUSINESS":
+                await message.answer(
+                    f"👋 Salom, {user_name}!\n\n"
+                    "Balans AI Business ga xush kelibsiz!\n\n"
+                    "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
+                    reply_markup=get_business_menu(),
+                    parse_mode="Markdown"
+                )
+            else:
+                await message.answer(
+                    f"👋 Salom, {user_name}!\n\n"
+                    "Balans AI ga xush kelibsiz!\n\n"
+                    "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
+                    reply_markup=get_premium_menu(),
+                    parse_mode="Markdown"
+                )
     # fallback
     return
 
@@ -1290,9 +1331,9 @@ async def help_command(message: types.Message):
     """
     await message.answer(help_text, parse_mode="Markdown")
 
-# Tezkor balans komandasi va tugma handleri
+# Tezkor balans komandasi
+@dp.message(Command("balance"))
 @dp.message(Command("balans"))
-@dp.message(lambda message: message.text == "💰 Balans")
 async def quick_balance(message: types.Message):
     user_id = message.from_user.id
     balances = await db.get_balances(user_id)
@@ -2064,7 +2105,7 @@ async def onboarding_no_debts(callback_query: CallbackQuery, state: FSMContext):
             "• 🤖 AI yordamchi\n"
             "• 📱 Qulay interfeys\n\n"
             "Agar qanday foydalanishni tushunmasangiz, admin bilan bog'laning:\n"
-                "👤 `@nurmuhammad_dev`\n\n"
+            "👤 `@nurmuhammad_dev`\n\n"
             "Muvaffaqiyatlar! 🚀"
         ),
         reply_markup=menu,
