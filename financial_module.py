@@ -634,11 +634,17 @@ MUHIM:
                 elif '```' in ai_response:
                     ai_response = ai_response.split('```')[1]
                 
+                # Agar AI javobida JSON yo'q bo'lsa, fallback qilish
+                if not ai_response or ai_response.startswith('Kechirasiz') or 'matnni ko\'rmayapman' in ai_response:
+                    logging.info("AI javobida JSON yo'q, fallback qilinmoqda")
+                    return {"transactions": [], "total_confidence": 0}
+                
                 data = json.loads(ai_response)
                 return data
                 
             except json.JSONDecodeError as e:
                 logging.error(f"JSON parse xatolik: {e}")
+                logging.error(f"AI javobi: {ai_response}")
                 return {"transactions": [], "total_confidence": 0}
                 
         except Exception as e:
