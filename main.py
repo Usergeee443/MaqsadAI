@@ -375,7 +375,7 @@ def get_free_menu():
 def get_premium_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://balansai.uz")), KeyboardButton(text="👤 Profil")]
+            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/")), KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -387,7 +387,7 @@ def get_business_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="➕ Xodim qo'shish"), KeyboardButton(text="💳 Qarzlar")],
-            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://t.me/balansaibot/hisobotlar"))],
+            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/"))],
             [KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
@@ -400,7 +400,7 @@ def get_employee_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="➕ Kirim"), KeyboardButton(text="➖ Chiqim")],
-            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://t.me/balansaibot/hisobotlar"))],
+            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/"))],
             [KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
