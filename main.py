@@ -13,8 +13,11 @@ from aiogram.types import ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButt
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 
-from config import BOT_TOKEN, TARIFFS, CATEGORIES, TARIFF_PRICES, DISCOUNT_RATES, PAYMENT_METHODS, TELEGRAM_PAYMENT_PROVIDER_TOKEN, STARS_ENABLED, STARS_SOM_PER_STAR
+from config import BOT_TOKEN, TARIFFS, CATEGORIES, TARIFF_PRICES, DISCOUNT_RATES, PAYMENT_METHODS, TELEGRAM_PAYMENT_PROVIDER_TOKEN, STARS_ENABLED, STARS_SOM_PER_STAR, SPEECH_MODELS, ACTIVE_SPEECH_MODELS, FREE_TRIAL_ENABLED
 from database import db
 from financial_module import FinancialModule
 from reports_module import ReportsModule
@@ -29,6 +32,18 @@ reports_module = ReportsModule()
 
 # Admin panelga ruxsat berilgan ID
 ADMIN_USER_ID = 6429299277
+
+# FastAPI app mini-app uchun
+app = FastAPI(title="Balans AI Mini App API")
+
+# CORS sozlamalari
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Sana formatlash (uzbekcha oy)
 def _format_date_uz(dt_obj) -> str:
@@ -144,12 +159,20 @@ def build_tariff_detail_keyboard(tariff_code: str, back_callback: str) -> Inline
         if current == tariff_code and current != 'FREE':
             # Aktiv tarif: faqat orqaga tugmasi
             return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback)]])
-        # Aks holda aktivlashtirish ko'rsatiladi
-        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback), InlineKeyboardButton(text="🚀 Aktivlashtirish", callback_data=f"activate_{tariff_code}")]])
+        
+        # 1 haftalik sinov holatini tekshirish
+        if tariff_code in FREE_TRIAL_ENABLED and FREE_TRIAL_ENABLED[tariff_code]:
+            # 1 haftalik sinov yoqilgan - sinov tugmasi
+            return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback), InlineKeyboardButton(text="🆓 1 Hafta bepul sinash", callback_data=f"free_trial_{tariff_code}")]])
+        else:
+            # 1 haftalik sinov o'chirilgan - aktivlashtirish tugmasi
+            return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback), InlineKeyboardButton(text="🚀 Aktivlashtirish", callback_data=f"activate_{tariff_code}")]])
 
     # Fallback sync qurilishi (agar user_id konteksti yo'q bo'lsa)
-    # FREE uchun ham Aktivlashtirish tugmasi ko'rsatiladi
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback), InlineKeyboardButton(text="🚀 Aktivlashtirish", callback_data=f"activate_{tariff_code}")]])
+    if tariff_code in FREE_TRIAL_ENABLED and FREE_TRIAL_ENABLED[tariff_code]:
+        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback), InlineKeyboardButton(text="🆓 1 Hafta bepul sinash", callback_data=f"free_trial_{tariff_code}")]])
+    else:
+        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback), InlineKeyboardButton(text="🚀 Aktivlashtirish", callback_data=f"activate_{tariff_code}")]])
 
 def build_main_tariff_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -313,7 +336,7 @@ class UserStates(StatesGroup):
     # Admin
     admin_broadcast_audience = State()
     admin_broadcast_text = State()
-
+    
     # Onboarding: boshlang'ich balans va qarzlar
     waiting_for_initial_cash = State()
     waiting_for_initial_card = State()
@@ -328,6 +351,12 @@ class UserStates(StatesGroup):
     onboarding_debts_borrowed = State()
     onboarding_complete = State()
     onboarding_debt_waiting_for_due_date = State()
+
+# Onboarding holatlari (sinovchilar uchun)
+class OnboardingState(StatesGroup):
+    waiting_for_income = State()
+    waiting_for_balance = State()
+    waiting_for_debts = State()
 
 # Bepul tarif menyusi
 def get_free_menu():
@@ -346,7 +375,7 @@ def get_free_menu():
 def get_premium_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/")), KeyboardButton(text="👤 Profil")]
+            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://t.me/balansaibot/hisobotlar")), KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -358,7 +387,7 @@ def get_business_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="➕ Xodim qo'shish"), KeyboardButton(text="💳 Qarzlar")],
-            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/"))],
+            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://t.me/balansaibot/hisobotlar"))],
             [KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
@@ -371,7 +400,7 @@ def get_employee_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="➕ Kirim"), KeyboardButton(text="➖ Chiqim")],
-            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/"))],
+            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://t.me/balansaibot/hisobotlar"))],
             [KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
@@ -442,7 +471,9 @@ async def admin_command(message: Message, state: FSMContext):
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
-            [InlineKeyboardButton(text="📨 Xabar yuborish", callback_data="admin_broadcast")]
+            [InlineKeyboardButton(text="📨 Xabar yuborish", callback_data="admin_broadcast")],
+            [InlineKeyboardButton(text="🎤 Speech Model Boshqarish", callback_data="admin_speech_models")],
+            [InlineKeyboardButton(text="🆓 1 Haftalik Sinov Boshqarish", callback_data="admin_free_trial")]
         ]
     )
     try:
@@ -606,6 +637,178 @@ async def admin_broadcast_text_handler(message: Message, state: FSMContext):
     await message.answer(f"Yuborildi: {sent} ta foydalanuvchiga")
     await state.clear()
 
+# Speech Model boshqarish
+@dp.callback_query(lambda c: c.data == "admin_speech_models")
+async def admin_speech_models_callback(callback_query: CallbackQuery):
+    if callback_query.from_user.id != ADMIN_USER_ID:
+        await callback_query.answer()
+        return
+    
+    # Hozirgi holatni ko'rsatish
+    google_status = "✅ Yoqilgan" if ACTIVE_SPEECH_MODELS['GOOGLE'] else "❌ O'chirilgan"
+    whisper_status = "✅ Yoqilgan" if ACTIVE_SPEECH_MODELS['WHISPER'] else "❌ O'chirilgan"
+    
+    text = f"""🎤 **Speech Model Boshqarish**
+
+**Hozirgi holat:**
+• Google Cloud Speech-to-Text: {google_status}
+• OpenAI Whisper: {whisper_status}
+
+**Boshqarish:**
+Quyidagi tugmalardan foydalaning:"""
+    
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"Google: {google_status}", callback_data="admin_toggle_google")],
+            [InlineKeyboardButton(text=f"Whisper: {whisper_status}", callback_data="admin_toggle_whisper")],
+            [InlineKeyboardButton(text="🔄 Ikkalasini ham yoqish", callback_data="admin_enable_all")],
+            [InlineKeyboardButton(text="❌ Ikkalasini ham o'chirish", callback_data="admin_disable_all")],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin_back")]
+        ]
+    )
+    
+    await callback_query.message.edit_caption(caption=text, reply_markup=kb, parse_mode='Markdown')
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "admin_toggle_google")
+async def admin_toggle_google_callback(callback_query: CallbackQuery):
+    if callback_query.from_user.id != ADMIN_USER_ID:
+        await callback_query.answer()
+        return
+    
+    # Google ni toggle qilish
+    ACTIVE_SPEECH_MODELS['GOOGLE'] = not ACTIVE_SPEECH_MODELS['GOOGLE']
+    await admin_speech_models_callback(callback_query)
+
+@dp.callback_query(lambda c: c.data == "admin_toggle_whisper")
+async def admin_toggle_whisper_callback(callback_query: CallbackQuery):
+    if callback_query.from_user.id != ADMIN_USER_ID:
+        await callback_query.answer()
+        return
+    
+    # Whisper ni toggle qilish
+    ACTIVE_SPEECH_MODELS['WHISPER'] = not ACTIVE_SPEECH_MODELS['WHISPER']
+    await admin_speech_models_callback(callback_query)
+
+@dp.callback_query(lambda c: c.data == "admin_enable_all")
+async def admin_enable_all_callback(callback_query: CallbackQuery):
+    if callback_query.from_user.id != ADMIN_USER_ID:
+        await callback_query.answer()
+        return
+    
+    # Ikkalasini ham yoqish
+    ACTIVE_SPEECH_MODELS['GOOGLE'] = True
+    ACTIVE_SPEECH_MODELS['WHISPER'] = True
+    await admin_speech_models_callback(callback_query)
+
+@dp.callback_query(lambda c: c.data == "admin_disable_all")
+async def admin_disable_all_callback(callback_query: CallbackQuery):
+    if callback_query.from_user.id != ADMIN_USER_ID:
+        await callback_query.answer()
+        return
+    
+    # Ikkalasini ham o'chirish
+    ACTIVE_SPEECH_MODELS['GOOGLE'] = False
+    ACTIVE_SPEECH_MODELS['WHISPER'] = False
+    await admin_speech_models_callback(callback_query)
+
+@dp.callback_query(lambda c: c.data == "admin_back")
+async def admin_back_callback(callback_query: CallbackQuery):
+    if callback_query.from_user.id != ADMIN_USER_ID:
+        await callback_query.answer()
+        return
+    
+    # Admin panelga qaytish
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
+            [InlineKeyboardButton(text="📨 Xabar yuborish", callback_data="admin_broadcast")],
+            [InlineKeyboardButton(text="🎤 Speech Model Boshqarish", callback_data="admin_speech_models")],
+            [InlineKeyboardButton(text="🆓 1 Haftalik Sinov Boshqarish", callback_data="admin_free_trial")]
+        ]
+    )
+    
+    await callback_query.message.edit_caption(caption="Admin panel", reply_markup=kb)
+    await callback_query.answer()
+
+# 1 haftalik sinov boshqarish
+@dp.callback_query(lambda c: c.data == "admin_free_trial")
+async def admin_free_trial_callback(callback_query: CallbackQuery):
+    if callback_query.from_user.id != ADMIN_USER_ID:
+        await callback_query.answer()
+        return
+    
+    # Hozirgi holatni ko'rsatish
+    text = "🆓 **1 Haftalik Sinov Boshqarish**\n\n**Hozirgi holat:**\n"
+    
+    for tariff, enabled in FREE_TRIAL_ENABLED.items():
+        status = "✅ Yoqilgan" if enabled else "❌ O'chirilgan"
+        tariff_name = TARIFFS.get(tariff, tariff)
+        text += f"• {tariff_name}: {status}\n"
+    
+    text += "\n**Boshqarish:**\nQuyidagi tugmalardan foydalaning:"
+    
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Ikkalasini ham yoqish", callback_data="admin_enable_all_trials")],
+            [InlineKeyboardButton(text="❌ Ikkalasini ham o'chirish", callback_data="admin_disable_all_trials")],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin_back")]
+        ]
+    )
+    
+    # Har bir tarif uchun alohida tugma
+    tariff_buttons = []
+    for tariff, enabled in FREE_TRIAL_ENABLED.items():
+        tariff_name = TARIFFS.get(tariff, tariff)
+        status = "✅" if enabled else "❌"
+        tariff_buttons.append([InlineKeyboardButton(
+            text=f"{status} {tariff_name}", 
+            callback_data=f"admin_toggle_trial_{tariff}"
+        )])
+    
+    kb.inline_keyboard.extend(tariff_buttons)
+    kb.inline_keyboard.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin_back")])
+    
+    await callback_query.message.edit_caption(caption=text, reply_markup=kb, parse_mode='Markdown')
+    await callback_query.answer()
+
+# 1 haftalik sinov toggle
+@dp.callback_query(lambda c: c.data.startswith("admin_toggle_trial_"))
+async def admin_toggle_trial_callback(callback_query: CallbackQuery):
+    if callback_query.from_user.id != ADMIN_USER_ID:
+        await callback_query.answer()
+        return
+    
+    tariff = callback_query.data.split("_")[-1]
+    if tariff in FREE_TRIAL_ENABLED:
+        FREE_TRIAL_ENABLED[tariff] = not FREE_TRIAL_ENABLED[tariff]
+    
+    await admin_free_trial_callback(callback_query)
+
+# Barcha sinovlarni yoqish
+@dp.callback_query(lambda c: c.data == "admin_enable_all_trials")
+async def admin_enable_all_trials_callback(callback_query: CallbackQuery):
+    if callback_query.from_user.id != ADMIN_USER_ID:
+        await callback_query.answer()
+        return
+    
+    for tariff in FREE_TRIAL_ENABLED:
+        FREE_TRIAL_ENABLED[tariff] = True
+    
+    await admin_free_trial_callback(callback_query)
+
+# Barcha sinovlarni o'chirish
+@dp.callback_query(lambda c: c.data == "admin_disable_all_trials")
+async def admin_disable_all_trials_callback(callback_query: CallbackQuery):
+    if callback_query.from_user.id != ADMIN_USER_ID:
+        await callback_query.answer()
+        return
+    
+    for tariff in FREE_TRIAL_ENABLED:
+        FREE_TRIAL_ENABLED[tariff] = False
+    
+    await admin_free_trial_callback(callback_query)
+
 # Xodim profili menyusi
 def get_employee_profile_menu():
     keyboard = InlineKeyboardMarkup(
@@ -761,7 +964,7 @@ def get_payment_method_keyboard() -> InlineKeyboardMarkup:
     """To'lov usuli tanlash tugmalari"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         # [InlineKeyboardButton(text="⭐️ Telegram Stars", callback_data="select_payment_telegram_stars")],
-        [InlineKeyboardButton(text="💳 Telegram (Click)", callback_data="select_payment_telegram_click")],
+        [InlineKeyboardButton(text="💳 Telegram (Click)", callback_data="select_payment_telegram_click")],  # Commentga olindi
         [
             InlineKeyboardButton(text="🔵 Click", callback_data="select_payment_click"),
             InlineKeyboardButton(text="🟢 Payme", callback_data="select_payment_payme")
@@ -802,11 +1005,7 @@ async def start_command(message: types.Message, state: FSMContext):
     username = message.from_user.username
     first_name = message.from_user.first_name
     last_name = message.from_user.last_name
-    # /start xabarini UI ni toza saqlash uchun o'chiramiz
-    try:
-        await message.delete()
-    except Exception:
-        pass
+    # /start xabarini o'chirmaymiz - foydalanuvchi ko'rsin
     
     # Foydalanuvchini ma'lumotlar bazasiga qo'shish
     try:
@@ -826,7 +1025,7 @@ async def start_command(message: types.Message, state: FSMContext):
     if user_data:
         balance_query = """
         SELECT COUNT(*) FROM transactions 
-        WHERE user_id = %s AND category IN ('boshlang_ich_naqd', 'boshlang_ich_karta')
+        WHERE user_id = %s AND category IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
         """
         result = await db.execute_one(balance_query, (user_id,))
         has_initial_balance = result[0] > 0 if result else False
@@ -836,6 +1035,95 @@ async def start_command(message: types.Message, state: FSMContext):
         tx_result = await db.execute_one(tx_count_query, (user_id,))
         has_any_transactions = (tx_result[0] > 0) if tx_result else False
 
+    # Eski onboarding logikasini tekshirish
+    # Agar foydalanuvchi onboarding jarayonida bo'lsa, qayerda to'xtagan bo'lsa o'sha yerdan davom etadi
+    current_state = await state.get_state()
+    
+    # Onboarding holatlarini tekshirish
+    if current_state in [UserStates.onboarding_balance, UserStates.onboarding_waiting_for_debt_action, 
+                        UserStates.onboarding_debt_waiting_for_person, UserStates.onboarding_debt_waiting_for_amount]:
+        # Foydalanuvchi onboarding jarayonida - qayerda to'xtagan bo'lsa o'sha yerdan davom etadi
+        if current_state == UserStates.onboarding_balance:
+            await message.answer_photo(
+                photo=FSInputFile('welcome.png'),
+                caption=(
+                    "💰 **1-qadam: Boshlang'ich balans**\n\n"
+                    "Qancha pulingiz bor? (naqd pul + karta)\n\n"
+                    "Masalan: 500000 (agar 500,000 so'm bo'lsa)"
+                ),
+                reply_markup=ReplyKeyboardRemove(),
+                parse_mode='Markdown'
+            )
+        elif current_state == UserStates.onboarding_waiting_for_debt_action:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="➕ Qarz berganman", callback_data="onboarding_debt_lent")],
+                [InlineKeyboardButton(text="❌ Qarzlar yo'q", callback_data="onboarding_no_debts")]
+            ])
+            await message.answer_photo(
+                photo=FSInputFile('welcome.png'),
+                caption=(
+                    "💳 **2-qadam: Qarzlar holati**\n\n"
+                    "Kimga qarz berganmisiz yoki kimdan qarzdormisiz?"
+                ),
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+        elif current_state == UserStates.onboarding_debt_waiting_for_person:
+            await message.answer_photo(
+                photo=FSInputFile('welcome.png'),
+                caption=(
+                    "💸 **Qarz bergan odam ismini kiriting:**\n\n"
+                    "Masalan: Akmal, Oila, Do'st, va h.k."
+                ),
+                reply_markup=ReplyKeyboardRemove(),
+                parse_mode='Markdown'
+            )
+        elif current_state == UserStates.onboarding_debt_waiting_for_amount:
+            data = await state.get_data()
+            person_name = data.get('debt_person', 'Noma\'lum')
+            await message.answer_photo(
+                photo=FSInputFile('welcome.png'),
+                caption=(
+                    f"💰 **{person_name}ga qancha qarz berganmisiz?**\n\n"
+                    "Masalan: 100000 (agar 100,000 so'm bo'lsa)"
+                ),
+                reply_markup=ReplyKeyboardRemove(),
+                parse_mode='Markdown'
+            )
+        return
+    
+    # Agar foydalanuvchi onboarding yakunlagan bo'lsa
+    if has_initial_balance or has_any_transactions:
+        # Eski foydalanuvchi - asosiy menyuni ko'rsatish
+        user_name = await get_user_name(user_id)
+        user_tariff = await get_user_tariff(user_id)
+        
+        if user_tariff == 'FREE':
+            await message.answer_photo(
+                photo=FSInputFile('welcome.png'),
+                caption=f"👋 Salom, {user_name}!\n\nBalans AI ga xush kelibsiz!\n\nQuyidagi tugmalardan foydalaning:",
+                reply_markup=get_free_menu(),
+                parse_mode="Markdown"
+            )
+        elif user_tariff == 'BUSINESS':
+            await message.answer_photo(
+                photo=FSInputFile('welcome.png'),
+                caption=f"👋 Salom, {user_name}!\n\nBalans AI Business ga xush kelibsiz!\n\nMatn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
+                reply_markup=get_business_menu(),
+                parse_mode="Markdown"
+            )
+        else:
+            await message.answer_photo(
+                photo=FSInputFile('welcome.png'),
+                caption=f"👋 Salom, {user_name}!\n\nBalans AI ga xush kelibsiz!\n\nMatn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
+                reply_markup=get_premium_menu(),
+                parse_mode="Markdown"
+            )
+        return
+    
+    # Yangi foydalanuvchi uchun faqat xush kelibsiz xabari (onboarding boshlanmaydi)
+    # Onboarding faqat telefon raqami yuborilgandan keyin boshlanadi
+    
     # Onboarding oqimini to'g'ri tartibda yo'naltirish
     # 1) Telefon yo'q -> telefon so'rash
     if not (user_data and user_data.get('phone')):
@@ -885,9 +1173,59 @@ async def start_command(message: types.Message, state: FSMContext):
             reply_markup=build_main_tariff_keyboard()
         )
         return
+    
+    # 2.1) Agar to'lov usuli tanlash jarayonida bo'lsa -> to'lov usuli menyusi
+    if (await state.get_state()) == UserStates.waiting_for_payment_method.state:
+        data = await state.get_data()
+        tariff = data.get('selected_tariff', 'PLUS')
+        duration = data.get('selected_duration', '1')
+        
+        # To'lov usuli menyusini qaytadan yuborish
+        await message.answer(
+            f"💳 **{get_tariff_detail_text(tariff)}**\n\n"
+            f"📅 **Muddat:** {duration} oy\n"
+            f"💰 **Narx:** {get_tariff_price(tariff, duration)} so'm\n\n"
+            "To'lov usulini tanlang:",
+            parse_mode='Markdown',
+            reply_markup=build_payment_method_keyboard()
+        )
+        return
 
-    # 2.1) Agar foydalanuvchi onboarding jarayonining istalgan bosqichida bo'lsa -> o'sha bosqichga qaytarish
+    # 2.2) Agar onboarding jarayonida bo'lsa -> o'sha bosqichga qaytarish
     current_state = await state.get_state()
+    
+    # OnboardingState holatlari uchun
+    if current_state == OnboardingState.waiting_for_income.state:
+        await message.answer(
+            "📊 **Onboarding bosqichi 1/3**\n\n"
+            "Oylik daromadingizni kiriting (so'mda):\n\n"
+            "Misol: 5000000",
+            parse_mode='Markdown'
+        )
+        return
+    elif current_state == OnboardingState.waiting_for_balance.state:
+        await message.answer(
+            "💰 **Onboarding bosqichi 2/3**\n\n"
+            "Hozirgi balansingizni kiriting (so'mda):\n\n"
+            "Misol: 2000000",
+            parse_mode='Markdown'
+        )
+        return
+    elif current_state == OnboardingState.waiting_for_debts.state:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Qarz berganman", callback_data="onboarding_debt_lent")],
+            [InlineKeyboardButton(text="➖ Qarz olganman", callback_data="onboarding_debt_borrowed")],
+            [InlineKeyboardButton(text="❌ Qarzlar yo'q", callback_data="onboarding_no_debts")]
+        ])
+        await message.answer(
+            "💳 **Onboarding bosqichi 3/3**\n\n"
+            "Qarzlar holatingizni belgilang:",
+            parse_mode='Markdown',
+            reply_markup=keyboard
+        )
+        return
+    
+    # UserStates holatlari uchun
     if current_state == UserStates.waiting_for_name.state:
         _msg = await message.answer_photo(
             photo=FSInputFile('what_is_your_name.png'),
@@ -2034,9 +2372,9 @@ async def process_onboarding_balance(message: types.Message, state: FSMContext):
         await message.answer("❌ Noto'g'ri format. Faqat raqam kiriting (masalan: 500000):")
         return
     
-    # Balansni saqlash
+    # Balansni saqlash (so'mda kiritilgan)
     if balance > 0:
-        await db.add_transaction(user_id, 'income', int(balance * 100), 'boshlang_ich_balans', 'Onboarding: boshlang\'ich balans')
+        await db.add_transaction(user_id, 'income', int(balance), 'boshlang_ich_balans', 'Onboarding: boshlang\'ich balans')
     else:
         # 0 bo'lsa ham marker qo'shamiz
         await db.add_transaction(user_id, 'income', 0, 'boshlang_ich_balans', 'Onboarding: boshlang\'ich balans (0)')
@@ -2105,7 +2443,7 @@ async def onboarding_no_debts(callback_query: CallbackQuery, state: FSMContext):
             "• 🤖 AI yordamchi\n"
             "• 📱 Qulay interfeys\n\n"
             "Agar qanday foydalanishni tushunmasangiz, admin bilan bog'laning:\n"
-            "👤 `@nurmuhammad_dev`\n\n"
+            "👤 @nurmuxammadrayimov\n\n"
             "Muvaffaqiyatlar! 🚀"
         ),
         reply_markup=menu,
@@ -2193,7 +2531,7 @@ async def process_onboarding_debt_amount(message: types.Message, state: FSMConte
     await db.add_transaction(
         user_id, 
         'expense' if debt_type == 'lent' else 'income',
-        int(amount * 100),
+        int(amount),  # so'mda kiritilgan
         'qarz_berdim' if debt_type == 'lent' else 'qarz_oldim',
         f"Onboarding: {person_name}ga qarz berdim" if debt_type == 'lent' else f"Onboarding: {person_name}dan qarz oldim"
     )
@@ -2427,6 +2765,68 @@ async def buy_new_tariff_callback(callback_query: CallbackQuery):
 async def process_subscription_duration(callback_query: CallbackQuery, state: FSMContext):
     """Obuna muddatini qabul qilish"""
     user_id = callback_query.from_user.id
+    
+    # 1 haftalik bepul sinov
+    if callback_query.data == "duration_trial":
+        data = await state.get_data()
+        tariff = data.get('selected_tariff')
+        
+        # Debug: State ma'lumotlarini ko'ramiz
+        logging.info(f"Duration trial - State data: {data}")
+        logging.info(f"Duration trial - Selected tariff: {tariff}")
+        
+        if not tariff:
+            await callback_query.answer("❌ Tarif topilmadi. Qaytadan boshlang.", show_alert=True)
+            return
+        
+        # Foydalanuvchini tarifga o'tkazish (1 haftalik bepul)
+        try:
+            from datetime import datetime, timedelta
+            
+            logging.info(f"Updating user {user_id} tariff to {tariff} with 1 week expiry")
+            
+            # 1. Users jadvalini yangilash
+            await db.execute_query(
+                "UPDATE users SET tariff = %s, tariff_expires_at = DATE_ADD(NOW(), INTERVAL 1 WEEK) WHERE user_id = %s",
+                (tariff, user_id)
+            )
+            
+            # 2. User subscriptions jadvaliga qo'shish
+            expires_at = datetime.now() + timedelta(days=7)
+            await db.execute_query(
+                "INSERT INTO user_subscriptions (user_id, tariff, is_active, expires_at) VALUES (%s, %s, %s, %s)",
+                (user_id, tariff, True, expires_at)
+            )
+            
+            # 3. Payments jadvaliga qo'shish (bepul sinov uchun 0 so'm)
+            await db.execute_query(
+                "INSERT INTO payments (user_id, tariff, provider, total_amount, currency, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, NOW())",
+                (user_id, tariff, 'free_trial', 0, 'UZS', 'paid')
+            )
+            
+            logging.info(f"Successfully updated user {user_id} tariff to {tariff} with full subscription and payment records")
+            
+            # Tabrik xabari (pullik tariflar kabi)
+            await callback_query.message.answer(
+                "🎉 **Tabriklaymiz!**\n\n"
+                f"✅ Siz {TARIFFS.get(tariff, tariff)} tarifiga ega bo'ldingiz!\n"
+                f"⏰ Muddati: 1 hafta (bepul sinov)\n"
+                f"📅 Tugash sanasi: {expires_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+                "🚀 **Boshlash** tugmasini bosing va onboarding jarayonini boshlaymiz!",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🚀 Boshlash", callback_data="start_onboarding")]
+                ]),
+                parse_mode='Markdown'
+            )
+            
+            await callback_query.answer("✅ 1 haftalik bepul sinov faollashtirildi!")
+            return
+            
+        except Exception as e:
+            logging.error(f"Free trial activation error: {e}")
+            await callback_query.answer("❌ Xatolik yuz berdi. Admin bilan bog'laning.", show_alert=True)
+            return
+    
     months = int(callback_query.data.split("_")[1])
     
     # State dan tarifni olamiz
@@ -2453,10 +2853,10 @@ async def process_subscription_duration(callback_query: CallbackQuery, state: FS
     text = f"💳 **To'lov usulini tanlang**\n\n"
     text += f"📋 **Tarif:** {tariff_name}\n"
     text += f"⏰ **Muddat:** {months} oy{discount_text}\n"
-    text += f"💰 **Narx:** {price_info['final_price']/100:,.0f} so'm\n"
+    text += f"💰 **Narx:** {int(price_info['final_price']/100):,} so'm\n"
     
     if price_info['discount_rate'] > 0:
-        text += f"💸 **Chegirma:** {price_info['discount_amount']/100:,.0f} so'm\n"
+        text += f"💸 **Chegirma:** {int(price_info['discount_amount']/100):,} so'm\n"
     
     try:
         await callback_query.message.delete()
@@ -2530,9 +2930,9 @@ async def process_payment_method(callback_query: CallbackQuery, state: FSMContex
             provider_token = TELEGRAM_PAYMENT_PROVIDER_TOKEN
         
         amount_text = (
-            f"💰 **Narx:** {price_info['final_price']/100:,.0f} so'm\n\n"
+            f"💰 **Narx:** {int(price_info['final_price']/100):,} so'm\n\n"
             if payment_method != "telegram_stars"
-            else f"⭐️ **Yulduzlar:** {max(1, price_info['final_price'] // 100):,} Stars\n\n"
+            else f"⭐️ **Yulduzlar:** {max(1, int(price_info['final_price'] // 100)):,} Stars\n\n"
         )
         
         # To'lov ma'lumotlarini ko'rsatamiz
@@ -2546,7 +2946,7 @@ async def process_payment_method(callback_query: CallbackQuery, state: FSMContex
         
         # To'lov usulini tanlash tugmalari
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Telegram (Click)", callback_data="select_payment_telegram_click")],
+            # [InlineKeyboardButton(text="💳 Telegram (Click)", callback_data="select_payment_telegram_click")],  # Commentga olindi
             [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data="select_payment_telegram_stars")],
             [InlineKeyboardButton(text="◀️ Orqaga", callback_data=f"back_to_duration_{tariff}")]
         ])
@@ -2572,11 +2972,16 @@ async def process_payment_method(callback_query: CallbackQuery, state: FSMContex
             _pending_clear(PENDING_BUSINESS_PAYMENTS, user_id)
 
 # To'lov usulini tanlash (yangi)
-@dp.callback_query(lambda c: c.data and c.data.startswith("select_payment_"))
+@dp.callback_query(lambda c: c.data and c.data.startswith("select_payment_") and c.data not in ["select_payment_early_access"])
 async def select_payment_method(callback_query: CallbackQuery, state: FSMContext):
     """To'lov usulini tanlash"""
     user_id = callback_query.from_user.id
     payment_method = callback_query.data.replace("select_payment_", "")
+    
+    # Click va Payme uchun "Tez orqada" xabari
+    if payment_method in ["click", "payme"]:
+        await callback_query.answer("🚧 Bu to'lov usuli tez orada qo'shiladi!\n\nIltimos, boshqa to'lov usulini tanlang.", show_alert=True)
+        return
     
     # State dan ma'lumotlarni olamiz
     data = await state.get_data()
@@ -2590,7 +2995,7 @@ async def select_payment_method(callback_query: CallbackQuery, state: FSMContext
     
     try:
         tariff_name = TARIFFS.get(tariff, tariff)
-        amount_text = f"💰 **Narx:** {price_info['final_price']/100:,.0f} so'm\n\n"
+        amount_text = f"💰 **Narx:** {int(price_info['final_price']/100):,} so'm\n\n"
         
         # To'lov usulini tanlash xabarini edit qilamiz
         if payment_method == "telegram_click":
@@ -2726,7 +3131,7 @@ async def select_payment_method(callback_query: CallbackQuery, state: FSMContext
                 f"To'lov linki: https://example.com/payment/{tariff.lower()}/{months}\n\n"
                 f"Tarif: {tariff_name}\n"
                 f"Muddat: {months} oy\n"
-                f"Summa: {price_info['final_price']/100:,.0f} so'm"
+                f"Summa: {int(price_info['final_price']/100):,} so'm"
             )
         
         await state.clear()
@@ -2743,10 +3148,11 @@ async def select_payment_method(callback_query: CallbackQuery, state: FSMContext
             _pending_clear(PENDING_BUSINESS_PAYMENTS, user_id)
 
 # Boshqa to'lov usullari uchun handlerlar
-@dp.callback_query(lambda c: c.data and c.data.startswith("select_payment_") and c.data not in ["select_payment_telegram_click", "select_payment_telegram_stars"])
+
+@dp.callback_query(lambda c: c.data and c.data.startswith("select_payment_") and c.data not in ["select_payment_telegram_click", "select_payment_telegram_stars", "select_payment_early_access"])
 async def select_other_payment_methods(callback_query: CallbackQuery, state: FSMContext):
     """Boshqa to'lov usullari uchun handler"""
-    await callback_query.answer("🚧 Bu to'lov usuli tez orada qo'shiladi!", show_alert=True)
+    await callback_query.answer("🚧 Bu to'lov usuli tez orada qo'shiladi!\n\nIltimos, boshqa to'lov usulini tanlang.", show_alert=True)
 
 # Qayta to'lov usulini tanlash
 @dp.callback_query(lambda c: c.data and c.data.startswith("back_to_payment_method_"))
@@ -2798,7 +3204,7 @@ async def back_to_payment_method(callback_query: CallbackQuery, state: FSMContex
     
     # To'lov usullari menusi
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Telegram (Click)", callback_data="select_payment_telegram_click")],
+        # [InlineKeyboardButton(text="💳 Telegram (Click)", callback_data="select_payment_telegram_click")],  # Commentga olindi
         [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data="select_payment_telegram_stars")],
         [InlineKeyboardButton(text="🔵 Click", callback_data="select_payment_click")],
         [InlineKeyboardButton(text="🟢 Payme", callback_data="select_payment_payme")],
@@ -2808,7 +3214,7 @@ async def back_to_payment_method(callback_query: CallbackQuery, state: FSMContex
     
     # Dastlabki holatga qaytaramiz
     tariff_name = TARIFFS.get(tariff, tariff)
-    amount_text = f"💰 **Narx:** {price_info['final_price']/100:,.0f} so'm\n\n"
+    amount_text = f"💰 **Narx:** {int(price_info['final_price']/100):,} so'm\n\n"
     
     text = (
         "💳 **To'lov usulini tanlang**\n\n"
@@ -3000,6 +3406,59 @@ async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext
         await callback_query.answer()
         return
     
+    # 1 haftalik sinov callbacklari
+    if callback_query.data.startswith("free_trial_"):
+        tariff_code = callback_query.data.replace("free_trial_", "")
+        print(f"DEBUG: Free trial callback received for tariff: {tariff_code}")
+        
+        # 1 haftalik sinov aktiv qilish
+        try:
+            from datetime import datetime, timedelta
+            
+            logging.info(f"Activating free trial for user {user_id} with tariff {tariff_code}")
+            
+            # 1. Users jadvalini yangilash
+            await db.execute_query(
+                "UPDATE users SET tariff = %s, tariff_expires_at = DATE_ADD(NOW(), INTERVAL 1 WEEK) WHERE user_id = %s",
+                (tariff_code, user_id)
+            )
+            
+            # 2. User subscriptions jadvaliga qo'shish
+            expires_at = datetime.now() + timedelta(days=7)
+            await db.execute_query(
+                "INSERT INTO user_subscriptions (user_id, tariff, is_active, expires_at) VALUES (%s, %s, %s, %s)",
+                (user_id, tariff_code, True, expires_at)
+            )
+            
+            # 3. Payments jadvaliga qo'shish (bepul sinov uchun 0 so'm)
+            await db.execute_query(
+                "INSERT INTO payments (user_id, tariff, provider, total_amount, currency, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, NOW())",
+                (user_id, tariff_code, 'free_trial', 0, 'UZS', 'paid')
+            )
+            
+            logging.info(f"Successfully activated free trial for user {user_id} with tariff {tariff_code}")
+            
+            # Tabrik xabari
+            await callback_query.message.answer(
+                "🎉 **Tabriklaymiz!**\n\n"
+                f"✅ Siz {TARIFFS.get(tariff_code, tariff_code)} tarifiga ega bo'ldingiz!\n"
+                f"⏰ Muddati: 1 hafta (bepul sinov)\n"
+                f"📅 Tugash sanasi: {expires_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+                "🚀 **Boshlash** tugmasini bosing va onboarding jarayonini boshlaymiz!",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🚀 Boshlash", callback_data="start_onboarding")]
+                ]),
+                parse_mode='Markdown'
+            )
+            
+            await callback_query.answer("✅ 1 haftalik bepul sinov faollashtirildi!")
+            return
+            
+        except Exception as e:
+            logging.error(f"Free trial activation error: {e}")
+            await callback_query.answer("❌ Xatolik yuz berdi. Admin bilan bog'laning.", show_alert=True)
+            return
+
     # Aktivlashtirish callbacklari
     if callback_query.data.startswith("activate_"):
         tariff_code = callback_query.data.replace("activate_", "")
@@ -3073,6 +3532,25 @@ async def process_tariff_onboarding_only(callback_query: CallbackQuery, state: F
     user_id = callback_query.from_user.id
     tariff = callback_query.data.split("_", 1)[1]
 
+    if tariff == "FREE":
+        # Free tarif uchun onboarding (eski UI bilan)
+        await state.update_data(onboarding_tariff=tariff)
+        
+        # Onboarding bosqichi 1: Boshlang'ich balans (rasmli xabar)
+        await callback_query.message.answer_photo(
+            photo=FSInputFile('welcome.png'),
+            caption=(
+                "💰 **1-qadam: Boshlang'ich balans**\n\n"
+                "Qancha pulingiz bor? (naqd pul + karta)\n\n"
+                "Masalan: 500000 (agar 500,000 so'm bo'lsa)"
+            ),
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='Markdown'
+        )
+        
+        await state.set_state(UserStates.onboarding_balance)
+        await callback_query.answer()
+        return
 
     if tariff == "FAMILY_MENU":
         await callback_query.message.edit_text(
@@ -3098,16 +3576,23 @@ async def process_tariff_onboarding_only(callback_query: CallbackQuery, state: F
         await callback_query.answer()
         return
 
-    if tariff in ("FREE", "PLUS"):
-        # Onboarding: boshlang'ich balans kiritish oqimi
-        await state.update_data(onboarding_tariff=tariff)
-        await callback_query.message.edit_text(
-            "💵 Boshlaymiz!\n\n"
-            "1-qadam: Joriy naqd (xamyonda) pul miqdorini kiriting.\n"
-            "Masalan: 0 yoki 100000",
-            parse_mode="Markdown"
+    if tariff == "PLUS":
+        # PLUS tarif uchun onboarding (eski UI bilan)
+        await state.update_data(onboarding_tariff=tariff, selected_tariff=tariff)
+        
+        # Onboarding bosqichi 1: Boshlang'ich balans (rasmli xabar)
+        await callback_query.message.answer_photo(
+            photo=FSInputFile('welcome.png'),
+            caption=(
+                "💰 **1-qadam: Boshlang'ich balans**\n\n"
+                "Qancha pulingiz bor? (naqd pul + karta)\n\n"
+                "Masalan: 500000 (agar 500,000 so'm bo'lsa)"
+            ),
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode='Markdown'
         )
-        await state.set_state(UserStates.waiting_for_initial_cash)
+        
+        await state.set_state(UserStates.onboarding_balance)
         await callback_query.answer()
         return
 
@@ -3139,6 +3624,9 @@ async def process_tariff_onboarding_only(callback_query: CallbackQuery, state: F
         except Exception as _e:
             logging.error(f"onboarding detail active-check error: {_e}")
 
+        # State ga selected_tariff ni saqlaymiz
+        await state.update_data(selected_tariff=tariff)
+        
         keyboard = build_tariff_detail_keyboard(tariff, back_callback)
         await callback_query.message.edit_text(detail_text, reply_markup=keyboard, parse_mode='Markdown')
         await callback_query.answer()
@@ -3423,6 +3911,132 @@ async def process_financial_message(message: types.Message, state: FSMContext):
     else:
         await message.answer(result['message'], parse_mode='Markdown')
 
+async def process_google_audio(message: types.Message, state: FSMContext, audio_path: str, user_id: int):
+    """Google Cloud Speech natijalarini alohida qayta ishlash"""
+    try:
+        # Google Cloud Speech-to-Text ni ishga tushirish
+        google_result = await financial_module.process_audio_input(audio_path, user_id)
+        
+        # Google natijasini yuborish
+        if google_result['success']:
+            if google_result.get('type') == 'single_confirmation':
+                # Bitta tranzaksiya tasdiqlash
+                await state.set_state(UserStates.waiting_for_transaction_confirmation)
+                await state.update_data(transaction_data=google_result['transaction_data'])
+                
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="💾 Saqlash", callback_data="trans_single")],
+                    [InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_cancel_single")]
+                ])
+                
+                await message.answer(google_result['message'], parse_mode='Markdown', reply_markup=keyboard)
+                
+            elif google_result.get('type') == 'multiple_preview':
+                # Ko'p tranzaksiyalar oldindan ko'rinishi
+                await state.set_state(UserStates.waiting_for_transaction_confirmation)
+                await state.update_data(transaction_data=google_result['buttons_data'])
+                
+                # Tugmalarni yaratish
+                buttons_data = google_result['buttons_data']
+                transactions = buttons_data.get('transactions', [])
+                
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+                
+                # Har bir tranzaksiya uchun tugma
+                for trans in transactions:
+                    if trans['status'] == 'confirmed':
+                        emoji = "💾" if trans['data']['type'] == 'expense' else "💰"
+                        button_text = f"{emoji} #{trans['index']}"
+                        keyboard.inline_keyboard.append([
+                            InlineKeyboardButton(text=button_text, callback_data=f"trans_toggle_{trans['index']}")
+                        ])
+                
+                # Umumiy boshqaruv tugmalari
+                keyboard.inline_keyboard.append([
+                    InlineKeyboardButton(text="✅ Hammasini saqlash", callback_data="trans_save_all"),
+                    InlineKeyboardButton(text="❌ Hammasini bekor qilish", callback_data="trans_cancel_all")
+                ])
+                
+                await message.answer(google_result['message'], parse_mode='Markdown', reply_markup=keyboard)
+            
+            elif google_result.get('type') == 'completed':
+                # Natijani ko'rsatish
+                await message.answer(google_result['message'], parse_mode='Markdown')
+            
+            else:
+                # Oddiy natija
+                await message.answer(google_result['message'], parse_mode='Markdown')
+        else:
+            # Xatolik yuz berdi
+            await message.answer(google_result['message'], parse_mode='Markdown')
+    
+    except Exception as e:
+        logging.error(f"Google background task error: {e}")
+
+
+async def process_whisper_result(message: types.Message, state: FSMContext, audio_path: str, user_id: int):
+    """Whisper natijalarini alohida qayta ishlash"""
+    try:
+        # Whisper ni ishga tushirish
+        whisper_result = await financial_module.process_whisper_audio(audio_path, user_id)
+        
+        # Whisper natijasini yuborish
+        if whisper_result['success']:
+            if whisper_result.get('type') == 'single_confirmation':
+                # Bitta tranzaksiya tasdiqlash
+                await state.set_state(UserStates.waiting_for_transaction_confirmation)
+                await state.update_data(transaction_data=whisper_result['transaction_data'])
+                
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="💾 Saqlash", callback_data="trans_single")],
+                    [InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_cancel_single")]
+                ])
+                
+                await message.answer(whisper_result['message'], parse_mode='Markdown', reply_markup=keyboard)
+                
+            elif whisper_result.get('type') == 'multiple_preview':
+                # Ko'p tranzaksiyalar oldindan ko'rinishi
+                await state.set_state(UserStates.waiting_for_transaction_confirmation)
+                await state.update_data(transaction_data=whisper_result['buttons_data'])
+                
+                # Tugmalarni yaratish
+                buttons_data = whisper_result['buttons_data']
+                transactions = buttons_data.get('transactions', [])
+                
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+                
+                # Har bir tranzaksiya uchun tugma
+                for trans in transactions:
+                    if trans['status'] == 'confirmed':
+                        emoji = "💾" if trans['data']['type'] == 'expense' else "💰"
+                        button_text = f"{emoji} #{trans['index']}"
+                        keyboard.inline_keyboard.append([
+                            InlineKeyboardButton(text=button_text, callback_data=f"trans_toggle_{trans['index']}")
+                        ])
+                
+                # Umumiy boshqaruv tugmalari
+                keyboard.inline_keyboard.append([
+                    InlineKeyboardButton(text="✅ Hammasini saqlash", callback_data="trans_save_all"),
+                    InlineKeyboardButton(text="❌ Hammasini bekor qilish", callback_data="trans_cancel_all")
+                ])
+                
+                await message.answer(whisper_result['message'], parse_mode='Markdown', reply_markup=keyboard)
+            
+            elif whisper_result.get('type') == 'completed':
+                # Natijani ko'rsatish
+                await message.answer(whisper_result['message'], parse_mode='Markdown')
+            
+            else:
+                # Oddiy natija
+                await message.answer(whisper_result['message'], parse_mode='Markdown')
+        else:
+            # Xatolik yuz berdi
+            await message.answer(whisper_result['message'], parse_mode='Markdown')
+    
+    except Exception as e:
+        logging.error(f"Whisper background task error: {e}")
+
+
 # Audio xabarlarni qayta ishlash (Premium)
 @dp.message(lambda message: message.voice or message.audio)
 async def process_audio_message(message: types.Message, state: FSMContext):
@@ -3472,8 +4086,28 @@ async def process_audio_message(message: types.Message, state: FSMContext):
         # Bajarilmoqda xabarini yuborish
         processing_msg = await message.answer("🔄 Bajarilmoqda...", parse_mode='Markdown')
         
-        # Audio faylni qayta ishlash
-        result = await financial_module.process_audio_input(audio_path, user_id)
+        # Faqat faol modellarni ishga tushirish
+        import asyncio
+        tasks = []
+        
+        # Google Cloud Speech-to-Text ni tekshirish va ishga tushirish
+        if ACTIVE_SPEECH_MODELS['GOOGLE']:
+            google_task = asyncio.create_task(process_google_audio(message, state, audio_path, user_id))
+            tasks.append(google_task)
+        
+        # Whisper ni tekshirish va ishga tushirish
+        if ACTIVE_SPEECH_MODELS['WHISPER']:
+            whisper_task = asyncio.create_task(process_whisper_result(message, state, audio_path, user_id))
+            tasks.append(whisper_task)
+        
+        # Agar hech qaysi model yoqilmagan bo'lsa
+        if not tasks:
+            await processing_msg.delete()
+            await message.answer(
+                "❌ Hozircha hech qaysi speech model yoqilmagan. Admin bilan bog'laning.",
+                parse_mode='Markdown'
+            )
+            return
         
         # Bajarilmoqda xabarini o'chirish
         try:
@@ -3481,71 +4115,40 @@ async def process_audio_message(message: types.Message, state: FSMContext):
         except:
             pass
         
-        # Natijani yuborish
-        if result['success']:
-            if result.get('type') == 'single_confirmation':
-                # Bitta tranzaksiya tasdiqlash
-                await state.set_state(UserStates.waiting_for_transaction_confirmation)
-                await state.update_data(transaction_data=result['transaction_data'])
-                
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="💾 Saqlash", callback_data="trans_single")],
-                    [InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_cancel_single")]
-                ])
-                
-                await message.answer(result['message'], parse_mode='Markdown', reply_markup=keyboard)
-                
-            elif result.get('type') == 'multiple_preview':
-                # Ko'p tranzaksiyalar oldindan ko'rinishi
-                await state.set_state(UserStates.waiting_for_transaction_confirmation)
-                await state.update_data(transaction_data=result['buttons_data'])
-                
-                # Tugmalarni yaratish
-                buttons_data = result['buttons_data']
-                transactions = buttons_data.get('transactions', [])
-                
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-                
-                # Har bir tranzaksiya uchun tugmalar - 2 qator bo'lib
-                delete_buttons = []
-                for item in transactions:
-                    index = item['index']
-                    delete_buttons.append(InlineKeyboardButton(text=f"🗑️ #{index}", callback_data=f"trans_delete_{index}"))
-                    
-                    # Har 2 ta tugma bo'lganda yangi qatorga o'tamiz
-                    if len(delete_buttons) == 2:
-                        keyboard.inline_keyboard.append(delete_buttons)
-                        delete_buttons = []
-                
-                # Qolgan tugmalarni qo'shamiz
-                if delete_buttons:
-                    keyboard.inline_keyboard.append(delete_buttons)
-                
-                # Umumiy tugmalar
-                keyboard.inline_keyboard.append([
-                    InlineKeyboardButton(text="✅ Hammasini saqlash", callback_data="trans_all"),
-                    InlineKeyboardButton(text="❌ Hammasini o'chirish", callback_data="trans_cancel")
-                ])
-                
-                await message.answer(result['message'], parse_mode='Markdown', reply_markup=keyboard)
-            else:
-                # Oddiy natija
-                await message.answer(result['message'], parse_mode='Markdown')
-        else:
-            await message.answer(result['message'], parse_mode='Markdown')
+        # Faol tasklarni kutish
+        await asyncio.gather(*tasks, return_exceptions=True)
         
-        # Audio faylni o'chirish
-        try:
-            os.remove(audio_path)
-        except:
-            pass
-            
     except Exception as e:
-        logging.error(f"Audio qayta ishlashda xatolik: {e}")
+        logging.error(f"Audio xabarni qayta ishlashda xatolik: {e}")
+        # Faqat haqiqiy texnik xatoliklar uchun xabar yuborish
         await message.answer(
-            "❌ Audio faylni qayta ishlashda xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.",
+            "❌ Texnik xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.",
             parse_mode='Markdown'
         )
+
+# Balans buyrug'i
+@dp.message(Command("balance"))
+async def balance_command(message: types.Message):
+    """Balans ko'rsatish"""
+    user_id = message.from_user.id
+    
+    # Foydalanuvchi bazada borligini tekshirish
+    user = await db.execute_one("SELECT * FROM users WHERE user_id = %s", (user_id,))
+    
+    if not user:
+        await message.answer(
+            "❌ Siz hali ro'yxatdan o'tmagansiz. /start buyrug'ini yuboring.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Balansni hisoblash
+    result = await financial_module.get_balance_info(user_id)
+    
+    if result['success']:
+        await message.answer(result['message'], parse_mode='Markdown')
+    else:
+        await message.answer(result['message'], parse_mode='Markdown')
 
 # ==================== ONBOARDING FINAL STEP HANDLERS ====================
 
@@ -4025,7 +4628,6 @@ async def handle_transaction_callback(callback_query: CallbackQuery, state: FSMC
         logging.error(f"Tranzaksiya callback ishlov berishda xatolik: {e}")
         await callback_query.answer("❌ Xatolik yuz berdi!")
 
-
 # ==================== PAYMENTS HANDLERS (Telegram Payments / CLICK) ====================
 
 @dp.pre_checkout_query()
@@ -4292,8 +4894,164 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
         logging.error(f"Successful payment processing error: {e}")
         await message.answer("❌ To'lovdan keyin tarifni faollashtirishda xatolik yuz berdi. Admin bilan bog'laning.")
 
-async def main():
-    """Asosiy dastur"""
+# Mini-app uchun authentication
+def verify_telegram_auth(init_data: str) -> dict:
+    """Telegram Mini App authentication tekshirish"""
+    try:
+        import hashlib
+        import hmac
+        from urllib.parse import parse_qsl
+        
+        if not init_data:
+            return None
+            
+        # init_data ni parse qilish
+        parsed_data = dict(parse_qsl(init_data))
+        
+        # hash ni olish
+        received_hash = parsed_data.pop('hash', '')
+        
+        # Secret key ni olish (bot token dan)
+        secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
+        
+        # Data string yaratish
+        data_check_string = '\n'.join([f"{k}={v}" for k, v in sorted(parsed_data.items())])
+        
+        # Hash hisoblash
+        calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        
+        # Hash tekshirish
+        if calculated_hash != received_hash:
+            return None
+            
+        return parsed_data
+    except Exception as e:
+        logging.error(f"Telegram auth verification error: {e}")
+        return None
+
+# Mini-app uchun API endpoints
+@app.get("/api/user/{user_id}")
+async def get_user_data(user_id: int, init_data: str = None):
+    """Foydalanuvchi ma'lumotlarini olish mini-app uchun"""
+    try:
+        # Authentication tekshirish (agar init_data berilgan bo'lsa)
+        if init_data:
+            auth_data = verify_telegram_auth(init_data)
+            if not auth_data:
+                raise HTTPException(status_code=401, detail="Authentication failed")
+        
+        # Foydalanuvchi ma'lumotlarini olish
+        user_data = await db.fetch_one("SELECT * FROM users WHERE user_id = %s", (user_id,))
+        if not user_data:
+            raise HTTPException(status_code=404, detail="Foydalanuvchi topilmadi")
+        
+        # Balans ma'lumotlarini olish
+        balance = await db.get_balance(user_id)
+        
+        # So'nggi tranzaksiyalar
+        recent_transactions = await db.fetch_all(
+            "SELECT * FROM transactions WHERE user_id = %s ORDER BY created_at DESC LIMIT 10",
+            (user_id,)
+        )
+        
+        # Tarif ma'lumotlari
+        tariff = user_data.get('tariff', 'FREE')
+        tariff_name = TARIFFS.get(tariff, 'Bepul')
+        
+        return {
+            "success": True,
+            "user": {
+                "user_id": user_id,
+                "name": user_data.get('name', 'Foydalanuvchi'),
+                "tariff": tariff,
+                "tariff_name": tariff_name,
+                "phone": user_data.get('phone', ''),
+                "created_at": user_data.get('created_at').isoformat() if user_data.get('created_at') else None
+            },
+            "balance": balance,
+            "recent_transactions": recent_transactions
+        }
+    except Exception as e:
+        logging.error(f"Mini-app API xatolik: {e}")
+        raise HTTPException(status_code=500, detail="Server xatoligi")
+
+@app.get("/api/transactions/{user_id}")
+async def get_transactions(user_id: int, limit: int = 50, offset: int = 0, init_data: str = None):
+    """Tranzaksiyalar ro'yxatini olish"""
+    try:
+        transactions = await db.fetch_all(
+            "SELECT * FROM transactions WHERE user_id = %s ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            (user_id, limit, offset)
+        )
+        return {
+            "success": True,
+            "transactions": transactions,
+            "limit": limit,
+            "offset": offset
+        }
+    except Exception as e:
+        logging.error(f"Tranzaksiyalar olishda xatolik: {e}")
+        raise HTTPException(status_code=500, detail="Server xatoligi")
+
+@app.get("/api/stats/{user_id}")
+async def get_user_stats(user_id: int, init_data: str = None):
+    """Foydalanuvchi statistikalarini olish"""
+    try:
+        # Oylik statistikalar
+        current_month = datetime.now().strftime('%Y-%m')
+        
+        monthly_income = await db.execute_one(
+            "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s AND transaction_type = 'income' AND DATE_FORMAT(created_at, '%%Y-%%m') = %s",
+            (user_id, current_month)
+        )
+        
+        monthly_expense = await db.execute_one(
+            "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s AND transaction_type = 'expense' AND DATE_FORMAT(created_at, '%%Y-%%m') = %s",
+            (user_id, current_month)
+        )
+        
+        # Tranzaksiyalar soni
+        total_transactions = await db.execute_one(
+            "SELECT COUNT(*) FROM transactions WHERE user_id = %s",
+            (user_id,)
+        )
+        
+        return {
+            "success": True,
+            "stats": {
+                "monthly_income": float(monthly_income[0]) if monthly_income else 0,
+                "monthly_expense": float(monthly_expense[0]) if monthly_expense else 0,
+                "total_transactions": total_transactions[0] if total_transactions else 0,
+                "month": current_month
+            }
+        }
+    except Exception as e:
+        logging.error(f"Statistika olishda xatolik: {e}")
+        raise HTTPException(status_code=500, detail="Server xatoligi")
+
+@app.get("/api/auth")
+async def get_auth_info(init_data: str):
+    """Telegram Mini App authentication ma'lumotlarini olish"""
+    try:
+        auth_data = verify_telegram_auth(init_data)
+        if not auth_data:
+            raise HTTPException(status_code=401, detail="Authentication failed")
+        
+        user_id = int(auth_data.get('user', {}).get('id', 0))
+        if not user_id:
+            raise HTTPException(status_code=400, detail="User ID not found")
+        
+        return {
+            "success": True,
+            "user_id": user_id,
+            "user_data": auth_data.get('user', {})
+        }
+    except Exception as e:
+        logging.error(f"Auth info error: {e}")
+        raise HTTPException(status_code=500, detail="Server xatoligi")
+
+async def start_bot():
+    """Bot ishga tushirish"""
     # Ma'lumotlar bazasini ulash
     await db.create_pool()
     
@@ -4306,6 +5064,205 @@ async def main():
     finally:
         await bot.session.close()
 
+# ==================== ONBOARDING HANDLERS (SINOVCHILAR UCHUN) ====================
+
+@dp.message(OnboardingState.waiting_for_income)
+async def onboarding_income_handler(message: types.Message, state: FSMContext):
+    """Onboarding: Oylik daromad qabul qilish"""
+    user_id = message.from_user.id
+    
+    try:
+        income = float(message.text.replace(',', '').replace(' ', ''))
+        if income < 0:
+            await message.answer("❌ Daromad manfiy bo'lishi mumkin emas. Qaytadan kiriting:")
+            return
+    except ValueError:
+        await message.answer("❌ Noto'g'ri format. Faqat raqam kiriting (masalan: 5000000):")
+        return
+    
+    # Daromadni saqlash
+    await state.update_data(monthly_income=income)
+    
+    # Eski xabarlarni o'chirish
+    try:
+        await message.delete()
+    except:
+        pass
+    
+    # 2-bosqich: Balans (rasmli xabar)
+    await message.answer_photo(
+        photo=FSInputFile('welcome.png'),
+        caption=(
+            "💰 **1-qadam: Boshlang'ich balans**\n\n"
+            "Qancha pulingiz bor? (naqd pul + karta)\n\n"
+            "Masalan: 500000 (agar 500,000 so'm bo'lsa)"
+        ),
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='Markdown'
+    )
+    
+    await state.set_state(UserStates.onboarding_balance)
+
+# ==================== USER STEPS FUNCTIONS ====================
+    """Onboarding: Balans qabul qilish"""
+    user_id = message.from_user.id
+    
+    try:
+        balance = float(message.text.replace(',', '').replace(' ', ''))
+        if balance < 0:
+            await message.answer("❌ Balans manfiy bo'lishi mumkin emas. Qaytadan kiriting:")
+            return
+    except ValueError:
+        await message.answer("❌ Noto'g'ri format. Faqat raqam kiriting (masalan: 2000000):")
+        return
+    
+    # Balansni saqlash
+    await state.update_data(current_balance=balance)
+    
+    # Eski xabarlarni o'chirish
+    try:
+        await message.delete()
+    except:
+        pass
+    
+    # 3-bosqich: Qarzlar
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Qarz berganman", callback_data="onboarding_debt_lent")],
+        [InlineKeyboardButton(text="➖ Qarz olganman", callback_data="onboarding_debt_borrowed")],
+        [InlineKeyboardButton(text="❌ Qarzlar yo'q", callback_data="onboarding_no_debts")]
+    ])
+    
+    await message.answer(
+        "💳 **Onboarding bosqichi 3/3**\n\n"
+        "Qarzlar holatingizni belgilang:",
+        parse_mode='Markdown',
+        reply_markup=keyboard
+    )
+    
+    await state.set_state(OnboardingState.waiting_for_debts)
+
+@dp.callback_query(lambda c: c.data == "onboarding_no_debts")
+async def onboarding_no_debts_handler(callback_query: CallbackQuery, state: FSMContext):
+    """Onboarding: Qarzlar yo'q"""
+    user_id = callback_query.from_user.id
+    
+    # Ma'lumotlarni olish
+    data = await state.get_data()
+    monthly_income = data.get('monthly_income', 0)
+    current_balance = data.get('current_balance', 0)
+    
+    # Balansni saqlash (agar 0 dan katta bo'lsa)
+    if current_balance > 0:
+        await db.add_transaction(user_id, 'income', int(current_balance), 'boshlang_ich_balans', 'Onboarding: boshlang\'ich balans')
+    
+    # Tarifni aktiv qilish
+    data = await state.get_data()
+    tariff = data.get('onboarding_tariff', 'FREE')
+    await db.execute_query("UPDATE users SET tariff = %s WHERE user_id = %s", (tariff, user_id))
+    
+    # Onboarding yakunlash
+    await callback_query.message.edit_text(
+        "🎉 **Onboarding yakunlandi!**\n\n"
+        f"📊 Oylik daromad: {monthly_income:,.0f} so'm\n"
+        f"💰 Balans: {current_balance:,.0f} so'm\n"
+        f"💳 Qarzlar: Yo'q\n\n"
+        "✅ Endi barcha funksiyalardan foydalanishingiz mumkin!",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 Asosiy menyu", callback_data="main_menu")]
+        ])
+    )
+    
+    # State ni tozalash
+    await state.clear()
+    await callback_query.answer("✅ Onboarding yakunlandi!")
+
+@dp.callback_query(lambda c: c.data == "onboarding_debt_lent")
+async def onboarding_debt_lent_handler(callback_query: CallbackQuery, state: FSMContext):
+    """Onboarding: Qarz bergan"""
+    await callback_query.message.edit_text(
+        "💳 **Qarz bergan odamlar**\n\n"
+        "Kimga qarz berganmisiz va qancha?\n\n"
+        "Format: Ism - Summa\n"
+        "Misol: Ahmad - 500000",
+        parse_mode='Markdown'
+    )
+    
+    await state.set_state(OnboardingState.waiting_for_debts)
+    await callback_query.answer("Qarz ma'lumotlarini kiriting")
+
+@dp.callback_query(lambda c: c.data == "onboarding_debt_borrowed")
+async def onboarding_debt_borrowed_handler(callback_query: CallbackQuery, state: FSMContext):
+    """Onboarding: Qarz olgan"""
+    await callback_query.message.edit_text(
+        "💳 **Qarz olgan odamlar**\n\n"
+        "Kimdan qarz olganmisiz va qancha?\n\n"
+        "Format: Ism - Summa\n"
+        "Misol: Karim - 300000",
+        parse_mode='Markdown'
+    )
+    
+    await state.set_state(OnboardingState.waiting_for_debts)
+    await callback_query.answer("Qarz ma'lumotlarini kiriting")
+
+@dp.message(OnboardingState.waiting_for_debts)
+async def onboarding_debts_handler(message: types.Message, state: FSMContext):
+    """Onboarding: Qarz ma'lumotlarini qabul qilish"""
+    user_id = message.from_user.id
+    text = message.text.strip()
+    
+    # Ma'lumotlarni olish
+    data = await state.get_data()
+    monthly_income = data.get('monthly_income', 0)
+    current_balance = data.get('current_balance', 0)
+    
+    # Balansni saqlash (agar 0 dan katta bo'lsa)
+    if current_balance > 0:
+        await db.add_transaction(user_id, 'income', int(current_balance), 'boshlang_ich_balans', 'Onboarding: boshlang\'ich balans')
+    
+    # Qarz ma'lumotlarini saqlash (oddiy format)
+    try:
+        if ' - ' in text:
+            name, amount = text.split(' - ', 1)
+            amount = float(amount.replace(',', '').replace(' ', ''))
+            
+            # Qarz ma'lumotlarini saqlash (oddiy tranzaksiya sifatida)
+            await db.add_transaction(user_id, 'expense', int(amount), 'qarz_berish', f'Qarz berilgan: {name.strip()}')
+            
+            debt_info = f"Qarz berilgan: {name.strip()} - {amount:,.0f} so'm"
+        else:
+            debt_info = f"Qarz ma'lumoti: {text}"
+    except:
+        debt_info = f"Qarz ma'lumoti: {text}"
+    
+    # Tarifni aktiv qilish
+    tariff = data.get('onboarding_tariff', 'FREE')
+    await db.execute_query("UPDATE users SET tariff = %s WHERE user_id = %s", (tariff, user_id))
+    
+    # Onboarding yakunlash
+    await message.answer(
+        "🎉 **Onboarding yakunlandi!**\n\n"
+        f"📊 Oylik daromad: {monthly_income:,.0f} so'm\n"
+        f"💰 Balans: {current_balance:,.0f} so'm\n"
+        f"💳 {debt_info}\n\n"
+        "✅ Endi barcha funksiyalardan foydalanishingiz mumkin!",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 Asosiy menyu", callback_data="main_menu")]
+        ])
+    )
+    
+    # State ni tozalash
+    await state.clear()
+
+# ==================== USER STEPS FUNCTIONS ====================
+
+@app.on_event("startup")
+async def startup_event():
+    """FastAPI ishga tushganda bot ni ham ishga tushirish"""
+    asyncio.create_task(start_bot())
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(main())
+    # FastAPI ni ishga tushirish (bot ham parallel ishlaydi)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

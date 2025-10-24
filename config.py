@@ -76,3 +76,27 @@ PAYMENT_METHODS = {
     'payme': 'Payme',
     'uzum_pay': 'Uzum Pay'
 }
+
+# Speech-to-Text model sozlamalari
+SPEECH_MODELS = {
+    'GOOGLE': 'Google Cloud Speech-to-Text',
+    'WHISPER': 'OpenAI Whisper'
+}
+
+# Hozirgi faol modellar (admin tomonidan boshqariladi)
+ACTIVE_SPEECH_MODELS = {
+    'GOOGLE': True,  # Google Cloud Speech-to-Text yoqilgan
+    'WHISPER': True  # OpenAI Whisper yoqilgan
+}
+
+# 1 haftalik sinov holati (admin tomonidan boshqariladi)
+FREE_TRIAL_ENABLED = {
+    'PLUS': True,        # Plus tarif uchun 1 haftalik sinov yoqilgan
+    'MAX': True,         # Max tarif uchun 1 haftalik sinov yoqilgan
+    'FAMILY': True,      # Family tarif uchun 1 haftalik sinov yoqilgan
+    'FAMILY_PLUS': True, # Family Plus tarif uchun 1 haftalik sinov yoqilgan
+    'FAMILY_MAX': True,  # Family Max tarif uchun 1 haftalik sinov yoqilgan
+    'BUSINESS': True,    # Business tarif uchun 1 haftalik sinov yoqilgan
+    'BUSINESS_PLUS': True, # Business Plus tarif uchun 1 haftalik sinov yoqilgan
+    'BUSINESS_MAX': True  # Business Max tarif uchun 1 haftalik sinov yoqilgan
+}

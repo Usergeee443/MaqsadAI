@@ -142,6 +142,30 @@ class Database:
             except Exception:
                 pass  # Ustun allaqachon mavjud
             
+            # User steps jadvali - onboarding bosqichlari uchun
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS user_steps (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    current_step INT DEFAULT 1,
+                    step_1_name VARCHAR(255) NULL,
+                    step_2_age INT NULL,
+                    step_3_occupation VARCHAR(255) NULL,
+                    step_4_income_source VARCHAR(255) NULL,
+                    step_5_family_status VARCHAR(255) NULL,
+                    step_6_financial_goals TEXT NULL,
+                    step_7_expense_categories TEXT NULL,
+                    step_8_savings_habits VARCHAR(255) NULL,
+                    step_9_investment_experience VARCHAR(255) NULL,
+                    step_10_preferred_communication VARCHAR(255) NULL,
+                    status ENUM('in_progress', 'completed') DEFAULT 'in_progress',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    UNIQUE KEY unique_user (user_id)
+                )
+            """)
+            
             # User subscriptions jadvali - ko'p tarif tizimi uchun
             await self.execute_query("""
                 CREATE TABLE IF NOT EXISTS user_subscriptions (
@@ -507,6 +531,58 @@ class Database:
             "UPDATE users SET tariff = %s WHERE user_id = %s",
             (tariff, user_id)
         )
+    
+    # User steps funksiyalari
+    async def get_user_steps(self, user_id):
+        """Foydalanuvchining onboarding bosqichlarini olish"""
+        query = """
+        SELECT * FROM user_steps WHERE user_id = %s
+        """
+        return await self.execute_one(query, (user_id,))
+    
+    async def create_user_steps(self, user_id):
+        """Foydalanuvchi uchun onboarding bosqichlarini yaratish"""
+        query = """
+        INSERT INTO user_steps (user_id, current_step, status)
+        VALUES (%s, 1, 'in_progress')
+        ON DUPLICATE KEY UPDATE current_step = current_step
+        """
+        return await self.execute_query(query, (user_id,))
+    
+    async def update_user_step(self, user_id, step_number, step_value):
+        """Foydalanuvchining ma'lum bosqichini yangilash"""
+        step_column = f"step_{step_number}_{self.get_step_field_name(step_number)}"
+        query = f"""
+        UPDATE user_steps 
+        SET {step_column} = %s, current_step = %s, updated_at = NOW()
+        WHERE user_id = %s
+        """
+        return await self.execute_query(query, (step_value, step_number + 1, user_id))
+    
+    async def complete_user_steps(self, user_id):
+        """Foydalanuvchining onboarding jarayonini yakunlash"""
+        query = """
+        UPDATE user_steps 
+        SET status = 'completed', updated_at = NOW()
+        WHERE user_id = %s
+        """
+        return await self.execute_query(query, (user_id,))
+    
+    def get_step_field_name(self, step_number):
+        """Bosqich nomini olish"""
+        step_fields = {
+            1: "name",
+            2: "age", 
+            3: "occupation",
+            4: "income_source",
+            5: "family_status",
+            6: "financial_goals",
+            7: "expense_categories",
+            8: "savings_habits",
+            9: "investment_experience",
+            10: "preferred_communication"
+        }
+        return step_fields.get(step_number, "unknown")
     
     async def get_active_tariff(self, user_id):
         """Foydalanuvchining hozirgi aktiv tarifini olish"""
