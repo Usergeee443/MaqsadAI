@@ -5052,17 +5052,27 @@ async def get_auth_info(init_data: str):
 
 async def start_bot():
     """Bot ishga tushirish"""
-    # Ma'lumotlar bazasini ulash
-    await db.create_pool()
-    
-    # Jadvallarni yaratish
-    await db.create_tables()
-    
     try:
+        print("📊 Ma'lumotlar bazasini ulash...")
+        # Ma'lumotlar bazasini ulash
+        await db.create_pool()
+        print("✅ Ma'lumotlar bazasi ulandi!")
+        
+        print("📋 Jadvallarni yaratish...")
+        # Jadvallarni yaratish
+        await db.create_tables()
+        print("✅ Jadvallar yaratildi!")
+        
+        print("🤖 Bot polling ni boshlash...")
         # Bot ishga tushirish
         await dp.start_polling(bot)
+    except Exception as e:
+        print(f"❌ Bot ishga tushishda xatolik: {e}")
+        logging.error(f"Bot start xatolik: {e}")
+        raise
     finally:
-        await bot.session.close()
+        if hasattr(bot, 'session'):
+            await bot.session.close()
 
 # ==================== ONBOARDING HANDLERS (SINOVCHILAR UCHUN) ====================
 
@@ -5260,9 +5270,15 @@ async def onboarding_debts_handler(message: types.Message, state: FSMContext):
 @app.on_event("startup")
 async def startup_event():
     """FastAPI ishga tushganda bot ni ham ishga tushirish"""
-    asyncio.create_task(start_bot())
+    try:
+        print("🚀 Bot ishga tushmoqda...")
+        asyncio.create_task(start_bot())
+        print("✅ Bot muvaffaqiyatli ishga tushdi!")
+    except Exception as e:
+        print(f"❌ Bot ishga tushishda xatolik: {e}")
+        logging.error(f"Bot startup xatolik: {e}")
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     # FastAPI ni ishga tushirish (bot ham parallel ishlaydi)
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

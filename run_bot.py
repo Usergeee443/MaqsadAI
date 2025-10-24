@@ -23,11 +23,11 @@ if __name__ == "__main__":
     print("🌐 Mini-app API serveri ishga tushmoqda...")
     print("✅ Barcha tizimlar tayyor!")
     print("🤖 Bot va API server ishga tushdi. Ctrl+C bilan to'xtating.")
-    print("📱 Mini-app: http://localhost:8000")
+    print("📱 Mini-app: http://localhost:8001")
     
     try:
         # FastAPI ni ishga tushirish (bot ham parallel ishlaydi)
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        uvicorn.run(app, host="0.0.0.0", port=8001)
     except KeyboardInterrupt:
         print("\n⏹️ Bot va API server to'xtatildi.")
     except Exception as e:
