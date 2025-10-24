@@ -375,7 +375,7 @@ def get_free_menu():
 def get_premium_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://t.me/balansaibot/hisobotlar")), KeyboardButton(text="👤 Profil")]
+            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://balansai.uz")), KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
