@@ -2602,16 +2602,22 @@ async def switch_tariff_callback(callback_query: CallbackQuery):
             callback_data=f"activate_tariff_{sub[0]}"
         )])
     
-    keyboard_buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_profile")])
+    keyboard_buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="tariff_info")])
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     
-    await callback_query.message.edit_text(
-        "🔄 **Tarifni o'zgartirish**\n\n"
-        "Qaysi tarifni aktiv qilmoqchisiz?",
-        reply_markup=keyboard,
-        parse_mode='Markdown'
-    )
+    try:
+        await callback_query.message.edit_caption(
+            caption="🔄 **Tarifni o'zgartirish**\n\nQaysi tarifni aktiv qilmoqchisiz?",
+            reply_markup=keyboard,
+            parse_mode='Markdown'
+        )
+    except Exception:
+        await callback_query.message.edit_text(
+            "🔄 **Tarifni o'zgartirish**\n\nQaysi tarifni aktiv qilmoqchisiz?",
+            reply_markup=keyboard,
+            parse_mode='Markdown'
+        )
     await callback_query.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("activate_tariff_"))
@@ -2680,10 +2686,58 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
 @dp.callback_query(lambda c: c.data == "buy_new_tariff")
 async def buy_new_tariff_callback(callback_query: CallbackQuery):
     """Yangi tarif sotib olish menyusini ko'rsatish"""
-    await callback_query.message.edit_text(
-        get_tariff_overview_text(),
-        reply_markup=build_main_tariff_keyboard()
+    try:
+        await callback_query.message.edit_text(
+            get_tariff_overview_text(),
+            reply_markup=build_main_tariff_keyboard(),
+            parse_mode='Markdown'
+        )
+    except Exception:
+        # Agar photo bo'lsa
+        await callback_query.message.delete()
+        await callback_query.message.answer_photo(
+            photo=FSInputFile('welcome1.png'),
+            caption=get_tariff_overview_text(),
+            reply_markup=build_main_tariff_keyboard(),
+            parse_mode='Markdown'
+        )
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "help_tariff")
+async def help_tariff_callback(callback_query: CallbackQuery):
+    """Yordam xabarini ko'rsatish"""
+    help_text = (
+        "🆘 **Tarif bo'yicha yordam**\n\n"
+        "Tarifni almashtirish yoki yangi tarif sotib olish haqida savollar bormi?\n\n"
+        "📞 **Bog'lanish:**\n"
+        "• Admin: @AdminUsername\n"
+        "• Yordam markazi: +998 XX XXX XX XX\n\n"
+        "💬 **Ko'p so'raladigan savollar:**\n"
+        "• Tarifni qanday o'zgartirish mumkin?\n"
+        "→ Profil > Tarif > Tarifni o'zgartirish\n\n"
+        "• 1 haftalik bepul sinov qanday?\n"
+        "→ Yangi tarifni tanlang > 1 hafta bepul sinash tugmasini bosing\n\n"
+        "• To'lov qanday amalga oshiriladi?\n"
+        "→ Click, Payme yoki bank orqali\n\n"
+        "Savollaringiz bo'lsa, biz bilan bog'laning! 👇"
     )
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="tariff_info")]
+    ])
+    
+    try:
+        await callback_query.message.edit_caption(
+            caption=help_text,
+            reply_markup=keyboard,
+            parse_mode='Markdown'
+        )
+    except Exception:
+        await callback_query.message.edit_text(
+            help_text,
+            reply_markup=keyboard,
+            parse_mode='Markdown'
+        )
     await callback_query.answer()
 
 # Muddat tanlash handleri
