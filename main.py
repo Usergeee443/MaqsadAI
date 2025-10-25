@@ -375,7 +375,7 @@ def get_free_menu():
 def get_premium_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/")), KeyboardButton(text="👤 Profil")]
+            [KeyboardButton(text="📊 Hisobotlar"), KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -387,7 +387,7 @@ def get_business_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="➕ Xodim qo'shish"), KeyboardButton(text="💳 Qarzlar")],
-            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/"))],
+            [KeyboardButton(text="📊 Hisobotlar")],
             [KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
@@ -400,7 +400,7 @@ def get_employee_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="➕ Kirim"), KeyboardButton(text="➖ Chiqim")],
-            [KeyboardButton(text="📊 Hisobotlar", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/"))],
+            [KeyboardButton(text="📊 Hisobotlar")],
             [KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
@@ -1670,43 +1670,7 @@ async def help_command(message: types.Message):
     await message.answer(help_text, parse_mode="Markdown")
 
 # Tezkor balans komandasi
-@dp.message(Command("balance"))
-@dp.message(Command("balans"))
-async def quick_balance(message: types.Message):
-    user_id = message.from_user.id
-    balances = await db.get_balances(user_id)
-    
-    text = "💰 **Balans ma'lumotlari**\n\n"
-    
-    # Naqd balans (haqiqiy pul)
-    text += f"💵 **Naqd balans:** {balances['cash_balance']:,.0f} so'm\n"
-    text += f"   _(Haqiqiy mavjud pul)_\n\n"
-    
-    # Sof balans (qarzlar hisobga olingan)
-    text += f"📊 **Sof balans:** {balances['net_balance']:,.0f} so'm\n"
-    text += f"   _(Qarzlar hisobga olingan)_\n\n"
-    
-    # Qarzli balans (agar qarz olingan bo'lsa)
-    if balances['total_borrowed_debt'] > 0:
-        qarzli_balans = balances['cash_balance'] - balances['total_borrowed_debt']
-        text += f"⚠️ **Qarzli balans:** {qarzli_balans:,.0f} so'm\n"
-        text += f"   _(Qarz olingan pul)_\n\n"
-    
-    text += f"📈 **Jami kirim:** {balances['total_income']:,.0f} so'm\n"
-    text += f"📉 **Jami chiqim:** {balances['total_expense']:,.0f} so'm\n\n"
-    
-    if balances['total_lent_debt'] > 0:
-        text += f"💸 **Berilgan qarz:** {balances['total_lent_debt']:,.0f} so'm\n"
-    if balances['total_borrowed_debt'] > 0:
-        text += f"💳 **Olingan qarz:** {balances['total_borrowed_debt']:,.0f} so'm\n"
-    
-    # Ogohlantirish
-    if balances['cash_balance'] <= 0:
-        text += f"\n⚠️ **Ogohlantirish:** Naqd balansingiz 0 so'm. Xarajat qilish yoki qarz berish mumkin emas!"
-    elif balances['total_borrowed_debt'] > 0:
-        text += f"\n💡 **Eslatma:** Sizda {balances['total_borrowed_debt']:,.0f} so'm qarz bor. Bu pul qaytarilgunga qadar sof balansingiz kamroq."
-    
-    await message.answer(text, parse_mode='Markdown')
+# /balance va /balans buyruqlari olib tashlandi - endi 📊 Hisobotlar tugmasi orqali ko'rish mumkin
 
 # Bepul tarif - Kirim qo'shish
 @dp.message(lambda message: message.text == "➕ Kirim")
@@ -2150,72 +2114,34 @@ async def process_category(callback_query: CallbackQuery, state: FSMContext):
 # Hisobotlar menyusi
 @dp.message(lambda message: message.text == "📊 Hisobotlar")
 async def reports_menu(message: types.Message, state: FSMContext):
-    """Hisobotlar menyusi"""
+    """Hisobotlar menyusi - qisqa balans ko'rsatish"""
     user_id = message.from_user.id
     user_tariff = await get_user_tariff(user_id)
     
-    # Faqat PRO va MAX tariflar uchun kengaytirilgan hisobot
-    if user_tariff not in ['PRO', 'MAX']:
-        # Oddiy hisobot
-        summary = await reports_module.get_financial_summary(user_id)
-        balance = await reports_module.get_balance_report(user_id)
-        
-        message_text = f"{summary}\n\n"
-        message_text += f"💰 *Balans:* {balance['balance']:,.0f} so'm\n"
-        message_text += f"📈 *Kirim:* {balance['income']:,.0f} so'm\n"
-        message_text += f"📉 *Chiqim:* {balance['expense']:,.0f} so'm\n\n"
-        message_text += "📱 *Kengaytirilgan hisobotlar*\n"
-        message_text += "Max tarifga o'ting!\n"
-        message_text += "Profil > Tarif bo'limiga o'ting."
-        
-        await message.answer(
-            message_text,
-            reply_markup=get_free_menu() if user_tariff == "FREE" else get_premium_menu()
-        )
-        return
+    # Balans ma'lumotlarini olish
+    balances = await db.get_balances(user_id)
     
-    # Kengaytirilgan hisobot ko'rsatish
-    summary = await reports_module.get_financial_summary(user_id)
-    balance = await reports_module.get_balance_report(user_id)
-    categories = await reports_module.get_category_report(user_id, 30)
+    # Qisqa balans ko'rsatish
+    message_text = "📊 **Qisqa balans**\n\n"
+    message_text += f"💵 **Naqd balans:** {balances['cash_balance']:,.0f} so'm\n"
+    message_text += f"📊 **Sof balans:** {balances['net_balance']:,.0f} so'm\n"
+    message_text += f"📈 **Jami kirim:** {balances['total_income']:,.0f} so'm\n"
+    message_text += f"📉 **Jami chiqim:** {balances['total_expense']:,.0f} so'm\n"
     
-    message_text = f"{summary}\n\n"
-    message_text += f"💰 *Balans:* {balance['balance']:,.0f} so'm\n"
-    message_text += f"📈 *Kirim:* {balance['income']:,.0f} so'm\n"
-    message_text += f"📉 *Chiqim:* {balance['expense']:,.0f} so'm\n\n"
+    # Qarzlar bo'lsa ko'rsatish
+    if balances['total_lent_debt'] > 0:
+        message_text += f"💸 **Berilgan qarz:** {balances['total_lent_debt']:,.0f} so'm\n"
+    if balances['total_borrowed_debt'] > 0:
+        message_text += f"💳 **Olingan qarz:** {balances['total_borrowed_debt']:,.0f} so'm\n"
     
-    # Eng ko'p chiqim kategoriyasi
-    if categories['expense_categories']:
-        top_category = max(categories['expense_categories'].items(), key=lambda x: x[1]['total'])
-        message_text += f"🔥 *Eng ko'p chiqim:* {top_category[0]} ({top_category[1]['total']:,.0f} so'm)\n\n"
-    
-    # So'nggi tranzaksiyalar
-    recent = await reports_module.get_recent_transactions(user_id, 10)
-    if recent:
-        message_text += "📋 *So'nggi tranzaksiyalar:*\n"
-        for i, trans in enumerate(recent, 1):
-            type_emoji = {"income": "📈", "expense": "📉", "debt": "💳"}.get(trans["type"], "❓")
-            message_text += f"{i}. {type_emoji} {trans['amount']:,.0f} so'm - {trans['category']}\n"
-            if trans.get('description'):
-                message_text += f"   💬 {trans['description']}\n"
-    
-    # Kategoriyalar bo'yicha tafsilot
-    if categories['expense_categories']:
-        message_text += "\n📊 *Chiqimlar kategoriyalar bo'yicha:*\n"
-        for category, data in sorted(categories['expense_categories'].items(), key=lambda x: x[1]['total'], reverse=True):
-            percentage = (data['total'] / balance['expense'] * 100) if balance['expense'] > 0 else 0
-            message_text += f"• {category}: {data['total']:,.0f} so'm ({percentage:.1f}%)\n"
-    
-    # Oylik tendensiya
-    monthly_data = await reports_module.get_monthly_summary(user_id, 6)
-    if monthly_data:
-        message_text += "\n📈 *Oylik tendensiya (6 oy):*\n"
-        for month_data in monthly_data[-3:]:  # So'nggi 3 oy
-            message_text += f"• {month_data['month']}: +{month_data['income']:,.0f} -{month_data['expense']:,.0f} = {month_data['balance']:,.0f}\n"
+    # Mini app uchun tugma
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📱 To'liq ko'rish", url="https://t.me/balansaibot/hisobotlar")]
+    ])
     
     await message.answer(
         message_text,
-        reply_markup=get_premium_menu(),
+        reply_markup=keyboard,
         parse_mode="Markdown"
     )
 
@@ -3392,7 +3318,14 @@ async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext
                 parse_mode='Markdown'
             )
         else:
-            keyboard = build_tariff_detail_keyboard(tariff_code, back_callback)
+            # FREE tarif uchun alohida keyboard
+            if tariff_code == "FREE":
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback),
+                     InlineKeyboardButton(text="🚀 Aktivlashtirish", callback_data="activate_FREE")]
+                ])
+            else:
+                keyboard = build_tariff_detail_keyboard(tariff_code, back_callback)
             try:
                 await callback_query.message.delete()
             except Exception:
@@ -3467,27 +3400,36 @@ async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext
         if tariff_code == "FREE":
             print("DEBUG: Processing FREE activation")
             user_id = callback_query.from_user.id
-            # Pullik aktiv obuna bo'lsa, Free'ga o'tishga ruxsat bermaymiz
-            if await is_paid_active(user_id):
-                await callback_query.answer("❗ Sizda aktiv pullik obuna bor. Muddat tugagach Bepulga o'tasiz.", show_alert=True)
+            # FREE tarif har doim aktivlashtirish mumkin (pullik obuna bo'lsa ham)
+            try:
+                user_name = await get_user_name(user_id)
+                await db.execute_query(
+                    "UPDATE users SET tariff = %s, tariff_expires_at = NULL WHERE user_id = %s",
+                    ("FREE", user_id)
+                )
+                
+                # Xabarni o'chirish yoki yangi xabar yuborish
+                try:
+                    await callback_query.message.delete()
+                except Exception:
+                    pass
+                
+                await callback_query.message.answer(
+                    f"✅ **Bepul tarif aktivlashtirildi!**\n\n"
+                    f"Salom, {user_name}!\n\n"
+                    "Quyidagi tugmalardan foydalaning:",
+                    parse_mode="Markdown"
+                )
+                await callback_query.message.answer(
+                    "Bepul tarif menyusi:",
+                    reply_markup=get_free_menu()
+                )
+                await callback_query.answer("✅ Bepul tarif aktivlashtirildi!")
                 return
-            user_name = await get_user_name(user_id)
-            await db.execute_query(
-                "UPDATE users SET tariff = %s WHERE user_id = %s",
-                ("FREE", user_id)
-            )
-            await callback_query.message.edit_text(
-                f"✅ *Bepul tarif aktivlashtirildi!*\n\n"
-                f"Salom, {user_name}!\n\n"
-                "Quyidagi tugmalardan foydalaning:",
-                parse_mode="Markdown"
-            )
-            await callback_query.message.answer(
-                "Bepul tarif menyusi:",
-                reply_markup=get_free_menu()
-            )
-            await callback_query.answer()
-            return
+            except Exception as e:
+                logging.error(f"FREE activation error: {e}")
+                await callback_query.answer("❌ Xatolik yuz berdi.", show_alert=True)
+                return
 
         if tariff_code in ("PLUS", "BUSINESS", "MAX", "FAMILY", "FAMILY_PLUS", "FAMILY_MAX", "BUSINESS_PLUS", "BUSINESS_MAX"):
             # Yangi tarif sotib olish jarayoni - muddat tanlash
@@ -4127,28 +4069,7 @@ async def process_audio_message(message: types.Message, state: FSMContext):
         )
 
 # Balans buyrug'i
-@dp.message(Command("balance"))
-async def balance_command(message: types.Message):
-    """Balans ko'rsatish"""
-    user_id = message.from_user.id
-    
-    # Foydalanuvchi bazada borligini tekshirish
-    user = await db.execute_one("SELECT * FROM users WHERE user_id = %s", (user_id,))
-    
-    if not user:
-        await message.answer(
-            "❌ Siz hali ro'yxatdan o'tmagansiz. /start buyrug'ini yuboring.",
-            parse_mode='Markdown'
-        )
-        return
-    
-    # Balansni hisoblash
-    result = await financial_module.get_balance_info(user_id)
-    
-    if result['success']:
-        await message.answer(result['message'], parse_mode='Markdown')
-    else:
-        await message.answer(result['message'], parse_mode='Markdown')
+# /balance buyrug'i olib tashlandi - endi 📊 Hisobotlar tugmasi orqali ko'rish mumkin
 
 # ==================== ONBOARDING FINAL STEP HANDLERS ====================
 
