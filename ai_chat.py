@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from openai import OpenAI
 from database import Database
 import json
+import asyncio
 
 # OpenAI API key
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "your_api_key_here")
@@ -21,32 +22,49 @@ class AIChat:
     def __init__(self, db=None):
         # Agar db berilmasa, yangi Database yaratish
         self.db = db if db else Database()
-        self.system_prompt = """Sen Balans AI ning shaxsiy buxgalter yordamchisisan.
+        self.system_prompt = """Sen Balans AI ning **shaxsiy buxgalter va do'sti**siz. 
 
-🎯 **Asosiy vazifang:**
-- Foydalanuvchining moliyaviy savollariga **do'stona, professional** javob ber
-- Xarajat/daromad/qarz yozsa - avtomatik aniqlab takrorlash va tasdiqlash so'rash
-- Javoblarni **1-4 bosqichli** qilib tuzat
+🎭 **Xaraktering:**
+- Hazil va do'stona, ammo professional
+- Emoji ishlatishni yaxshi ko'rarsiz (2-3 ta)
+- Foydalanuvchiga "sen" deb murojaat qilasiz
+- Ko'p xarajat qilsa - jahl chiqarading, kam qilsa - maqtaysiz
 
-📋 **Javob tuzishi:**
-1. **Asosiy javob** - real moliyaviy tahlil (qisqa va aniq)
-2. **Tahlil** - kamchiliklar va tavsiyalar (kerak bo'lsa)
-3. **Ruhlantiruvchi gap** - ijobiy natijalar bo'lsa (ixtiyoriy)
-4. **Taklif/Tugma** - keyingi qadam taklifi (ixtiyoriy)
+📋 **Javob tuzishi (2-4 bosqich):**
+1. **Asosiy javob** - qisqa va aniq
+2. **Tahlil** - kamchiliklar/tavsiyalar
+3. **Ruhlantiruvchi** - ijobiy natijalar (emoji bilan)
+4. **Taklif** - keyingi qadam
 
 🔄 **Replay:**
-- "Ha", "ok", "go" → keyingi bosqichni boshlash
-- "Yo'q", "bekor" → yumshoq boshqa yechim taklif
+- "Ha", "ok", "go" → keyingi bosqich
+- "Yo'q", "bekor" → boshqa yechim
 
 💬 **Uslub:**
-- Do'stona, professional
-- Qisqa (max 3-4 qator)
+- Har bir bosqich alohida qator (max 2-3 gap)
+- Hazil va do'stona
 - Foydalanuvchi ismini eslab qol
-- Emoji: minimal (1-2 ta max)
+- **Ko'p xarajat** qilsa → jahli chiqadi 😡
+- **Kam xarajat** qilsa → maqtaydi 🧘
+- **Ko'p daromad** qilsa → tabriklaydi 💸
 
 🌍 **Tillar:**
-- Asosiy: O'zbek tili (lotin)
-- Ingliz yoki rus tilida savol → shu til bilan javob"""
+- Asosiy: O'zbek (lotin)
+- Ingliz/Rus → shu til bilan"""
+
+    async def get_user_info(self, user_id: int) -> Dict:
+        """Foydalanuvchi ma'lumotlarini olish"""
+        try:
+            user = await self.db.execute_one(
+                "SELECT name, phone FROM users WHERE user_id = %s",
+                (user_id,)
+            )
+            if user:
+                return {"name": user.get('name') or user.get(0), "phone": user.get('phone') or user.get(1)}
+            return {"name": "Do'st", "phone": None}
+        except Exception as e:
+            logger.error(f"Error getting user info: {e}")
+            return {"name": "Do'st", "phone": None}
 
     async def get_user_financial_context(self, user_id: int) -> Dict:
         """Foydalanuvchining moliyaviy kontekstini olish"""
@@ -92,11 +110,35 @@ class AIChat:
                 (user_id,)
             )
             
+            # Bugungi xarajatlar
+            today_expenses = await self.db.execute_query(
+                """
+                SELECT SUM(amount) as today_total
+                FROM transactions
+                WHERE user_id = %s AND type = 'expense'
+                AND DATE(created_at) = CURDATE()
+                """,
+                (user_id,)
+            )
+            
+            # O'tgan kunga nisbatan o'sish/kamayish
+            yesterday_expenses = await self.db.execute_query(
+                """
+                SELECT SUM(amount) as yesterday_total
+                FROM transactions
+                WHERE user_id = %s AND type = 'expense'
+                AND DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+                """,
+                (user_id,)
+            )
+            
             context = {
                 "balances": balances,
                 "recent_transactions": recent_transactions if recent_transactions else [],
                 "debts": debts if debts else [],
                 "month_stats": month_stats[0] if month_stats else {},
+                "today_expenses": today_expenses[0].get('today_total', 0) if today_expenses and today_expenses[0] else 0,
+                "yesterday_expenses": yesterday_expenses[0].get('yesterday_total', 0) if yesterday_expenses and yesterday_expenses[0] else 0,
             }
             
             return context
@@ -104,7 +146,7 @@ class AIChat:
         except Exception as e:
             logger.error(f"Error getting financial context: {e}")
             return {}
-    
+
     async def get_chat_history(self, user_id: int, limit: int = 10) -> List[Dict]:
         """Chat tarixini olish"""
         try:
@@ -122,7 +164,6 @@ class AIChat:
             if not history:
                 return []
             
-            # history ni list ga aylantirish
             history_list = list(history)
             history_list.reverse()
             
@@ -148,9 +189,13 @@ class AIChat:
         except Exception as e:
             logger.error(f"Error saving to history: {e}")
     
-    async def generate_response(self, user_id: int, question: str) -> str:
-        """AI javob generatsiya qilish"""
+    async def generate_response(self, user_id: int, question: str) -> List[str]:
+        """AI javob generatsiya qilish - ko'p xabarli"""
         try:
+            # Foydalanuvchi ma'lumotlari
+            user_info = await self.get_user_info(user_id)
+            user_name = user_info.get("name", "Do'st")
+            
             # Moliyaviy kontekstni olish
             context = await self.get_user_financial_context(user_id)
             
@@ -166,7 +211,7 @@ class AIChat:
             # Kontekstni qo'shish
             messages.append({
                 "role": "system", 
-                "content": f"Foydalanuvchining joriy moliyaviy holati:\n{context_text}"
+                "content": f"Foydalanuvchi ismi: {user_name}\n\nFoydalanuvchining joriy moliyaviy holati:\n{context_text}"
             })
             
             # Chat tarixini qo'shish
@@ -179,15 +224,13 @@ class AIChat:
             # Foydalanuvchi savolini qo'shish
             messages.append({"role": "user", "content": question})
             
-            # OpenAI API chaqiruvi (async emas - sync)
-            import asyncio
-            
+            # OpenAI API chaqiruvi
             def call_openai():
                 response = openai_client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=messages,
-                    max_tokens=1000,
-                    temperature=0.7
+                    max_tokens=800,
+                    temperature=0.8
                 )
                 return response.choices[0].message.content
             
@@ -198,11 +241,101 @@ class AIChat:
             await self.save_to_history(user_id, "user", question)
             await self.save_to_history(user_id, "assistant", ai_response)
             
-            return ai_response
+            # Ko'p qatorli javobni bo'lish (max 2-3 gap per message)
+            messages_list = self._split_response(ai_response)
+            
+            return messages_list
             
         except Exception as e:
             logger.error(f"Error generating response: {e}")
-            return "Kechirasiz, javob berishda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."
+            return ["Kechirasiz, javob berishda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."]
+    
+    def _split_response(self, response: str) -> List[str]:
+        """Javobni ko'p qatorga bo'lish (max 2-3 gap per message)"""
+        # Qatorlarni ajratish (. ! ? dan keyin)
+        sentences = []
+        current = ""
+        
+        for char in response:
+            current += char
+            if char in '.!?' and len(current.strip()) > 20:
+                sentences.append(current.strip())
+                current = ""
+        
+        if current.strip():
+            sentences.append(current.strip())
+        
+        # Har 2-3 gap ni bitta xabar qilib qo'shish
+        messages = []
+        current_msg = []
+        
+        for sent in sentences:
+            current_msg.append(sent)
+            
+            # Agar 2-3 gap to'plansa yoki oxirgi gap bo'lsa
+            if len(current_msg) >= 2 or sent == sentences[-1]:
+                messages.append(" ".join(current_msg))
+                current_msg = []
+        
+        return messages if messages else [response]
+    
+    async def analyze_transaction(self, user_id: int, transaction_type: str, amount: float, description: str = "") -> str:
+        """Tranzaksiya qo'shilganda AI fikrini olish"""
+        try:
+            # Kontekstni olish
+            context = await self.get_user_financial_context(user_id)
+            user_info = await self.get_user_info(user_id)
+            user_name = user_info.get("name", "Do'st")
+            
+            # Bugungi xarajatlar bilan solishtirish
+            today_expenses = context.get("today_expenses", 0)
+            yesterday_expenses = context.get("yesterday_expenses", 0)
+            
+            # Muammoni aniqlash
+            concern = ""
+            if transaction_type == 'expense':
+                if today_expenses > yesterday_expenses * 1.5:
+                    concern = "Ko'p xarajat qilyapsiz bugun!"
+                elif today_expenses < yesterday_expenses * 0.5:
+                    concern = "Juda yaxshi, tejalayapsiz!"
+            
+            # AI ga yuborish uchun prompt
+            prompt = f"""Foydalanuvchi {user_name} tranzaksiya qo'shdi.
+Turi: {transaction_type}
+Summa: {amount:,.0f} so'm
+Tavsif: {description or 'Nomalum'}
+
+Bugungi xarajatlar: {today_expenses:,.0f} so'm
+Kechagi: {yesterday_expenses:,.0f} so'm
+
+{concern}
+
+Sen Balans AI ning hazil va do'stona buxgalterisiz. Foydalanuvchiga:
+- Hazil va do'stona fikr bildirish (emoji bilan)
+- Agar ko'p xarajat qilsa - jahl chiqarish 😡
+- Agar kam xarajat qilsa - maqtash 🧘
+- Qisqa (1-2 gap, max 100 so'z)"""
+
+            def call_openai():
+                response = openai_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": self.system_prompt},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=150,
+                    temperature=0.9
+                )
+                return response.choices[0].message.content
+            
+            loop = asyncio.get_event_loop()
+            ai_response = await loop.run_in_executor(None, call_openai)
+            
+            return ai_response
+            
+        except Exception as e:
+            logger.error(f"Error analyzing transaction: {e}")
+            return "Tranzaksiya qo'shildi! 📝"
     
     def _format_context(self, context: Dict) -> str:
         """Kontekstni matn shakliga o'tkazish"""
@@ -217,10 +350,10 @@ class AIChat:
                 income = balances.get('total_income', 0) or 0
                 expense = balances.get('total_expense', 0) or 0
                 
-                text += f"💰 **Balans:** {net:,.0f} so'm\n"
-                text += f"💵 **Naqd:** {cash:,.0f} so'm\n"
-                text += f"📈 **Jami kirim:** {income:,.0f} so'm\n"
-                text += f"📉 **Jami chiqim:** {expense:,.0f} so'm\n\n"
+                text += f"💰 Balans: {net:,.0f} so'm\n"
+                text += f"💵 Naqd: {cash:,.0f} so'm\n"
+                text += f"📈 Jami kirim: {income:,.0f} so'm\n"
+                text += f"📉 Jami chiqim: {expense:,.0f} so'm\n\n"
         
         # Oy statistikasi
         month_stats = context.get("month_stats", {})
@@ -237,7 +370,7 @@ class AIChat:
         # Oxirgi tranzaksiyalar
         transactions = context.get("recent_transactions", [])
         if transactions and len(transactions) > 0:
-            text += "📝 **Oxirgi xarajat/daromadlar:**\n"
+            text += "📝 Oxirgi xarajat/daromadlar:\n"
             for idx, t in enumerate(transactions[:7], 1):
                 try:
                     if isinstance(t, dict):
@@ -257,24 +390,9 @@ class AIChat:
                     continue
             text += "\n"
         
-        # Qarzlar
-        debts = context.get("debts", [])
-        if debts and len(debts) > 0:
-            text += "💳 **Qarzlar:**\n"
-            for idx, d in enumerate(debts[:5], 1):
-                try:
-                    if isinstance(d, dict):
-                        debt_type = "berilgan" if d.get('type') == 'lent' else "olingan"
-                        amount = float(d.get('amount', 0))
-                        person = d.get('person', '')[:20] if d.get('person') else 'Nomalum'
-                        
-                        text += f"{idx}. {debt_type}: {amount:,.0f} so'm"
-                        if person and person != 'Nomalum':
-                            text += f" ({person})"
-                        text += "\n"
-                except Exception as e:
-                    logger.error(f"Error formatting debt: {e}")
-                    continue
-            text += "\n"
+        # Bugungi xarajatlar
+        today_exp = context.get("today_expenses", 0)
+        if today_exp:
+            text += f"📌 Bugungi xarajatlar: {today_exp:,.0f} so'm\n\n"
         
         return text

@@ -3888,11 +3888,13 @@ async def process_financial_message(message: types.Message, state: FSMContext):
     await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
     
     try:
-        # AI chat javobini olish
-        ai_response = await ai_chat.generate_response(user_id, text)
+        # AI chat javobini olish (ko'p xabarli)
+        ai_messages = await ai_chat.generate_response(user_id, text)
         
-        # Javobni yuborish
-        await message.answer(ai_response, parse_mode='Markdown')
+        # Har bir xabarni 1-3 soniya orasida yuborish
+        for msg in ai_messages:
+            await message.answer(msg, parse_mode='Markdown')
+            await asyncio.sleep(1.5)  # 1.5 soniya kutish
         
     except Exception as e:
         logging.error(f"AI chat xatolik: {e}")
