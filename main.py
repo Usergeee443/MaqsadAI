@@ -3862,98 +3862,41 @@ async def confirm_leave_team_callback(callback_query: CallbackQuery):
         logging.error(f"Jamoadan chiqishda xatolik: {e}")
         await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
 
-# Premium tarif - AI yordamida moliyaviy ma'lumotlarni qayta ishlash
+# MAX tarif - AI chat (real-time muloqot)
 @dp.message(lambda message: message.text and not message.text.startswith('/') and message.text not in ["📊 Hisobotlar", "👤 Profil", "➕ Kirim", "➖ Chiqim", "💳 Qarzlar", "➕ Xodim qo'shish", "❌ Bekor qilish"])
 async def process_financial_message(message: types.Message, state: FSMContext):
-    """Moliyaviy ma'lumotlarni qayta ishlash (Premium)"""
+    """MAX tarif uchun AI chat - shaxsiy buxgalter"""
     user_id = message.from_user.id
-    # Avtomatik tarif muddatini tekshirish
     await ensure_tariff_valid(user_id)
     user_tariff = await get_user_tariff(user_id)
     
-    # Faqat pullik tarif uchun AI qayta ishlash
-    if user_tariff not in PREMIUM_TARIFFS:
+    # Faqat MAX tarif uchun
+    if user_tariff != 'MAX':
         return
     
-    # Agar foydalanuvchi boshqa holatda bo'lsa (onboarding yoki boshqa state'lar)
+    # State'lar tekshiruvi
     if await state.get_state() in [UserStates.waiting_for_phone, UserStates.waiting_for_name, 
                                    UserStates.waiting_for_source, UserStates.waiting_for_tariff,
                                    UserStates.waiting_for_amount, UserStates.waiting_for_description, 
                                    UserStates.waiting_for_category, UserStates.waiting_for_debt_type,
-                                   UserStates.waiting_for_debt_person, UserStates.waiting_for_income_type,
-                                   UserStates.waiting_for_income_frequency, UserStates.waiting_for_income_amount,
-                                   UserStates.waiting_for_income_date, UserStates.waiting_for_income_weekday,
-                                   UserStates.waiting_for_income_month, UserStates.waiting_for_income_day]:
+                                   UserStates.waiting_for_debt_person]:
         return
     
     text = message.text
     
-    # AI ishlayotganini ko'rsatish
+    # AI ishlash ko'rsatkich
     await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
     
-    # Bajarilmoqda xabarini yuborish
-    processing_msg = await message.answer("🔄 Bajarilmoqda...", parse_mode='Markdown')
-    
-    # AI yordamida moliyaviy ma'lumotni qayta ishlash
-    result = await financial_module.process_ai_input(text, user_id)
-    
-    # Bajarilmoqda xabarini o'chirish
     try:
-        await processing_msg.delete()
-    except:
-        pass
-    
-    if result['success']:
-        if result.get('type') == 'single_confirmation':
-            # Bitta tranzaksiya tasdiqlash
-            await state.set_state(UserStates.waiting_for_transaction_confirmation)
-            await state.update_data(transaction_data=result['transaction_data'])
-            
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💾 Saqlash", callback_data="trans_single")],
-                [InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_cancel_single")]
-            ])
-            
-            await message.answer(result['message'], parse_mode='Markdown', reply_markup=keyboard)
-            
-        elif result.get('type') == 'multiple_preview':
-            # Ko'p tranzaksiyalar oldindan ko'rinishi
-            await state.set_state(UserStates.waiting_for_transaction_confirmation)
-            await state.update_data(transaction_data=result['buttons_data'])
-            
-            # Tugmalarni yaratish
-            buttons_data = result['buttons_data']
-            transactions = buttons_data.get('transactions', [])
-            
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-            
-            # Har bir tranzaksiya uchun tugmalar - 2 qator bo'lib
-            delete_buttons = []
-            for item in transactions:
-                index = item['index']
-                delete_buttons.append(InlineKeyboardButton(text=f"🗑️ #{index}", callback_data=f"trans_delete_{index}"))
-                
-                # Har 2 ta tugma bo'lganda yangi qatorga o'tamiz
-                if len(delete_buttons) == 2:
-                    keyboard.inline_keyboard.append(delete_buttons)
-                    delete_buttons = []
-            
-            # Qolgan tugmalarni qo'shamiz
-            if delete_buttons:
-                keyboard.inline_keyboard.append(delete_buttons)
-            
-            # Umumiy tugmalar
-            keyboard.inline_keyboard.append([
-                InlineKeyboardButton(text="✅ Hammasini saqlash", callback_data="trans_all"),
-                InlineKeyboardButton(text="❌ Hammasini o'chirish", callback_data="trans_cancel")
-            ])
-            
-            await message.answer(result['message'], parse_mode='Markdown', reply_markup=keyboard)
-        else:
-            # Oddiy natija
-            await message.answer(result['message'], parse_mode='Markdown')
-    else:
-        await message.answer(result['message'], parse_mode='Markdown')
+        # AI chat javobini olish
+        ai_response = await ai_chat.generate_response(user_id, text)
+        
+        # Javobni yuborish
+        await message.answer(ai_response, parse_mode='Markdown')
+        
+    except Exception as e:
+        logging.error(f"AI chat xatolik: {e}")
+        await message.answer("Kechirasiz, xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
 
 async def process_google_audio(message: types.Message, state: FSMContext, audio_path: str, user_id: int):
     """Google Cloud Speech natijalarini alohida qayta ishlash"""

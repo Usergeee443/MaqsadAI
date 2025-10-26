@@ -20,17 +20,32 @@ class AIChat:
     
     def __init__(self):
         self.db = Database()
-        self.system_prompt = """Sen Balans AI ning shaxsiy buxgalter AI yordamchisisan. 
+        self.system_prompt = """Sen Balans AI ning shaxsiy buxgalter yordamchisisan.
 
-Vazifang:
-1. Foydalanuvchining moliyaviy savollariga qisqa, aniq, foydali javob ber
-2. Xarajat/daromad/qarz yozsa - avtomatik aniqlab takrorlash va tasdiqlash so'rash
-3. Javoblarni 1-4 bosqichli qilib tuzat: Asosiy javob → Tahlil → Ruhlantiruvchi gap → Tugma taklif
-4. "Ha", "ok", "go" deb yozsa → keyingi bosqichni boshlash  
-5. "Yo'q", "bekor" deb yozsa → yumshoq uslubda boshqa yechim taklif etish
+🎯 **Asosiy vazifang:**
+- Foydalanuvchining moliyaviy savollariga **do'stona, professional** javob ber
+- Xarajat/daromad/qarz yozsa - avtomatik aniqlab takrorlash va tasdiqlash so'rash
+- Javoblarni **1-4 bosqichli** qilib tuzat
 
-Uslub: Do'stona, lekin professional. Qisqa, aniq. Foydalanuvchi ismini eslab qolish.
-Til: O'zbek tili (lotin), lekin ingliz yoki rus tilida savol bo'lsa shu til bilan javob ber."""
+📋 **Javob tuzishi:**
+1. **Asosiy javob** - real moliyaviy tahlil (qisqa va aniq)
+2. **Tahlil** - kamchiliklar va tavsiyalar (kerak bo'lsa)
+3. **Ruhlantiruvchi gap** - ijobiy natijalar bo'lsa (ixtiyoriy)
+4. **Taklif/Tugma** - keyingi qadam taklifi (ixtiyoriy)
+
+🔄 **Replay:**
+- "Ha", "ok", "go" → keyingi bosqichni boshlash
+- "Yo'q", "bekor" → yumshoq boshqa yechim taklif
+
+💬 **Uslub:**
+- Do'stona, professional
+- Qisqa (max 3-4 qator)
+- Foydalanuvchi ismini eslab qol
+- Emoji: minimal (1-2 ta max)
+
+🌍 **Tillar:**
+- Asosiy: O'zbek tili (lotin)
+- Ingliz yoki rus tilida savol → shu til bilan javob"""
 
     async def get_user_financial_context(self, user_id: int) -> Dict:
         """Foydalanuvchining moliyaviy kontekstini olish"""
@@ -179,45 +194,75 @@ Til: O'zbek tili (lotin), lekin ingliz yoki rus tilida savol bo'lsa shu til bila
     
     def _format_context(self, context: Dict) -> str:
         """Kontekstni matn shakliga o'tkazish"""
-        text = "=== Moliyaviy Ma'lumotlar ===\n\n"
+        text = "📊 **Foydalanuvchi moliyaviy holati**\n\n"
         
         # Balanslar
         balances = context.get("balances", {})
-        text += f"Balanslar:\n"
-        text += f"- Naqd pul: {balances.get('cash_balance', 0):,.0f} so'm\n"
-        text += f"- Sof balans: {balances.get('net_balance', 0):,.0f} so'm\n"
-        text += f"- Jami kirim: {balances.get('total_income', 0):,.0f} so'm\n"
-        text += f"- Jami chiqim: {balances.get('total_expense', 0):,.0f} so'm\n\n"
+        if balances:
+            if isinstance(balances, dict):
+                cash = balances.get('cash_balance', 0) or 0
+                net = balances.get('net_balance', 0) or 0
+                income = balances.get('total_income', 0) or 0
+                expense = balances.get('total_expense', 0) or 0
+                
+                text += f"💰 **Balans:** {net:,.0f} so'm\n"
+                text += f"💵 **Naqd:** {cash:,.0f} so'm\n"
+                text += f"📈 **Jami kirim:** {income:,.0f} so'm\n"
+                text += f"📉 **Jami chiqim:** {expense:,.0f} so'm\n\n"
         
         # Oy statistikasi
         month_stats = context.get("month_stats", {})
         if month_stats:
-            text += f"Oy statistikasi:\n"
-            text += f"- Oyli kirim: {month_stats.get('total_income', 0):,.0f} so'm\n"
-            text += f"- Oyli chiqim: {month_stats.get('total_expense', 0):,.0f} so'm\n"
-            text += f"- Tranzaksiyalar soni: {month_stats.get('transaction_count', 0)}\n\n"
+            mi = month_stats.get('total_income', 0) or 0
+            me = month_stats.get('total_expense', 0) or 0
+            mc = month_stats.get('transaction_count', 0) or 0
+            
+            text += f"📅 **Bu oy:**\n"
+            text += f"- Kirim: {mi:,.0f} so'm\n"
+            text += f"- Chiqim: {me:,.0f} so'm\n"
+            text += f"- Tranzaksiyalar: {mc} ta\n\n"
         
         # Oxirgi tranzaksiyalar
         transactions = context.get("recent_transactions", [])
-        if transactions:
-            text += "Oxirgi tranzaksiyalar:\n"
-            for t in transactions[:5]:
-                t_type = "kirim" if t['type'] == 'income' else "chiqim"
-                amount = t.get('amount', 0)
-                category = t.get('category_name', 'Nomalum')
-                created_at = t.get('created_at', datetime.now())
-                
-                text += f"- {t_type}: {amount:,.0f} so'm ({category}) - {created_at.strftime('%d.%m.%Y')}\n"
+        if transactions and len(transactions) > 0:
+            text += "📝 **Oxirgi xarajat/daromadlar:**\n"
+            for idx, t in enumerate(transactions[:7], 1):
+                try:
+                    if isinstance(t, dict):
+                        t_type = "kirim" if t.get('type') == 'income' else "chiqim"
+                        amount = float(t.get('amount', 0))
+                        category = t.get('category_name', 'Nomalum')
+                        desc = t.get('description', '')[:30] if t.get('description') else ''
+                        
+                        text += f"{idx}. {t_type}: {amount:,.0f} so'm"
+                        if category and category != 'Nomalum':
+                            text += f" ({category})"
+                        if desc:
+                            text += f" - {desc}"
+                        text += "\n"
+                except Exception as e:
+                    logger.error(f"Error formatting transaction: {e}")
+                    continue
             text += "\n"
         
         # Qarzlar
         debts = context.get("debts", [])
-        if debts:
-            text += "Qarzlar:\n"
-            for d in debts[:3]:
-                debt_type = "berilgan" if d['type'] == 'lent' else "olingan"
-                amount = d.get('amount', 0)
-                text += f"- {debt_type}: {amount:,.0f} so'm\n"
+        if debts and len(debts) > 0:
+            text += "💳 **Qarzlar:**\n"
+            for idx, d in enumerate(debts[:5], 1):
+                try:
+                    if isinstance(d, dict):
+                        debt_type = "berilgan" if d.get('type') == 'lent' else "olingan"
+                        amount = float(d.get('amount', 0))
+                        person = d.get('person', '')[:20] if d.get('person') else 'Nomalum'
+                        
+                        text += f"{idx}. {debt_type}: {amount:,.0f} so'm"
+                        if person and person != 'Nomalum':
+                            text += f" ({person})"
+                        text += "\n"
+                except Exception as e:
+                    logger.error(f"Error formatting debt: {e}")
+                    continue
             text += "\n"
         
         return text
