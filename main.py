@@ -3863,7 +3863,7 @@ async def confirm_leave_team_callback(callback_query: CallbackQuery):
         await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
 
 # Premium tarif - AI yordamida moliyaviy ma'lumotlarni qayta ishlash
-@dp.message(lambda message: message.text and not message.text.startswith('/') and message.text not in ["📊 Hisobotlar", "👤 Profil", "➕ Kirim", "➖ Chiqim", "💳 Qarzlar", "➕ Xodim qo'shish"])
+@dp.message(lambda message: message.text and not message.text.startswith('/') and message.text not in ["📊 Hisobotlar", "👤 Profil", "➕ Kirim", "➖ Chiqim", "💳 Qarzlar", "➕ Xodim qo'shish", "❌ Bekor qilish"])
 async def process_financial_message(message: types.Message, state: FSMContext):
     """Moliyaviy ma'lumotlarni qayta ishlash (Premium)"""
     user_id = message.from_user.id

@@ -4,15 +4,11 @@ from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 import openai
 from database import Database
-import base64
+import json
 
 # OpenAI API key
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "your_api_key_here")
 openai.api_key = OPENAI_API_KEY
-
-# Google Speech API (voice messages uchun)
-from google.cloud import speech_v1
-from google.cloud.speech_v1 import types
 
 # Initialize logger
 logging.basicConfig(level=logging.INFO)
@@ -20,34 +16,29 @@ logger = logging.getLogger(__name__)
 
 
 class AIChat:
-    """AI chat klassi - moliyaviy savollar va maslahatlar uchun"""
+    """AI chat klassi - moliyaviy savollar va maslahatlar uchun (MAX tarif uchun)"""
     
     def __init__(self):
         self.db = Database()
-        self.system_prompt = """Sen Balans AI moliyaviy yordamchi botining AI yordamchisisan. 
-Sen foydalanuvchining barcha moliyaviy ma'lumotlarini bilishing mumkin:
-- Tranzaksiyalar (kirim va chiqimlar)
-- Qarzlar (berilgan va olingan)
-- Balanslar
-- Kategoriyalar
-- Tarix
+        self.system_prompt = """Sen Balans AI ning shaxsiy buxgalter AI yordamchisisan. 
 
-Senning vazifang:
-1. Foydalanuvchining moliyaviy savollariga javob berish
-2. Ma'lumotlarni tahlil qilish va tavsiyalar berish
-3. Xarajatlarni kamaytirish bo'yicha maslahatlar
-4. Moliyaviy maqsadlar qo'yishda yordam ko'rsatish
-5. Daromadlar va xarajatlarni optimallashtirish
+Vazifang:
+1. Foydalanuvchining moliyaviy savollariga qisqa, aniq, foydali javob ber
+2. Xarajat/daromad/qarz yozsa - avtomatik aniqlab takrorlash va tasdiqlash so'rash
+3. Javoblarni 1-4 bosqichli qilib tuzat: Asosiy javob → Tahlil → Ruhlantiruvchi gap → Tugma taklif
+4. "Ha", "ok", "go" deb yozsa → keyingi bosqichni boshlash  
+5. "Yo'q", "bekor" deb yozsa → yumshoq uslubda boshqa yechim taklif etish
 
-Javoblaring aniq, foydali va amaliy bo'lishi kerak. O'zbek tilida javob ber."""
+Uslub: Do'stona, lekin professional. Qisqa, aniq. Foydalanuvchi ismini eslab qolish.
+Til: O'zbek tili (lotin), lekin ingliz yoki rus tilida savol bo'lsa shu til bilan javob ber."""
 
     async def get_user_financial_context(self, user_id: int) -> Dict:
         """Foydalanuvchining moliyaviy kontekstini olish"""
         try:
-            # Database metodini chaqirish
+            # Balanslar
             balances = await self.db.get_balances(user_id)
             
-            # Oxirgi tranzaksiyalar (20 ta)
+            # Oxirgi tranzaksiyalar
             recent_transactions = await self.db.execute_query(
                 """
                 SELECT t.*, c.name as category_name, c.icon 
@@ -112,9 +103,7 @@ Javoblaring aniq, foydali va amaliy bo'lishi kerak. O'zbek tilida javob ber."""
                 (user_id, limit)
             )
             
-            # Teskari tartibda qaytarish (eng eski birinchi)
             history.reverse()
-            
             return [
                 {"role": h[0], "content": h[1], "created_at": h[2]} 
                 for h in history
@@ -136,35 +125,6 @@ Javoblaring aniq, foydali va amaliy bo'lishi kerak. O'zbek tilida javob ber."""
             )
         except Exception as e:
             logger.error(f"Error saving to history: {e}")
-    
-    async def process_voice_message(self, voice_file_path: str) -> Optional[str]:
-        """Ovozli xabarni matnga aylantirish"""
-        try:
-            # Google Speech API orqali ovozni matnga aylantirish
-            client = speech_v1.SpeechClient()
-            
-            with open(voice_file_path, "rb") as audio_file:
-                content = audio_file.read()
-            
-            audio = types.RecognitionAudio(content=content)
-            config = types.RecognitionConfig(
-                encoding=types.RecognitionConfig.AudioEncoding.OGG_OPUS,
-                sample_rate_hertz=16000,
-                language_code="uz-UZ",  # O'zbek tili
-            )
-            
-            response = client.recognize(config=config, audio=audio)
-            
-            # Eng yaxshi natijani olish
-            if response.results:
-                transcript = response.results[0].alternatives[0].transcript
-                return transcript
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error processing voice message: {e}")
-            return None
     
     async def generate_response(self, user_id: int, question: str) -> str:
         """AI javob generatsiya qilish"""
@@ -188,7 +148,7 @@ Javoblaring aniq, foydali va amaliy bo'lishi kerak. O'zbek tilida javob ber."""
             })
             
             # Chat tarixini qo'shish
-            for msg in history[-6:]:  # Oxirgi 6 ta xabarni olish
+            for msg in history[-6:]:
                 messages.append({
                     "role": msg["role"],
                     "content": msg["content"]
@@ -241,7 +201,7 @@ Javoblaring aniq, foydali va amaliy bo'lishi kerak. O'zbek tilida javob ber."""
         transactions = context.get("recent_transactions", [])
         if transactions:
             text += "Oxirgi tranzaksiyalar:\n"
-            for t in transactions[:5]:  # Faqat oxirgi 5 tasi
+            for t in transactions[:5]:
                 t_type = "kirim" if t['type'] == 'income' else "chiqim"
                 amount = t.get('amount', 0)
                 category = t.get('category_name', 'Nomalum')
@@ -254,29 +214,10 @@ Javoblaring aniq, foydali va amaliy bo'lishi kerak. O'zbek tilida javob ber."""
         debts = context.get("debts", [])
         if debts:
             text += "Qarzlar:\n"
-            for d in debts[:3]:  # Faqat oxirgi 3 tasi
+            for d in debts[:3]:
                 debt_type = "berilgan" if d['type'] == 'lent' else "olingan"
                 amount = d.get('amount', 0)
                 text += f"- {debt_type}: {amount:,.0f} so'm\n"
             text += "\n"
         
         return text
-    
-    async def is_expense_or_income(self, message: str) -> tuple[bool, bool]:
-        """Xabar xarajat yoki daromad qo'shish uchunmi ekanini aniqlash"""
-        expense_keywords = [
-            "xarajat qo'sh", "chiqim qo'sh", "sarfladim", "to'ladi",
-            "xarj qildim", "sotib oldim", "berdim", "yo'qotdim"
-        ]
-        
-        income_keywords = [
-            "daromad qo'sh", "kirim qo'sh", "oldim", "topdim",
-            "qo'shdim", "mahsul", "ishlab topdim", "sotdim"
-        ]
-        
-        message_lower = message.lower()
-        
-        is_expense = any(keyword in message_lower for keyword in expense_keywords)
-        is_income = any(keyword in message_lower for keyword in income_keywords)
-        
-        return is_expense, is_income
