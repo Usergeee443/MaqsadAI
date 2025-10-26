@@ -63,7 +63,10 @@ Tillar:
                 (user_id,)
             )
             if user:
-                return {"name": user.get('name') or user.get(0), "phone": user.get('phone') or user.get(1)}
+                # user tuple bo'lishi mumkin
+                if isinstance(user, tuple):
+                    return {"name": user[0], "phone": user[1]}
+                return {"name": user.get('name', "Do'st"), "phone": user.get('phone')}
             return {"name": "Do'st", "phone": None}
         except Exception as e:
             logger.error(f"Error getting user info: {e}")
@@ -78,9 +81,8 @@ Tillar:
             # Oxirgi tranzaksiyalar
             recent_transactions = await self.db.execute_query(
                 """
-                SELECT t.*, c.name as category_name
+                SELECT t.*
                 FROM transactions t
-                LEFT JOIN categories c ON t.category_id = c.id
                 WHERE t.user_id = %s
                 ORDER BY t.created_at DESC
                 LIMIT 20
@@ -102,8 +104,8 @@ Tillar:
             month_stats = await self.db.execute_query(
                 """
                 SELECT 
-                    SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as total_income,
-                    SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as total_expense,
+                    SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) as total_income,
+                    SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) as total_expense,
                     COUNT(*) as transaction_count
                 FROM transactions
                 WHERE user_id = %s 
@@ -118,7 +120,7 @@ Tillar:
                 """
                 SELECT SUM(amount) as today_total
                 FROM transactions
-                WHERE user_id = %s AND type = 'expense'
+                WHERE user_id = %s AND transaction_type = 'expense'
                 AND DATE(created_at) = CURDATE()
                 """,
                 (user_id,)
@@ -129,7 +131,7 @@ Tillar:
                 """
                 SELECT SUM(amount) as yesterday_total
                 FROM transactions
-                WHERE user_id = %s AND type = 'expense'
+                WHERE user_id = %s AND transaction_type = 'expense'
                 AND DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)
                 """,
                 (user_id,)
@@ -524,18 +526,25 @@ Sen Balans AI ning hazil va do'stona buxgalterisiz. Foydalanuvchiga:
             text += "📝 Oxirgi xarajat/daromadlar:\n"
             for idx, t in enumerate(transactions[:7], 1):
                 try:
-                    if isinstance(t, dict):
-                        t_type = "kirim" if t.get('type') == 'income' else "chiqim"
+                    # Tuple yoki dict bo'lishi mumkin
+                    if isinstance(t, tuple):
+                        # Tuple struktura: (id, user_id, transaction_type, amount, category, description, ...)
+                        t_type = "kirim" if len(t) > 2 and t[2] == 'income' else "chiqim"
+                        amount = float(t[3]) if len(t) > 3 else 0
+                        category = t[4] if len(t) > 4 else 'Nomalum'
+                        desc = t[5][:30] if len(t) > 5 and t[5] else ''
+                    else:
+                        t_type = "kirim" if t.get('transaction_type') == 'income' else "chiqim"
                         amount = float(t.get('amount', 0))
-                        category = t.get('category_name', 'Nomalum')
+                        category = t.get('category', 'Nomalum')
                         desc = t.get('description', '')[:30] if t.get('description') else ''
-                        
-                        text += f"{idx}. {t_type}: {amount:,.0f} so'm"
-                        if category and category != 'Nomalum':
-                            text += f" ({category})"
-                        if desc:
-                            text += f" - {desc}"
-                        text += "\n"
+                    
+                    text += f"{idx}. {t_type}: {amount:,.0f} so'm"
+                    if category and category != 'Nomalum':
+                        text += f" ({category})"
+                    if desc:
+                        text += f" - {desc}"
+                    text += "\n"
                 except Exception as e:
                     logger.error(f"Error formatting transaction: {e}")
                     continue
