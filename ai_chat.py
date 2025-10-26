@@ -22,33 +22,36 @@ class AIChat:
     def __init__(self, db=None):
         # Agar db berilmasa, yangi Database yaratish
         self.db = db if db else Database()
-        self.system_prompt = """Sen Balans AI ning **shaxsiy buxgalter va do'sti**siz. 
+        self.system_prompt = """Sen Balans AI ning shaxsiy buxgalter va do'stisiz.
 
-🎭 **Xaraktering:**
+MUHIM: Hech qachon formatlash belgilarini ishlatma (#, **, vs). Faqat oddiy, insoniy matn.
+
+Xaraktering:
 - Hazil va do'stona, ammo professional
 - Emoji ishlatishni yaxshi ko'rarsiz (2-3 ta)
 - Foydalanuvchiga "sen" deb murojaat qilasiz
 - Ko'p xarajat qilsa - jahl chiqarading, kam qilsa - maqtaysiz
 
-📋 **Javob tuzishi (2-4 bosqich):**
-1. **Asosiy javob** - qisqa va aniq
-2. **Tahlil** - kamchiliklar/tavsiyalar
-3. **Ruhlantiruvchi** - ijobiy natijalar (emoji bilan)
-4. **Taklif** - keyingi qadam
+Javob tuzishi (2-4 bosqich):
+1. Asosiy javob - qisqa va aniq
+2. Tahlil - kamchiliklar/tavsiyalar (format belgilarisiz)
+3. Ruhlantiruvchi - ijobiy natijalar (emoji bilan)
+4. Taklif - keyingi qadam
 
-🔄 **Replay:**
+Replay:
 - "Ha", "ok", "go" → keyingi bosqich
 - "Yo'q", "bekor" → boshqa yechim
 
-💬 **Uslub:**
+Uslub:
 - Har bir bosqich alohida qator (max 2-3 gap)
 - Hazil va do'stona
 - Foydalanuvchi ismini eslab qol
-- **Ko'p xarajat** qilsa → jahli chiqadi 😡
-- **Kam xarajat** qilsa → maqtaydi 🧘
-- **Ko'p daromad** qilsa → tabriklaydi 💸
+- Hech qachon ###, **, kabi belgilar ishlatma
+- Ko'p xarajat qilsa → jahli chiqadi
+- Kam xarajat qilsa → maqtaydi
+- Ko'p daromad qilsa → tabriklaydi
 
-🌍 **Tillar:**
+Tillar:
 - Asosiy: O'zbek (lotin)
 - Ingliz/Rus → shu til bilan"""
 
@@ -196,6 +199,9 @@ class AIChat:
             user_info = await self.get_user_info(user_id)
             user_name = user_info.get("name", "Do'st")
             
+            # Tranzaksiya aniqlash va saqlash
+            transaction = await self.detect_and_save_transaction(question, user_id)
+            
             # Moliyaviy kontekstni olish
             context = await self.get_user_financial_context(user_id)
             
@@ -251,33 +257,133 @@ class AIChat:
             return ["Kechirasiz, javob berishda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."]
     
     def _split_response(self, response: str) -> List[str]:
-        """Javobni ko'p qatorga bo'lish (max 2-3 gap per message)"""
+        """Javobni ko'p qatorga bo'lish - formatlamashtan tozalash"""
+        # Formatlash belgilarini olib tashlash (###, **, vs)
+        cleaned = response
+        cleaned = cleaned.replace('### ', '')
+        cleaned = cleaned.replace('**', '')
+        cleaned = cleaned.replace('###Tahlil:', '')
+        cleaned = cleaned.replace('Tahlil:', '')
+        cleaned = cleaned.replace('Taklif:', '')
+        cleaned = cleaned.replace('Tavsiya:', '')
+        
         # Qatorlarni ajratish (. ! ? dan keyin)
         sentences = []
         current = ""
         
-        for char in response:
+        for char in cleaned:
             current += char
             if char in '.!?' and len(current.strip()) > 20:
-                sentences.append(current.strip())
+                sent = current.strip()
+                # Yana bir bor formatlarni tozalash
+                sent = sent.replace('###', '')
+                sent = sent.replace('**', '')
+                if sent:
+                    sentences.append(sent)
                 current = ""
         
         if current.strip():
-            sentences.append(current.strip())
+            sent = current.strip()
+            sent = sent.replace('###', '')
+            sent = sent.replace('**', '')
+            if sent:
+                sentences.append(sent)
         
-        # Har 2-3 gap ni bitta xabar qilib qo'shish
+        # Har 1-2 gap ni bitta xabar qilib qo'shish
         messages = []
         current_msg = []
         
         for sent in sentences:
             current_msg.append(sent)
             
-            # Agar 2-3 gap to'plansa yoki oxirgi gap bo'lsa
-            if len(current_msg) >= 2 or sent == sentences[-1]:
-                messages.append(" ".join(current_msg))
+            # Agar 1-2 gap to'plansa yoki oxirgi gap bo'lsa
+            if len(current_msg) >= 1 or sent == sentences[-1]:
+                msg = " ".join(current_msg)
+                # Oxirgi tozalash
+                msg = msg.replace('###', '').replace('**', '').strip()
+                if msg:
+                    messages.append(msg)
                 current_msg = []
         
         return messages if messages else [response]
+    
+    async def detect_and_save_transaction(self, message: str, user_id: int) -> Optional[Dict]:
+        """Xabardan tranzaksiyani aniqlash va saqlash"""
+        try:
+            message_lower = message.lower()
+            
+            # Xarajat kalit so'zlar
+            expense_keywords = ['sarfladim', 'to\'ladim', 'oldim', 'chiqim', 'xarajat', 'yozish', 'oydim']
+            # Daromad kalit so'zlar
+            income_keywords = ['kirdim', 'oldim', 'oylik', 'daromad', 'kirim', 'tushdi', 'pul']
+            # Qarz kalit so'zlar
+            debt_keywords = ['qarz oldim', 'qarz berdim', 'to\'layman', 'qarz', 'berdim', 'oldim']
+            
+            # Tranzaksiya turini aniqlash
+            transaction_type = None
+            category = None
+            
+            # Qarz tekshirish
+            is_debt = any(keyword in message_lower for keyword in debt_keywords)
+            if is_debt:
+                if 'qarz berdim' in message_lower or 'berdim' in message_lower:
+                    transaction_type = 'expense'
+                    category = 'qarz_berish'
+                else:
+                    transaction_type = 'income'
+                    category = 'qarz_olish'
+            # Xarajat tekshirish
+            elif any(keyword in message_lower for keyword in expense_keywords):
+                transaction_type = 'expense'
+                category = 'oziq_ovqat'  # Default
+            # Daromad tekshirish
+            elif any(keyword in message_lower for keyword in income_keywords):
+                transaction_type = 'income'
+                category = 'boshqa_daromad'  # Default
+            
+            if not transaction_type:
+                return None
+            
+            # Summani topish (raqamlar)
+            import re
+            # "500000", "1 000 000", "50ming" kabilarni topish
+            amounts = re.findall(r'(\d{1,3}(?:\s?\d{3})*)\s*(?:ming|so\'m|sum|р)??', message_lower, re.IGNORECASE)
+            
+            if not amounts:
+                # Oddiy raqamlarni topish
+                amounts = re.findall(r'\d{4,}', message)
+            
+            if not amounts:
+                return None
+            
+            # Summani tozalash
+            amount_str = amounts[0].replace(' ', '').replace(',', '')
+            try:
+                amount = float(amount_str)
+                # Agar "ming" yoki kichik raqam bo'lsa, 1000 ga ko'paytirish
+                if amount < 1000 and 'ming' in message_lower:
+                    amount *= 1000
+            except:
+                return None
+            
+            # Tranzaksiyani saqlash
+            await self.db.execute_query(
+                """
+                INSERT INTO transactions (user_id, type, amount, category, description, created_at)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+                """,
+                (user_id, transaction_type, amount, category, message[:100])
+            )
+            
+            return {
+                "type": transaction_type,
+                "amount": amount,
+                "category": category
+            }
+            
+        except Exception as e:
+            logger.error(f"Error detecting transaction: {e}")
+            return None
     
     async def analyze_transaction(self, user_id: int, transaction_type: str, amount: float, description: str = "") -> str:
         """Tranzaksiya qo'shilganda AI fikrini olish"""
