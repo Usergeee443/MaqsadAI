@@ -680,6 +680,11 @@ async def admin_toggle_google_callback(callback_query: CallbackQuery):
     
     # Google ni toggle qilish
     ACTIVE_SPEECH_MODELS['GOOGLE'] = not ACTIVE_SPEECH_MODELS['GOOGLE']
+    # Bazaga saqlash
+    await db.execute_query(
+        "UPDATE config SET value = %s WHERE key_name = 'active_speech_google'",
+        (str(ACTIVE_SPEECH_MODELS['GOOGLE']).lower(),)
+    )
     await admin_speech_models_callback(callback_query)
 
 @dp.callback_query(lambda c: c.data == "admin_toggle_whisper")
@@ -690,6 +695,11 @@ async def admin_toggle_whisper_callback(callback_query: CallbackQuery):
     
     # Whisper ni toggle qilish
     ACTIVE_SPEECH_MODELS['WHISPER'] = not ACTIVE_SPEECH_MODELS['WHISPER']
+    # Bazaga saqlash
+    await db.execute_query(
+        "UPDATE config SET value = %s WHERE key_name = 'active_speech_whisper'",
+        (str(ACTIVE_SPEECH_MODELS['WHISPER']).lower(),)
+    )
     await admin_speech_models_callback(callback_query)
 
 @dp.callback_query(lambda c: c.data == "admin_enable_all")
@@ -701,6 +711,9 @@ async def admin_enable_all_callback(callback_query: CallbackQuery):
     # Ikkalasini ham yoqish
     ACTIVE_SPEECH_MODELS['GOOGLE'] = True
     ACTIVE_SPEECH_MODELS['WHISPER'] = True
+    # Bazaga saqlash
+    await db.execute_query("UPDATE config SET value = 'true' WHERE key_name = 'active_speech_google'")
+    await db.execute_query("UPDATE config SET value = 'true' WHERE key_name = 'active_speech_whisper'")
     await admin_speech_models_callback(callback_query)
 
 @dp.callback_query(lambda c: c.data == "admin_disable_all")
@@ -712,6 +725,9 @@ async def admin_disable_all_callback(callback_query: CallbackQuery):
     # Ikkalasini ham o'chirish
     ACTIVE_SPEECH_MODELS['GOOGLE'] = False
     ACTIVE_SPEECH_MODELS['WHISPER'] = False
+    # Bazaga saqlash
+    await db.execute_query("UPDATE config SET value = 'false' WHERE key_name = 'active_speech_google'")
+    await db.execute_query("UPDATE config SET value = 'false' WHERE key_name = 'active_speech_whisper'")
     await admin_speech_models_callback(callback_query)
 
 @dp.callback_query(lambda c: c.data == "admin_back")
@@ -784,6 +800,11 @@ async def admin_toggle_trial_callback(callback_query: CallbackQuery):
     tariff = callback_query.data.split("_")[-1]
     if tariff in FREE_TRIAL_ENABLED:
         FREE_TRIAL_ENABLED[tariff] = not FREE_TRIAL_ENABLED[tariff]
+        # Bazaga saqlash
+        await db.execute_query(
+            "UPDATE config SET value = %s WHERE key_name = %s",
+            (str(FREE_TRIAL_ENABLED[tariff]).lower(), f"free_trial_{tariff.lower()}")
+        )
     
     await admin_free_trial_callback(callback_query)
 
@@ -796,6 +817,11 @@ async def admin_enable_all_trials_callback(callback_query: CallbackQuery):
     
     for tariff in FREE_TRIAL_ENABLED:
         FREE_TRIAL_ENABLED[tariff] = True
+        # Bazaga saqlash
+        await db.execute_query(
+            "UPDATE config SET value = 'true' WHERE key_name = %s",
+            (f"free_trial_{tariff.lower()}",)
+        )
     
     await admin_free_trial_callback(callback_query)
 
@@ -808,6 +834,11 @@ async def admin_disable_all_trials_callback(callback_query: CallbackQuery):
     
     for tariff in FREE_TRIAL_ENABLED:
         FREE_TRIAL_ENABLED[tariff] = False
+        # Bazaga saqlash
+        await db.execute_query(
+            "UPDATE config SET value = 'false' WHERE key_name = %s",
+            (f"free_trial_{tariff.lower()}",)
+        )
     
     await admin_free_trial_callback(callback_query)
 
@@ -5105,6 +5136,36 @@ async def payment_webhook(data: dict):
 
 
 
+async def load_config_from_db():
+    """Bazadan sozlamalarni yuklab olish"""
+    try:
+        # Speech models
+        result = await db.execute_one("SELECT value FROM config WHERE key_name = 'active_speech_google'")
+        if result:
+            ACTIVE_SPEECH_MODELS['GOOGLE'] = result[0].lower() == 'true'
+        
+        result = await db.execute_one("SELECT value FROM config WHERE key_name = 'active_speech_whisper'")
+        if result:
+            ACTIVE_SPEECH_MODELS['WHISPER'] = result[0].lower() == 'true'
+        
+        # Free trials
+        result = await db.execute_one("SELECT value FROM config WHERE key_name = 'free_trial_plus'")
+        if result:
+            FREE_TRIAL_ENABLED['PLUS'] = result[0].lower() == 'true'
+        
+        result = await db.execute_one("SELECT value FROM config WHERE key_name = 'free_trial_max'")
+        if result:
+            FREE_TRIAL_ENABLED['MAX'] = result[0].lower() == 'true'
+        
+        result = await db.execute_one("SELECT value FROM config WHERE key_name = 'free_trial_business'")
+        if result:
+            FREE_TRIAL_ENABLED['BUSINESS'] = result[0].lower() == 'true'
+        
+        print("✅ Sozlamalar bazadan yuklandi!")
+    except Exception as e:
+        logging.error(f"Config yuklash xatolik: {e}")
+        print("⚠️ Sozlamalar yuklashda xatolik, default qiymatlar ishlatiladi")
+
 async def start_bot():
     """Bot ishga tushirish"""
     try:
@@ -5117,6 +5178,10 @@ async def start_bot():
         # Jadvallarni yaratish
         await db.create_tables()
         print("✅ Jadvallar yaratildi!")
+        
+        print("⚙️ Sozlamalarni yuklash...")
+        # Bazadan sozlamalarni yuklash
+        await load_config_from_db()
         
         print("🤖 Bot polling ni boshlash...")
         # Bot ishga tushirish

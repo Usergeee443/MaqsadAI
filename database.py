@@ -215,6 +215,27 @@ class Database:
                     INDEX idx_created_at (created_at)
                 )
             """)
+            
+            # Config jadvali - bot sozlamalari uchun
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS config (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    key_name VARCHAR(100) UNIQUE NOT NULL,
+                    value TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_key (key_name)
+                )
+            """)
+            
+            # Boshlang'ich qiymatlarni qo'shish
+            await self.execute_query("""
+                INSERT IGNORE INTO config (key_name, value) VALUES
+                ('active_speech_google', 'true'),
+                ('active_speech_whisper', 'true'),
+                ('free_trial_plus', 'true'),
+                ('free_trial_max', 'true'),
+                ('free_trial_business', 'true')
+            """)
 
             logging.info("Jadvallar muvaffaqiyatli yaratildi")
             
