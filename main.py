@@ -30,7 +30,7 @@ dp = Dispatcher(storage=MemoryStorage())
 # Modullar
 financial_module = FinancialModule()
 reports_module = ReportsModule()
-ai_chat = AIChat()
+ai_chat = AIChat(db=db)
 
 # Admin panelga ruxsat berilgan ID
 ADMIN_USER_ID = 6429299277

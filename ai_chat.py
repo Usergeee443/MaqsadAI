@@ -2,13 +2,13 @@ import os
 import logging
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
-import openai
+from openai import OpenAI
 from database import Database
 import json
 
 # OpenAI API key
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "your_api_key_here")
-openai.api_key = OPENAI_API_KEY
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # Initialize logger
 logging.basicConfig(level=logging.INFO)
@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 class AIChat:
     """AI chat klassi - moliyaviy savollar va maslahatlar uchun (MAX tarif uchun)"""
     
-    def __init__(self):
-        self.db = Database()
+    def __init__(self, db=None):
+        # Agar db berilmasa, yangi Database yaratish
+        self.db = db if db else Database()
         self.system_prompt = """Sen Balans AI ning shaxsiy buxgalter yordamchisisan.
 
 🎯 **Asosiy vazifang:**
@@ -172,15 +173,19 @@ class AIChat:
             # Foydalanuvchi savolini qo'shish
             messages.append({"role": "user", "content": question})
             
-            # OpenAI API chaqiruvi
-            response = await openai.ChatCompletion.acreate(
-                model="gpt-4o-mini",
-                messages=messages,
-                max_tokens=1000,
-                temperature=0.7
-            )
+            # OpenAI API chaqiruvi (async emas - sync)
+            from asyncio import run_in_executor
             
-            ai_response = response.choices[0].message.content
+            def call_openai():
+                response = openai_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=messages,
+                    max_tokens=1000,
+                    temperature=0.7
+                )
+                return response.choices[0].message.content
+            
+            ai_response = await run_in_executor(None, call_openai)
             
             # Tarixga saqlash
             await self.save_to_history(user_id, "user", question)
