@@ -323,6 +323,46 @@ Tillar:
             transaction_type = None
             category = None
             
+            # Kategoriyalarni topish
+            categories_map = {
+                'xarajat': 'other',
+                'chiqim': 'other',
+                'daromad': 'other',
+                'kirim': 'other',
+                'oziq': 'food',
+                'ovqat': 'food',
+                'restoran': 'food',
+                'taom': 'food',
+                'transport': 'transport',
+                'taksi': 'transport',
+                'mashina': 'transport',
+                'benzin': 'transport',
+                'kofe': 'coffee',
+                'choy': 'coffee',
+                'shirinlik': 'snacks',
+                'suv': 'snacks',
+                'giyohvand': 'drinks',
+                'ichimlik': 'drinks',
+                'market': 'groceries',
+                'oziq_ovqat': 'groceries',
+                'do\'kon': 'groceries',
+                'kiyim': 'clothing',
+                'poyabzal': 'clothing',
+                'gaz': 'utilities',
+                'elektr': 'utilities',
+                'interney': 'utilities',
+                'telefon': 'utilities',
+                'internet': 'utilities',
+                'davolanish': 'health',
+                'dori': 'health',
+                'shifokor': 'health',
+                'ta\'lim': 'education',
+                'kitob': 'education',
+                'salon': 'beauty',
+                'barbar': 'beauty',
+                'kilim': 'beauty',
+            }
+            
             # Qarz tekshirish
             is_debt = any(keyword in message_lower for keyword in debt_keywords)
             if is_debt:
@@ -335,11 +375,16 @@ Tillar:
             # Xarajat tekshirish
             elif any(keyword in message_lower for keyword in expense_keywords):
                 transaction_type = 'expense'
-                category = 'oziq_ovqat'  # Default
+                # Kategoriyani aniqlash
+                category = 'other'
+                for key, val in categories_map.items():
+                    if key in message_lower:
+                        category = val
+                        break
             # Daromad tekshirish
             elif any(keyword in message_lower for keyword in income_keywords):
                 transaction_type = 'income'
-                category = 'boshqa_daromad'  # Default
+                category = 'other'
             
             if not transaction_type:
                 return None
@@ -366,13 +411,13 @@ Tillar:
             except:
                 return None
             
-            # Tranzaksiyani saqlash
-            await self.db.execute_query(
-                """
-                INSERT INTO transactions (user_id, type, amount, category, description, created_at)
-                VALUES (%s, %s, %s, %s, %s, NOW())
-                """,
-                (user_id, transaction_type, amount, category, message[:100])
+            # Tranzaksiyani saqlash - Database metodidan foydalanish
+            await self.db.add_transaction(
+                user_id=user_id,
+                transaction_type=transaction_type,
+                amount=amount,
+                category=category,
+                description=message[:100]
             )
             
             return {
