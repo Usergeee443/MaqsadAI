@@ -57,7 +57,7 @@ class AIChat:
             # Oxirgi tranzaksiyalar
             recent_transactions = await self.db.execute_query(
                 """
-                SELECT t.*, c.name as category_name, c.icon 
+                SELECT t.*, c.name as category_name
                 FROM transactions t
                 LEFT JOIN categories c ON t.category_id = c.id
                 WHERE t.user_id = %s
@@ -119,10 +119,16 @@ class AIChat:
                 (user_id, limit)
             )
             
-            history.reverse()
+            if not history:
+                return []
+            
+            # history ni list ga aylantirish
+            history_list = list(history)
+            history_list.reverse()
+            
             return [
                 {"role": h[0], "content": h[1], "created_at": h[2]} 
-                for h in history
+                for h in history_list
             ]
             
         except Exception as e:
@@ -174,7 +180,7 @@ class AIChat:
             messages.append({"role": "user", "content": question})
             
             # OpenAI API chaqiruvi (async emas - sync)
-            from asyncio import run_in_executor
+            import asyncio
             
             def call_openai():
                 response = openai_client.chat.completions.create(
@@ -185,7 +191,8 @@ class AIChat:
                 )
                 return response.choices[0].message.content
             
-            ai_response = await run_in_executor(None, call_openai)
+            loop = asyncio.get_event_loop()
+            ai_response = await loop.run_in_executor(None, call_openai)
             
             # Tarixga saqlash
             await self.save_to_history(user_id, "user", question)
