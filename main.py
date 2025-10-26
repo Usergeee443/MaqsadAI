@@ -21,6 +21,7 @@ from config import BOT_TOKEN, TARIFFS, CATEGORIES, TARIFF_PRICES, DISCOUNT_RATES
 from database import db
 from financial_module import FinancialModule
 from reports_module import ReportsModule
+from ai_chat import AIChat
 
 # Bot va dispatcher
 bot = Bot(token=BOT_TOKEN)
@@ -29,6 +30,7 @@ dp = Dispatcher(storage=MemoryStorage())
 # Modullar
 financial_module = FinancialModule()
 reports_module = ReportsModule()
+ai_chat = AIChat()
 
 # Admin panelga ruxsat berilgan ID
 ADMIN_USER_ID = 6429299277
@@ -963,8 +965,11 @@ def get_subscription_duration_keyboard() -> InlineKeyboardMarkup:
 def get_payment_method_keyboard() -> InlineKeyboardMarkup:
     """To'lov usuli tanlash tugmalari"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        # [InlineKeyboardButton(text="⭐️ Telegram Stars", callback_data="select_payment_telegram_stars")],
-        [InlineKeyboardButton(text="💳 Telegram (Click)", callback_data="select_payment_telegram_click")],  # Commentga olindi
+        # Mini ilova orqali to'lov
+        [InlineKeyboardButton(text="📱 Mini ilova orqali to'lash", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/payment"))],
+        # Telegram to'lov usullari
+        [InlineKeyboardButton(text="💳 Telegram (Click)", callback_data="select_payment_telegram_click")],
+        # Boshqa to'lov usullari
         [
             InlineKeyboardButton(text="🔵 Click", callback_data="select_payment_click"),
             InlineKeyboardButton(text="🟢 Payme", callback_data="select_payment_payme")
@@ -1181,10 +1186,11 @@ async def start_command(message: types.Message, state: FSMContext):
         duration = data.get('selected_duration', '1')
         
         # To'lov usuli menyusini qaytadan yuborish
+        price_info = calculate_subscription_price(tariff, int(duration))
         await message.answer(
             f"💳 **{get_tariff_detail_text(tariff)}**\n\n"
             f"📅 **Muddat:** {duration} oy\n"
-            f"💰 **Narx:** {get_tariff_price(tariff, duration)} so'm\n\n"
+            f"💰 **Narx:** {price_info.get('total', 0):,.0f} so'm\n\n"
             "To'lov usulini tanlang:",
             parse_mode='Markdown',
             reply_markup=build_payment_method_keyboard()
@@ -3255,13 +3261,24 @@ async def back_to_duration_selection(callback_query: CallbackQuery, state: FSMCo
         return
     
     tariff_name = TARIFFS.get(tariff, tariff)
-    await callback_query.message.edit_text(
-        f"📅 **{tariff_name} tarifini tanladingiz**\n\n"
-        f"Qancha oylik obuna olishni xohlaysiz?\n\n"
-        f"Uzoq muddatli obunalar uchun chegirma mavjud:",
-        reply_markup=get_subscription_duration_keyboard(),
-        parse_mode='Markdown'
-    )
+    
+    try:
+        await callback_query.message.edit_caption(
+            caption=f"📅 **{tariff_name} tarifini tanladingiz**\n\n"
+                    f"Qancha oylik obuna olishni xohlaysiz?\n\n"
+                    f"Uzoq muddatli obunalar uchun chegirma mavjud:",
+            reply_markup=get_subscription_duration_keyboard(),
+            parse_mode='Markdown'
+        )
+    except Exception:
+        await callback_query.message.edit_text(
+            f"📅 **{tariff_name} tarifini tanladingiz**\n\n"
+            f"Qancha oylik obuna olishni xohlaysiz?\n\n"
+            f"Uzoq muddatli obunalar uchun chegirma mavjud:",
+            reply_markup=get_subscription_duration_keyboard(),
+            parse_mode='Markdown'
+        )
+    
     await state.set_state(UserStates.waiting_for_subscription_duration)
     await callback_query.answer()
 
@@ -5024,6 +5041,69 @@ async def get_auth_info(init_data: str):
     except Exception as e:
         logging.error(f"Auth info error: {e}")
         raise HTTPException(status_code=500, detail="Server xatoligi")
+
+@app.get("/api/tariffs")
+async def get_tariffs():
+    """Tariflar ro'yxatini qaytarish"""
+    try:
+        tariffs = [
+            {"code": "PLUS", "name": "Plus", "monthly_price": 99900},
+            {"code": "MAX", "name": "Max", "monthly_price": 199900},
+            {"code": "BUSINESS", "name": "Business", "monthly_price": 299900},
+        ]
+        
+        discount_rates = {
+            1: 0,
+            3: 5,
+            6: 10,
+            12: 20
+        }
+        
+        return {
+            "tariffs": tariffs,
+            "discount_rates": discount_rates
+        }
+    except Exception as e:
+        logging.error(f"Get tariffs error: {e}")
+        raise HTTPException(status_code=500, detail="Server xatoligi")
+
+@app.post("/api/payment/webhook")
+async def payment_webhook(data: dict):
+    """Mini ilova dan to'lov ma'lumotlarini qabul qilish"""
+    try:
+        user_id = data.get("user_id")
+        tariff = data.get("tariff")
+        months = data.get("months", 1)
+        amount = data.get("amount")
+        payment_method = data.get("payment_method", "test")
+        
+        # To'lovni tasdiqlash va tarifni aktiv qilish
+        from datetime import datetime, timedelta
+        expires_at = datetime.now() + timedelta(days=30 * months)
+        
+        await db.add_user_subscription(user_id, tariff, expires_at)
+        await db.set_active_tariff(user_id, tariff)
+        
+        # To'lov yozuvini saqlash
+        await db.execute_insert(
+            """
+            INSERT INTO payments (user_id, tariff, provider, total_amount, currency, status, paid_at)
+            VALUES (%s, %s, %s, %s, %s, 'paid', NOW())
+            """,
+            (user_id, tariff, payment_method, amount, 'UZS')
+        )
+        
+        return {
+            "success": True,
+            "message": "To'lov muvaffaqiyatli amalga oshirildi",
+            "new_tariff": tariff,
+            "expires_at": expires_at.isoformat()
+        }
+    except Exception as e:
+        logging.error(f"Payment webhook error: {e}")
+        raise HTTPException(status_code=500, detail="Server xatoligi")
+
+
 
 async def start_bot():
     """Bot ishga tushirish"""
