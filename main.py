@@ -460,6 +460,7 @@ def get_profile_menu(user_tariff='FREE'):
     if user_tariff == 'FREE':
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
+                [InlineKeyboardButton(text="⚡ Kuchaytirish", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/payment"))],
                 [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"), InlineKeyboardButton(text="💳 Tarif", callback_data="tariff_info")]
             ]
         )
