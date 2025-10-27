@@ -12,7 +12,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "your_api_key_here")
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # OpenRouter API (biznes uchun arzon variant)
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "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")
 openrouter_client = OpenAI(
     api_key=OPENROUTER_API_KEY,
     base_url="https://openrouter.ai/api/v1"
@@ -721,22 +721,23 @@ class AIChatFree:
 Respond: {{"type":"expense/income","amount":N,"category":"food/transport/other/qarz"}}"""
 
             def call_openai():
-                # OpenRouter dan eng arzon model
+                # OpenRouter dan mistral-7b modeli (JUDAAAAAAAA ARZON)
                 try:
                     response = openrouter_client.chat.completions.create(
-                        model="openai/gpt-3.5-turbo",  # OpenRouter orqali eng arzon
+                        model="mistralai/mistral-7b-instruct",  # Mistral-7B (eng arzon)
                         messages=[{"role": "user", "content": prompt}],
-                        max_tokens=30,  # 40 dan 30 ga kamaytirish
-                        temperature=0.0  # 0.1 dan 0 ga
+                        max_tokens=30,
+                        temperature=0.0
                     )
                     return response.choices[0].message.content
-                except:
+                except Exception as e:
+                    logger.error(f"OpenRouter xatolik: {e}")
                     # Agar OpenRouter ishlamasa, oddiy OpenAI ishlatamiz
                     response = openai_client.chat.completions.create(
                         model="gpt-3.5-turbo",
                         messages=[{"role": "user", "content": prompt}],
-                        max_tokens=30,  # 40 dan 30 ga kamaytirish
-                        temperature=0.0  # 0.1 dan 0 ga
+                        max_tokens=30,
+                        temperature=0.0
                     )
                     return response.choices[0].message.content
             
