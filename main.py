@@ -365,8 +365,7 @@ class OnboardingState(StatesGroup):
 def get_free_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📊 Hisobotlar")],
-            [KeyboardButton(text="👤 Profil")]
+            [KeyboardButton(text="📊 Hisobotlar"), KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -456,13 +455,21 @@ def get_transaction_confirmation_keyboard(buttons_data: dict):
     return keyboard
 
 # Profil menyusi
-def get_profile_menu():
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Statistika", callback_data="profile_stats")],
-            [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"), InlineKeyboardButton(text="💳 Tarif", callback_data="tariff_info")]
-        ]
-    )
+def get_profile_menu(user_tariff='FREE'):
+    """Profil menyusini qaytaradi - FREE tarifda statistika yo'q"""
+    if user_tariff == 'FREE':
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"), InlineKeyboardButton(text="💳 Tarif", callback_data="tariff_info")]
+            ]
+        )
+    else:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="📊 Statistika", callback_data="profile_stats")],
+                [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"), InlineKeyboardButton(text="💳 Tarif", callback_data="tariff_info")]
+            ]
+        )
     return keyboard
 
 # ==== ADMIN BLOK ==== (UserStates'dan keyin)
@@ -854,7 +861,23 @@ def get_employee_profile_menu():
     return keyboard
 
 # Sozlamalar menyusi
-def get_settings_menu():
+def get_settings_menu(user_tariff='FREE'):
+    """Sozlamalar menyusini qaytaradi - FREE tarifda statistika yo'q"""
+    if user_tariff == 'FREE':
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_profile")]
+            ]
+        )
+    else:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_profile")]
+            ]
+        )
+    return keyboard
+
+def get_settings_menu_old():
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_profile")]
@@ -2218,21 +2241,48 @@ async def profile_handler(message: Message, state: FSMContext):
         await message.answer(profile_text, reply_markup=get_employee_profile_menu(), parse_mode='Markdown')
         return
     
-    # Oddiy foydalanuvchi profili (yangi UI, ID klik bilan nusxa)
+    # Oddiy foydalanuvchi profili (yangi UI)
     display_name = user_data.get('name', 'Xojayin')
-    header_line = f"{display_name} (`{user_id}`)"
-    # Joriy tarif va muddati
-    expires_str = '—'
-    if user_data.get('tariff_expires_at'):
-        expires_str = _format_date_uz(user_data['tariff_expires_at']) + " gacha"
-    profile_text = (
-        f"{header_line}\n\n"
-        f"Joriy tarif:\n"
-        f"• {TARIFFS.get(user_tariff, 'Nomalum')}\n"
-        f"• Tugash: {expires_str}"
-    )
+    
+    # FREE tarif uchun tranzaksiya sonini qo'shamiz
+    if user_tariff == 'FREE':
+        try:
+            row = await db.execute_one(
+                """
+                SELECT COUNT(*) 
+                FROM transactions 
+                WHERE user_id = %s 
+                AND MONTH(created_at) = MONTH(NOW())
+                AND YEAR(created_at) = YEAR(NOW())
+                """,
+                (user_id,)
+            )
+            monthly_count = row[0] if row else 0
+            remaining = max(0, 250 - monthly_count)
+            profile_text = (
+                f"{display_name} (ID: {user_id})\n\n"
+                f"Joriy tarif: Bepul\n"
+                f"Tranzaksiyalar: {monthly_count}/250"
+            )
+        except Exception as e:
+            logging.error(f"Error getting monthly stats: {e}")
+            profile_text = (
+                f"{display_name} (ID: {user_id})\n\n"
+                f"Joriy tarif: Bepul"
+            )
+    else:
+        # Boshqa tariflar uchun eski format
+        expires_str = '—'
+        if user_data.get('tariff_expires_at'):
+            expires_str = _format_date_uz(user_data['tariff_expires_at']) + " gacha"
+        profile_text = (
+            f"{display_name} (ID: {user_id})\n\n"
+            f"Joriy tarif:\n"
+            f"• {TARIFFS.get(user_tariff, 'Nomalum')}\n"
+            f"• Tugash: {expires_str}"
+        )
     # Klaviatura: Sozlamalar|Tarif (ID tugmasi olib tashlandi — matndan nusxa olinadi)
-    profile_kb = get_profile_menu()
+    profile_kb = get_profile_menu(user_tariff)
     try:
         await message.answer_photo(
             photo=FSInputFile('Profil.png'),
@@ -2247,8 +2297,11 @@ async def profile_handler(message: Message, state: FSMContext):
 @dp.callback_query(lambda c: c.data == "settings")
 async def settings_callback(callback_query: CallbackQuery):
     """Sozlamalar menyusini ko'rsatish"""
+    user_id = callback_query.from_user.id
+    user_tariff = await get_user_tariff(user_id)
+    
     text = "⚙️ **Sozlamalar**\n\nHozircha sozlamalar mavjud emas."
-    keyboard = get_settings_menu()
+    keyboard = get_settings_menu(user_tariff)
     try:
         await callback_query.message.edit_caption(caption=text, reply_markup=keyboard, parse_mode='Markdown')
     except Exception:
@@ -2298,9 +2351,9 @@ async def profile_stats_callback(callback_query: CallbackQuery):
         text = f"📊 Statistika\n\nJami tranzaksiyalar (so'rovlar): {total:,} ta"
     
     try:
-        await callback_query.message.edit_caption(caption=text, reply_markup=get_profile_menu(), parse_mode='Markdown')
+        await callback_query.message.edit_caption(caption=text, reply_markup=get_profile_menu(user_tariff), parse_mode='Markdown')
     except Exception:
-        await callback_query.message.edit_text(text, reply_markup=get_profile_menu(), parse_mode='Markdown')
+        await callback_query.message.edit_text(text, reply_markup=get_profile_menu(user_tariff), parse_mode='Markdown')
     await callback_query.answer()
 
 @dp.callback_query(lambda c: c.data == "start_onboarding")
@@ -2567,7 +2620,7 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
         f"• {TARIFFS.get(user_data['tariff'], 'Nomalum')}\n"
         f"• Tugash: {expires_str}"
     )
-    keyboard = get_profile_menu()
+    keyboard = get_profile_menu(user_data['tariff'])
     try:
         await callback_query.message.edit_caption(caption=profile_text, reply_markup=keyboard, parse_mode='Markdown')
     except Exception:
@@ -2739,9 +2792,10 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
             expires = sub[2].strftime('%d.%m.%Y') if sub[2] else "Cheksiz"
             profile_text += f"• {tariff_name} - {status} (tugash: {expires})\n"
     
+    user_tariff = await get_user_tariff(user_id)
     await callback_query.message.edit_text(
         profile_text,
-        reply_markup=get_profile_menu(),
+        reply_markup=get_profile_menu(user_tariff),
         parse_mode='Markdown'
     )
     await callback_query.answer()
