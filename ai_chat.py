@@ -11,6 +11,13 @@ import asyncio
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "your_api_key_here")
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
+# OpenRouter API (biznes uchun arzon variant)
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+openrouter_client = OpenAI(
+    api_key=OPENROUTER_API_KEY,
+    base_url="https://openrouter.ai/api/v1"
+) if OPENROUTER_API_KEY else openai_client
+
 # Initialize logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -720,13 +727,24 @@ Message: {message}
 Respond ONLY with JSON like: {{"type":"expense","amount":20000,"category":"food"}}"""
 
             def call_openai():
-                response = openai_client.chat.completions.create(
-                    model="gpt-3.5-turbo",  # Eng arzon model ($0.50 per 1M tokens)
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=40,  # Faqat 40 token
-                    temperature=0.1
-                )
-                return response.choices[0].message.content
+                # OpenRouter dan eng arzon model
+                try:
+                    response = openrouter_client.chat.completions.create(
+                        model="openai/gpt-3.5-turbo",  # OpenRouter orqali eng arzon
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=40,
+                        temperature=0.1
+                    )
+                    return response.choices[0].message.content
+                except:
+                    # Agar OpenRouter ishlamasa, oddiy OpenAI ishlatamiz
+                    response = openai_client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=40,
+                        temperature=0.1
+                    )
+                    return response.choices[0].message.content
             
             loop = asyncio.get_event_loop()
             ai_response = await loop.run_in_executor(None, call_openai)
