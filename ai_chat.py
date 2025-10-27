@@ -716,12 +716,18 @@ class AIChatFree:
     async def detect_and_save_transaction_free(self, message: str, user_id: int) -> Optional[Dict]:
         """Free tarif uchun tranzaksiya aniqlash - AI bilan (max 40 token)"""
         try:
-            # AI dan yordam so'rash - MINIMAL SYSTEM PROMPT (token tejash)
-            system_prompt = """Return only JSON."""
+            # AI dan yordam so'rash - YAXSHIROQ SYSTEM PROMPT
+            system_prompt = """You are a financial transaction parser. Extract type (income/expense), amount, and category (food/transport/utilities/health/education/other/qarz_olish/qarz_berish). Return ONLY valid JSON."""
             
-            # User promptni ham qisqartiramiz
-            user_prompt = f"""{message}
-JSON: {{"type":"income/expense","amount":N,"category":"food/transport/other/qarz"}}"""
+            # User prompt - misol bilan
+            user_prompt = f"""Message: "{message}"
+
+Extract financial data and return JSON:
+{{"type":"income/expense","amount":NUMBER,"category":"category_name"}}
+
+Example: "20 ming so'mga lavash oldim" → {{"type":"expense","amount":20000,"category":"food"}}
+
+JSON: """
 
             def call_openai():
                 try:
@@ -732,7 +738,7 @@ JSON: {{"type":"income/expense","amount":N,"category":"food/transport/other/qarz
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt}
                         ],
-                        max_tokens=40,  # 50 dan 40 ga - tejash
+                        max_tokens=50,  # Yaxshiroq javob uchun
                         temperature=0.0
                     )
                     return response.choices[0].message.content
