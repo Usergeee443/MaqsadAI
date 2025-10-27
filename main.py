@@ -21,7 +21,7 @@ from config import BOT_TOKEN, TARIFFS, CATEGORIES, TARIFF_PRICES, DISCOUNT_RATES
 from database import db
 from financial_module import FinancialModule
 from reports_module import ReportsModule
-from ai_chat import AIChat
+from ai_chat import AIChat, AIChatFree
 
 # Bot va dispatcher
 bot = Bot(token=BOT_TOKEN)
@@ -31,6 +31,7 @@ dp = Dispatcher(storage=MemoryStorage())
 financial_module = FinancialModule()
 reports_module = ReportsModule()
 ai_chat = AIChat(db=db)
+ai_chat_free = AIChatFree(db=db)
 
 # Admin panelga ruxsat berilgan ID
 ADMIN_USER_ID = 6429299277
@@ -3865,13 +3866,13 @@ async def confirm_leave_team_callback(callback_query: CallbackQuery):
 # MAX tarif - AI chat (real-time muloqot)
 @dp.message(lambda message: message.text and not message.text.startswith('/') and message.text not in ["📊 Hisobotlar", "👤 Profil", "➕ Kirim", "➖ Chiqim", "💳 Qarzlar", "➕ Xodim qo'shish", "❌ Bekor qilish"])
 async def process_financial_message(message: types.Message, state: FSMContext):
-    """MAX tarif uchun AI chat - shaxsiy buxgalter"""
+    """MAX va FREE tariflar uchun AI chat"""
     user_id = message.from_user.id
     await ensure_tariff_valid(user_id)
     user_tariff = await get_user_tariff(user_id)
     
-    # Faqat MAX tarif uchun
-    if user_tariff != 'MAX':
+    # Faqat MAX va FREE tariflar uchun
+    if user_tariff not in ['MAX', 'FREE']:
         return
     
     # State'lar tekshiruvi
@@ -3888,13 +3889,22 @@ async def process_financial_message(message: types.Message, state: FSMContext):
     await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
     
     try:
-        # AI chat javobini olish (ko'p xabarli)
-        ai_messages = await ai_chat.generate_response(user_id, text)
+        if user_tariff == 'MAX':
+            # MAX tarif uchun to'liq AI chat
+            ai_messages = await ai_chat.generate_response(user_id, text)
+            
+            # Har bir xabarni 1-3 soniya orasida yuborish
+            for msg in ai_messages:
+                await message.answer(msg, parse_mode='Markdown')
+                await asyncio.sleep(1.5)
         
-        # Har bir xabarni 1-3 soniya orasida yuborish
-        for msg in ai_messages:
-            await message.answer(msg, parse_mode='Markdown')
-            await asyncio.sleep(1.5)  # 1.5 soniya kutish
+        elif user_tariff == 'FREE':
+            # FREE tarif uchun cheklangan AI chat
+            ai_messages = await ai_chat_free.generate_response(user_id, text)
+            
+            # Faqat bir xabar yuborish
+            for msg in ai_messages:
+                await message.answer(msg)
         
     except Exception as e:
         logging.error(f"AI chat xatolik: {e}")

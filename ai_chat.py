@@ -54,6 +54,77 @@ Uslub:
 Tillar:
 - Asosiy: O'zbek (lotin)
 - Ingliz/Rus → shu til bilan"""
+    
+    async def get_monthly_transaction_count(self, user_id: int) -> int:
+        """Oy davomida qilingan tranzaksiyalar sonini olish"""
+        try:
+            result = await self.db.execute_one(
+                """
+                SELECT COUNT(*) 
+                FROM transactions 
+                WHERE user_id = %s 
+                AND MONTH(created_at) = MONTH(NOW())
+                AND YEAR(created_at) = YEAR(NOW())
+                """,
+                (user_id,)
+            )
+            if result and isinstance(result, tuple):
+                return result[0]
+            return 0
+        except Exception as e:
+            logger.error(f"Error getting monthly transaction count: {e}")
+            return 0
+
+
+class AIChatFree:
+    """AI chat klassi - cheklangan versiya (FREE tarif uchun)"""
+    
+    def __init__(self, db=None):
+        # Agar db berilmasa, yangi Database yaratish
+        self.db = db if db else Database()
+        self.system_prompt = """Sen Balans AI ning yordamchisisiz. Free tarif uchunsiz.
+
+MUHIM: Hech qachon formatlash belgilarini ishlatma (#, **, vs). Faqat oddiy, insoniy matn.
+
+Vazifang:
+- Faqat KIRIM/CHIQIM/QARZ aniqlash va yozib qo'yish
+- Faqat kategoriya va summani saqlash (tafsif yozilmaysiz)
+- Qisqa javob (max 2-3 gap)
+
+Cheklovlar:
+- Faqat 250 ta tranzaksiya oyiga
+- Faqat oddiy kategoriyalar
+- Hech qanday tahlil qilmaylik
+
+Uslub:
+- Qisqa va aniq javob
+- Emoji ishlatmang
+- Faqat kategoriya + summa
+- Hech qachon ###, **, kabi belgilar ishlatma
+
+Tillar:
+- Asosiy: O'zbek (lotin)
+- Ingliz/Rus → shu til bilan"""
+    
+    async def get_monthly_transaction_count(self, user_id: int) -> int:
+        """Oy davomida qilingan tranzaksiyalar sonini olish"""
+        try:
+            result = await self.db.execute_one(
+                """
+                SELECT COUNT(*) 
+                FROM transactions 
+                WHERE user_id = %s 
+                AND MONTH(created_at) = MONTH(NOW())
+                AND YEAR(created_at) = YEAR(NOW())
+                """,
+                (user_id,)
+            )
+            if result and isinstance(result, tuple):
+                return result[0]
+            return 0
+        except Exception as e:
+            logger.error(f"Error getting monthly transaction count: {e}")
+            return 0
 
     async def get_user_info(self, user_id: int) -> Dict:
         """Foydalanuvchi ma'lumotlarini olish"""
@@ -556,3 +627,188 @@ Sen Balans AI ning hazil va do'stona buxgalterisiz. Foydalanuvchiga:
             text += f"📌 Bugungi xarajatlar: {today_exp:,.0f} so'm\n\n"
         
         return text
+
+
+class AIChatFree:
+    """Free tarif uchun AI chat - cheklangan versiya"""
+    
+    def __init__(self, db=None):
+        self.db = db if db else Database()
+    
+    async def generate_response(self, user_id: int, question: str) -> List[str]:
+        """Free tarif uchun cheklangan AI javob - faqat tranzaksiya aniqlash (max 40 token)"""
+        try:
+            # Oy davomidagi tranzaksiyalar sonini tekshirish
+            count = await self.get_monthly_transaction_count(user_id)
+            
+            if count >= 250:
+                return ["❌ Oylik limit 250 ta tugadi. Keyingi oy yoki MAX tarif."]
+            
+            # Tranzaksiya aniqlash va saqlash
+            transaction = await self.detect_and_save_transaction_free(question, user_id)
+            
+            if transaction:
+                # Saqlash
+                await self.save_transaction(user_id, transaction)
+                
+                # Qisqa javob (max 40 token)
+                type_name = "Kirim" if transaction['type'] == 'income' else "Chiqim"
+                amount = int(transaction['amount'])
+                category = transaction['category']
+                
+                # Eng qisqa format
+                response = f"✅ {type_name}: {amount:,} ({category})"
+                return [response]
+            else:
+                # GPT-4.1 nano dan yordam so'rash (max 40 token)
+                return await self._ask_ai_free(question)
+                
+        except Exception as e:
+            logger.error(f"Error in Free AI chat: {e}")
+            return ["❌ Xatolik. Iltimos, qayta urinib ko'ring."]
+    
+    async def _ask_ai_free(self, question: str) -> List[str]:
+        """GPT-4o-mini dan qisqa yordam so'rash (max 40 token)"""
+        try:
+            # Eng arzon prompt
+            prompt = f"Short response: {question}"
+            
+            # gpt-4o-mini modeli (arzon)
+            def call_openai():
+                response = openai_client.chat.completions.create(
+                    model="gpt-4o-mini",  # Eng arzon mavjud model
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=40  # Faqat 40 token
+                )
+                return response.choices[0].message.content
+            
+            loop = asyncio.get_event_loop()
+            ai_response = await loop.run_in_executor(None, call_openai)
+            
+            return [ai_response[:50]]  # Eng qisqa
+            
+        except Exception as e:
+            # Agar xatolik bo'lsa, oddiy xabar
+            return ["❌ Iltimos, aniqroq yozing: '25 ming kofe oldim'"]
+    
+    async def get_monthly_transaction_count(self, user_id: int) -> int:
+        """Oy davomida qilingan tranzaksiyalar sonini olish"""
+        try:
+            result = await self.db.execute_one(
+                """
+                SELECT COUNT(*) 
+                FROM transactions 
+                WHERE user_id = %s 
+                AND MONTH(created_at) = MONTH(NOW())
+                AND YEAR(created_at) = YEAR(NOW())
+                """,
+                (user_id,)
+            )
+            if result and isinstance(result, tuple):
+                return result[0]
+            return 0
+        except Exception as e:
+            logger.error(f"Error getting monthly transaction count: {e}")
+            return 0
+    
+    async def detect_and_save_transaction_free(self, message: str, user_id: int) -> Optional[Dict]:
+        """Free tarif uchun tranzaksiya aniqlash - faqat kategoriya va summa"""
+        try:
+            message_lower = message.lower()
+            
+            # Xarajat kalit so'zlar
+            expense_keywords = ['sarfladim', 'to\'ladim', 'oldim', 'chiqim', 'xarajat', 'oydim']
+            # Daromad kalit so'zlar
+            income_keywords = ['kirdim', 'oldim', 'oylik', 'daromad', 'kirim', 'tushdi']
+            # Qarz kalit so'zlar
+            debt_keywords = ['qarz oldim', 'qarz berdim', 'to\'layman', 'qarz']
+            
+            # Tranzaksiya turini aniqlash
+            transaction_type = None
+            category = 'other'
+            
+            # Oddiy kategoriyalar
+            simple_categories = {
+                'xarajat': 'other',
+                'chiqim': 'other',
+                'daromad': 'other',
+                'kirim': 'other',
+                'oziq': 'food',
+                'ovqat': 'food',
+                'transport': 'transport',
+                'taksi': 'transport',
+                'kofe': 'coffee',
+                'utilities': 'utilities',
+                'health': 'health',
+                'education': 'education',
+            }
+            
+            # Qarz tekshirish
+            if any(keyword in message_lower for keyword in debt_keywords):
+                if 'qarz berdim' in message_lower or 'berdim' in message_lower:
+                    transaction_type = 'expense'
+                    category = 'qarz_berish'
+                else:
+                    transaction_type = 'income'
+                    category = 'qarz_olish'
+            # Xarajat tekshirish
+            elif any(keyword in message_lower for keyword in expense_keywords):
+                transaction_type = 'expense'
+                for key, val in simple_categories.items():
+                    if key in message_lower:
+                        category = val
+                        break
+            # Daromad tekshirish
+            elif any(keyword in message_lower for keyword in income_keywords):
+                transaction_type = 'income'
+                category = 'other'
+            
+            if not transaction_type:
+                return None
+            
+            # Summani topish
+            import re
+            amounts = re.findall(r'(\d{1,3}(?:\s?\d{3})*)\s*(?:ming|so\'m|sum|р)??', message_lower, re.IGNORECASE)
+            
+            if not amounts:
+                amounts = re.findall(r'\d{4,}', message)
+            
+            if not amounts:
+                return None
+            
+            amount_str = amounts[0].replace(' ', '').replace(',', '')
+            try:
+                amount = float(amount_str)
+                if amount < 1000 and 'ming' in message_lower:
+                    amount *= 1000
+            except:
+                return None
+            
+            return {
+                "type": transaction_type,
+                "amount": amount,
+                "category": category,
+                "description": ""  # Tafsif yo'q
+            }
+            
+        except Exception as e:
+            logger.error(f"Error detecting transaction (Free): {e}")
+            return None
+    
+    async def save_transaction(self, user_id: int, transaction: Dict):
+        """Tranzaksiyani saqlash"""
+        try:
+            await self.db.add_transaction(
+                user_id=user_id,
+                transaction_type=transaction['type'],
+                amount=transaction['amount'],
+                category=transaction['category'],
+                description=""  # Tafsif yo'q
+            )
+        except Exception as e:
+            logger.error(f"Error saving transaction (Free): {e}")
+
+
+# Initialize AI chat instances
+ai_chat = AIChat()
+ai_chat_free = AIChatFree()
