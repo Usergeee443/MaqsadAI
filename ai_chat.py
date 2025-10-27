@@ -636,60 +636,55 @@ class AIChatFree:
         self.db = db if db else Database()
     
     async def generate_response(self, user_id: int, question: str) -> List[str]:
-        """Free tarif uchun cheklangan AI javob - faqat tranzaksiya aniqlash (max 40 token)"""
+        """Free tarif uchun - tranzaksiya aniqlash (AI bilan, tafsif yo'q, muvaffaqiyatsiz ham limit kamayadi)"""
         try:
             # Oy davomidagi tranzaksiyalar sonini tekshirish
             count = await self.get_monthly_transaction_count(user_id)
             
             if count >= 250:
-                return ["❌ Oylik limit 250 ta tugadi. Keyingi oy yoki MAX tarif."]
+                remaining = max(0, 250 - count)
+                return [f"❌ Oylik limit tugadi ({remaining}/250 qoldi). Keyingi oy yoki MAX tarif."]
             
-            # Tranzaksiya aniqlash va saqlash
+            # Limit kamayishi (muvaffaqiyatli yoki muvaffaqiyatsiz - faqat 1 ta kamayadi)
+            await self.decrement_transaction_limit(user_id)
+            
+            # Tranzaksiya aniqlash va saqlash (AI bilan, max 40 token)
             transaction = await self.detect_and_save_transaction_free(question, user_id)
             
             if transaction:
                 # Saqlash
                 await self.save_transaction(user_id, transaction)
                 
-                # Qisqa javob (max 40 token)
+                # Qisqa javob (tafsif yo'q, faqat summa va kategoriya)
                 type_name = "Kirim" if transaction['type'] == 'income' else "Chiqim"
                 amount = int(transaction['amount'])
                 category = transaction['category']
                 
-                # Eng qisqa format
-                response = f"✅ {type_name}: {amount:,} ({category})"
+                response = f"{type_name}: {amount:,} so'm ({category})"
                 return [response]
             else:
-                # GPT-4.1 nano dan yordam so'rash (max 40 token)
-                return await self._ask_ai_free(question)
+                # Tranzaksiya aniqlanmadi (limit allaqachon kamaydi)
+                return ["❌ Hech qanday to'g'ri tranzaksiya topilmadi. Iltimos, aniqroq yozing."]
                 
         except Exception as e:
             logger.error(f"Error in Free AI chat: {e}")
-            return ["❌ Xatolik. Iltimos, qayta urinib ko'ring."]
+            # Xatolik bo'lsa ham limit kamaydi
+            await self.decrement_transaction_limit(user_id)
+            return ["❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring."]
     
-    async def _ask_ai_free(self, question: str) -> List[str]:
-        """GPT-4o-mini dan qisqa yordam so'rash (max 40 token)"""
+    async def decrement_transaction_limit(self, user_id: int):
+        """Tranzaksiya limitini kamaytirish (faqat tracking uchun) - marker yozuv qo'shish"""
         try:
-            # Eng arzon prompt
-            prompt = f"Short response: {question}"
-            
-            # gpt-4o-mini modeli (arzon)
-            def call_openai():
-                response = openai_client.chat.completions.create(
-                    model="gpt-4o-mini",  # Eng arzon mavjud model
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=40  # Faqat 40 token
-                )
-                return response.choices[0].message.content
-            
-            loop = asyncio.get_event_loop()
-            ai_response = await loop.run_in_executor(None, call_openai)
-            
-            return [ai_response[:50]]  # Eng qisqa
-            
+            # Faqat "attempt" belgisi sifatida marker yozuv qo'shamiz
+            await self.db.execute_query(
+                """
+                INSERT INTO transactions (user_id, transaction_type, amount, category, description, created_at)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+                """,
+                (user_id, 'expense', 0, 'free_limit_used', 'Free tariff attempt tracked')
+            )
         except Exception as e:
-            # Agar xatolik bo'lsa, oddiy xabar
-            return ["❌ Iltimos, aniqroq yozing: '25 ming kofe oldim'"]
+            logger.error(f"Error tracking transaction limit: {e}")
     
     async def get_monthly_transaction_count(self, user_id: int) -> int:
         """Oy davomida qilingan tranzaksiyalar sonini olish"""
@@ -716,10 +711,10 @@ class AIChatFree:
         try:
             message_lower = message.lower()
             
-            # Xarajat kalit so'zlar
-            expense_keywords = ['sarfladim', 'to\'ladim', 'oldim', 'chiqim', 'xarajat', 'oydim']
+            # Xarajat kalit so'zlar (kengaytirilgan)
+            expense_keywords = ['sarfladim', 'to\'ladim', 'oldim', 'chiqim', 'xarajat', 'oydim', 'yeim', 'yedim', 'ichdim', 'olib', 'sotib', 'borib']
             # Daromad kalit so'zlar
-            income_keywords = ['kirdim', 'oldim', 'oylik', 'daromad', 'kirim', 'tushdi']
+            income_keywords = ['kirdim', 'oldim', 'oylik', 'daromad', 'kirim', 'tushdi', 'yechdim', 'ketdi']
             # Qarz kalit so'zlar
             debt_keywords = ['qarz oldim', 'qarz berdim', 'to\'layman', 'qarz']
             
@@ -727,7 +722,7 @@ class AIChatFree:
             transaction_type = None
             category = 'other'
             
-            # Oddiy kategoriyalar
+            # Oddiy kategoriyalar (kengaytirilgan)
             simple_categories = {
                 'xarajat': 'other',
                 'chiqim': 'other',
@@ -735,12 +730,41 @@ class AIChatFree:
                 'kirim': 'other',
                 'oziq': 'food',
                 'ovqat': 'food',
+                'taom': 'food',
+                'lavash': 'food',
+                'pitsa': 'food',
+                'burger': 'food',
+                'hotdog': 'food',
+                'salat': 'food',
+                'tovuq': 'food',
+                'go\'sht': 'food',
+                'balik': 'food',
+                'suv': 'snacks',
+                'ichimlik': 'snacks',
+                'choy': 'coffee',
+                'kofe': 'coffee',
+                'cola': 'snacks',
+                'pepsi': 'snacks',
                 'transport': 'transport',
                 'taksi': 'transport',
-                'kofe': 'coffee',
-                'utilities': 'utilities',
-                'health': 'health',
-                'education': 'education',
+                'mashina': 'transport',
+                'yandex': 'transport',
+                'uber': 'transport',
+                'metro': 'transport',
+                'avtobus': 'transport',
+                'utils': 'utilities',
+                'kommuna': 'utilities',
+                'gaz': 'utilities',
+                'elektr': 'utilities',
+                'internet': 'utilities',
+                'telefon': 'utilities',
+                'salon': 'beauty',
+                'barbar': 'beauty',
+                'doktor': 'health',
+                'dori': 'health',
+                'maslahat': 'health',
+                'maktab': 'education',
+                'kitob': 'education',
             }
             
             # Qarz tekshirish

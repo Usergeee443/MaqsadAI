@@ -361,12 +361,11 @@ class OnboardingState(StatesGroup):
     waiting_for_balance = State()
     waiting_for_debts = State()
 
-# Bepul tarif menyusi
+# Bepul tarif menyusi (Plus bilan bir xil - faqat Hisobotlar va Profil)
 def get_free_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="➕ Kirim"), KeyboardButton(text="➖ Chiqim")],
-            [KeyboardButton(text="💳 Qarzlar"), KeyboardButton(text="📊 Hisobotlar")],
+            [KeyboardButton(text="📊 Hisobotlar")],
             [KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
@@ -2260,18 +2259,44 @@ async def settings_callback(callback_query: CallbackQuery):
 async def profile_stats_callback(callback_query: CallbackQuery):
     """Foydalanuvchi shaxsiy statistika: jami tranzaksiyalar soni"""
     user_id = callback_query.from_user.id
-    # Pullik tarifdagilargagina ko'rsatamiz
     user_tariff = await get_user_tariff(user_id)
-    if user_tariff == 'FREE' or user_tariff == 'EMPLOYEE':
+    
+    if user_tariff == 'EMPLOYEE':
         await callback_query.answer("Bu bo'lim pullik tariflar uchun", show_alert=True)
         return
+    
     try:
         row = await db.execute_one("SELECT COUNT(*) FROM transactions WHERE user_id = %s", (user_id,))
         total = row[0] if row else 0
     except Exception as e:
         logging.error(f"profile_stats_callback error: {e}")
         total = 0
-    text = f"📊 Statistika\n\nJami tranzaksiyalar (so'rovlar): {total:,} ta"
+    
+    # FREE tarif uchun oylik limit ko'rsatish
+    if user_tariff == 'FREE':
+        try:
+            row = await db.execute_one(
+                """
+                SELECT COUNT(*) 
+                FROM transactions 
+                WHERE user_id = %s 
+                AND MONTH(created_at) = MONTH(NOW())
+                AND YEAR(created_at) = YEAR(NOW())
+                """,
+                (user_id,)
+            )
+            monthly_count = row[0] if row else 0
+            remaining = max(0, 250 - monthly_count)
+            text = f"📊 Statistika (FREE tarif)\n\n"
+            text += f"Bu oy: {monthly_count}/250 tranzaksiya\n"
+            text += f"Qolgan: {remaining} ta\n\n"
+            text += f"Jami tranzaksiyalar: {total:,} ta"
+        except Exception as e:
+            logging.error(f"Error getting monthly stats: {e}")
+            text = f"📊 Statistika\n\nJami tranzaksiyalar: {total:,} ta"
+    else:
+        text = f"📊 Statistika\n\nJami tranzaksiyalar (so'rovlar): {total:,} ta"
+    
     try:
         await callback_query.message.edit_caption(caption=text, reply_markup=get_profile_menu(), parse_mode='Markdown')
     except Exception:
@@ -3900,7 +3925,16 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         
         elif user_tariff == 'FREE':
             # FREE tarif uchun cheklangan AI chat
+            # "Bajarilmoqda..." xabarini yuborish
+            processing_msg = await message.answer("🔄 Bajarilmoqda...")
+            
             ai_messages = await ai_chat_free.generate_response(user_id, text)
+            
+            # "Bajarilmoqda..." xabarini o'chirish
+            try:
+                await processing_msg.delete()
+            except:
+                pass
             
             # Faqat bir xabar yuborish
             for msg in ai_messages:
@@ -4044,6 +4078,16 @@ async def process_audio_message(message: types.Message, state: FSMContext):
     # Avtomatik tarif muddatini tekshirish
     await ensure_tariff_valid(user_id)
     user_tariff = await get_user_tariff(user_id)
+    
+    # FREE tarif uchun audio qo'llab-quvvatlash yo'q
+    if user_tariff == 'FREE':
+        await message.answer(
+            "🎵 **Audio qo'llab-quvvatlash**\n\n"
+            "Audio xabarlarni qayta ishlash faqat Plus va Max tariflarda mavjud.\n"
+            "Plus tarifga o'tish uchun Profil > Tarif bo'limiga o'ting.",
+            parse_mode='Markdown'
+        )
+        return
     
     # Faqat pullik tarif uchun audio qo'llab-quvvatlash
     if user_tariff not in PREMIUM_TARIFFS:
