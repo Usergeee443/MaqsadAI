@@ -707,113 +707,54 @@ class AIChatFree:
             return 0
     
     async def detect_and_save_transaction_free(self, message: str, user_id: int) -> Optional[Dict]:
-        """Free tarif uchun tranzaksiya aniqlash - faqat kategoriya va summa"""
+        """Free tarif uchun tranzaksiya aniqlash - AI bilan (max 40 token)"""
         try:
-            message_lower = message.lower()
+            # AI dan yordam so'rash
+            prompt = f"""Parse this Uzbek financial message and return ONLY JSON:
+Type: income/expense
+Amount: number only
+Category: food/transport/utilities/health/education/other/qarz_berish/qarz_olish
+
+Message: {message}
+
+Respond ONLY with JSON like: {{"type":"expense","amount":20000,"category":"food"}}"""
+
+            def call_openai():
+                response = openai_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=40,  # Faqat 40 token
+                    temperature=0.1
+                )
+                return response.choices[0].message.content
             
-            # Xarajat kalit so'zlar (kengaytirilgan)
-            expense_keywords = ['sarfladim', 'to\'ladim', 'oldim', 'chiqim', 'xarajat', 'oydim', 'yeim', 'yedim', 'ichdim', 'olib', 'sotib', 'borib']
-            # Daromad kalit so'zlar
-            income_keywords = ['kirdim', 'oldim', 'oylik', 'daromad', 'kirim', 'tushdi', 'yechdim', 'ketdi']
-            # Qarz kalit so'zlar
-            debt_keywords = ['qarz oldim', 'qarz berdim', 'to\'layman', 'qarz']
+            loop = asyncio.get_event_loop()
+            ai_response = await loop.run_in_executor(None, call_openai)
             
-            # Tranzaksiya turini aniqlash
-            transaction_type = None
-            category = 'other'
+            # JSON ni parse qilish
+            import json
+            # Agar ```json ... ``` formatida bo'lsa, tozalaymiz
+            if "```json" in ai_response:
+                ai_response = ai_response.split("```json")[1].split("```")[0].strip()
+            elif "```" in ai_response:
+                ai_response = ai_response.split("```")[1].split("```")[0].strip()
             
-            # Oddiy kategoriyalar (kengaytirilgan)
-            simple_categories = {
-                'xarajat': 'other',
-                'chiqim': 'other',
-                'daromad': 'other',
-                'kirim': 'other',
-                'oziq': 'food',
-                'ovqat': 'food',
-                'taom': 'food',
-                'lavash': 'food',
-                'pitsa': 'food',
-                'burger': 'food',
-                'hotdog': 'food',
-                'salat': 'food',
-                'tovuq': 'food',
-                'go\'sht': 'food',
-                'balik': 'food',
-                'suv': 'snacks',
-                'ichimlik': 'snacks',
-                'choy': 'coffee',
-                'kofe': 'coffee',
-                'cola': 'snacks',
-                'pepsi': 'snacks',
-                'transport': 'transport',
-                'taksi': 'transport',
-                'mashina': 'transport',
-                'yandex': 'transport',
-                'uber': 'transport',
-                'metro': 'transport',
-                'avtobus': 'transport',
-                'utils': 'utilities',
-                'kommuna': 'utilities',
-                'gaz': 'utilities',
-                'elektr': 'utilities',
-                'internet': 'utilities',
-                'telefon': 'utilities',
-                'salon': 'beauty',
-                'barbar': 'beauty',
-                'doktor': 'health',
-                'dori': 'health',
-                'maslahat': 'health',
-                'maktab': 'education',
-                'kitob': 'education',
-            }
-            
-            # Qarz tekshirish
-            if any(keyword in message_lower for keyword in debt_keywords):
-                if 'qarz berdim' in message_lower or 'berdim' in message_lower:
-                    transaction_type = 'expense'
-                    category = 'qarz_berish'
-                else:
-                    transaction_type = 'income'
-                    category = 'qarz_olish'
-            # Xarajat tekshirish
-            elif any(keyword in message_lower for keyword in expense_keywords):
-                transaction_type = 'expense'
-                for key, val in simple_categories.items():
-                    if key in message_lower:
-                        category = val
-                        break
-            # Daromad tekshirish
-            elif any(keyword in message_lower for keyword in income_keywords):
-                transaction_type = 'income'
-                category = 'other'
-            
-            if not transaction_type:
-                return None
-            
-            # Summani topish
-            import re
-            amounts = re.findall(r'(\d{1,3}(?:\s?\d{3})*)\s*(?:ming|so\'m|sum|р)??', message_lower, re.IGNORECASE)
-            
-            if not amounts:
-                amounts = re.findall(r'\d{4,}', message)
-            
-            if not amounts:
-                return None
-            
-            amount_str = amounts[0].replace(' ', '').replace(',', '')
             try:
-                amount = float(amount_str)
-                if amount < 1000 and 'ming' in message_lower:
-                    amount *= 1000
+                result = json.loads(ai_response)
+                
+                # Validate
+                if result.get('type') in ['income', 'expense'] and result.get('amount') and result.get('category'):
+                    return {
+                        "type": result['type'],
+                        "amount": float(result['amount']),
+                        "category": result['category'],
+                        "description": ""  # Tafsif yo'q
+                    }
             except:
-                return None
+                pass
             
-            return {
-                "type": transaction_type,
-                "amount": amount,
-                "category": category,
-                "description": ""  # Tafsif yo'q
-            }
+            # Agar AI ishlamasa, return None
+            return None
             
         except Exception as e:
             logger.error(f"Error detecting transaction (Free): {e}")
