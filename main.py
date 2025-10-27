@@ -354,6 +354,9 @@ class UserStates(StatesGroup):
     onboarding_debts_borrowed = State()
     onboarding_complete = State()
     onboarding_debt_waiting_for_due_date = State()
+    
+    # Tur tanlash uchun state
+    waiting_for_account_type = State()
 
 # Onboarding holatlari (sinovchilar uchun)
 class OnboardingState(StatesGroup):
@@ -1444,6 +1447,18 @@ async def start_command(message: types.Message, state: FSMContext):
         )
         return
 
+# Tur tanlash menyusini qaytaradi
+def get_account_type_menu():
+    """Hisob turini tanlash uchun tugmalar"""
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="👤 Shaxsiy foydalanish uchun", callback_data="account_type_SHI")],
+            [InlineKeyboardButton(text="👨‍👩‍👧‍👦 Oila uchun", callback_data="account_type_OILA")],
+            [InlineKeyboardButton(text="🏢 Biznes uchun", callback_data="account_type_BIZNES")]
+        ]
+    )
+    return keyboard
+
 # Telefon raqam qabul qilish
 @dp.message(lambda message: message.contact, UserStates.waiting_for_phone)
 async def process_phone(message: types.Message, state: FSMContext):
@@ -1467,22 +1482,21 @@ async def process_phone(message: types.Message, state: FSMContext):
     except:
         pass
     
+    # Tur tanlash
     _msg = await message.answer_photo(
-        photo=FSInputFile('what_is_your_name.png'),
+        photo=FSInputFile('welcome.png'),
         caption=(
-            "Ismingizni kiriting yoki 'Xojayin' deb chaqishim mumkin"
+            "🏢 **Hisob turini tanlang**\n\n"
+            "Iltimos, hisobingiz uchun mos turini tanlang:"
         ),
-        reply_markup=ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="Xojayin deb chaqir")]],
-            resize_keyboard=True
-        ),
+        reply_markup=get_account_type_menu(),
         parse_mode="Markdown"
     )
     try:
         await state.update_data(onboarding_last_prompt_id=_msg.message_id)
     except Exception:
         pass
-    await state.set_state(UserStates.waiting_for_name)
+    await state.set_state(UserStates.waiting_for_account_type)
 
 # Onboarding: 1-qadam — naqd balans
 @dp.message(UserStates.waiting_for_initial_cash)
