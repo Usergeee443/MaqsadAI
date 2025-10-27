@@ -716,27 +716,45 @@ class AIChatFree:
     async def detect_and_save_transaction_free(self, message: str, user_id: int) -> Optional[Dict]:
         """Free tarif uchun tranzaksiya aniqlash - AI bilan (max 40 token)"""
         try:
-            # AI dan yordam so'rash - aniq tushuntirish bilan
-            prompt = f"""Message: "{message}"
+            # AI dan yordam so'rash - SYSTEM PROMPT bilan
+            system_prompt = """You are a JSON parser for financial transactions. Return ONLY valid JSON, no explanations, no markdown."""
+            
+            user_prompt = f"""Message: "{message}"
 
 Extract: amount, type (income/expense), category (food/transport/utilities/health/education/other/qarz_olish/qarz_berish)
 
-Return ONLY valid JSON without markdown, no extra text:
-{{"type":"income","amount":10000000,"category":"other"}}"""
+JSON: """
 
             def call_openai():
-                # gpt-3.5-turbo modeli (Mistral-7B JSON bilan ishlamayapti, fallback)
                 try:
-                    response = openai_client.chat.completions.create(
-                        model="gpt-3.5-turbo",
-                        messages=[{"role": "user", "content": prompt}],
+                    # Mistral-7B-Instruct bilan urinib ko'ramiz (arzon)
+                    response = openrouter_client.chat.completions.create(
+                        model="mistralai/mistral-7b-instruct",
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
                         max_tokens=30,
                         temperature=0.0
                     )
                     return response.choices[0].message.content
                 except Exception as e:
-                    logger.error(f"OpenAI xatolik: {e}")
-                    return None
+                    logger.error(f"Mistral-7B xatolik: {e}")
+                    # Fallback: gpt-3.5-turbo
+                    try:
+                        response = openai_client.chat.completions.create(
+                            model="gpt-3.5-turbo",
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt}
+                            ],
+                            max_tokens=30,
+                            temperature=0.0
+                        )
+                        return response.choices[0].message.content
+                    except Exception as e2:
+                        logger.error(f"OpenAI xatolik: {e2}")
+                        return None
             
             loop = asyncio.get_event_loop()
             ai_response = await loop.run_in_executor(None, call_openai)
