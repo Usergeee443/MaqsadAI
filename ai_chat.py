@@ -716,15 +716,9 @@ class AIChatFree:
     async def detect_and_save_transaction_free(self, message: str, user_id: int) -> Optional[Dict]:
         """Free tarif uchun tranzaksiya aniqlash - AI bilan (max 40 token)"""
         try:
-            # AI dan yordam so'rash
-            prompt = f"""Parse this Uzbek financial message and return ONLY JSON:
-Type: income/expense
-Amount: number only
-Category: food/transport/utilities/health/education/other/qarz_berish/qarz_olish
-
-Message: {message}
-
-Respond ONLY with JSON like: {{"type":"expense","amount":20000,"category":"food"}}"""
+            # AI dan yordam so'rash - MINIMAL prompt
+            prompt = f"""JSON: {message}
+Respond: {{"type":"expense/income","amount":N,"category":"food/transport/other/qarz"}}"""
 
             def call_openai():
                 # OpenRouter dan eng arzon model
@@ -732,8 +726,8 @@ Respond ONLY with JSON like: {{"type":"expense","amount":20000,"category":"food"
                     response = openrouter_client.chat.completions.create(
                         model="openai/gpt-3.5-turbo",  # OpenRouter orqali eng arzon
                         messages=[{"role": "user", "content": prompt}],
-                        max_tokens=40,
-                        temperature=0.1
+                        max_tokens=30,  # 40 dan 30 ga kamaytirish
+                        temperature=0.0  # 0.1 dan 0 ga
                     )
                     return response.choices[0].message.content
                 except:
@@ -741,8 +735,8 @@ Respond ONLY with JSON like: {{"type":"expense","amount":20000,"category":"food"
                     response = openai_client.chat.completions.create(
                         model="gpt-3.5-turbo",
                         messages=[{"role": "user", "content": prompt}],
-                        max_tokens=40,
-                        temperature=0.1
+                        max_tokens=30,  # 40 dan 30 ga kamaytirish
+                        temperature=0.0  # 0.1 dan 0 ga
                     )
                     return response.choices[0].message.content
             
