@@ -1498,6 +1498,49 @@ async def process_phone(message: types.Message, state: FSMContext):
         pass
     await state.set_state(UserStates.waiting_for_account_type)
 
+# Tur tanlash handlerlari
+@dp.callback_query(lambda c: c.data.startswith("account_type_"))
+async def process_account_type(callback_query: CallbackQuery, state: FSMContext):
+    """Hisob turini qabul qilish"""
+    user_id = callback_query.from_user.id
+    account_type = callback_query.data.split("_")[2]  # SHI, OILA, BIZNES
+    
+    # Account turini bazaga saqlash
+    await db.execute_query(
+        "UPDATE users SET account_type = %s WHERE user_id = %s",
+        (account_type, user_id)
+    )
+    
+    # Eski xabarni o'chirish
+    try:
+        await callback_query.message.delete()
+    except:
+        pass
+    
+    # Hozircha faqat Shaxsiy ishlaydi
+    if account_type != 'SHI':
+        await callback_query.message.answer(
+            f"⚠️ **Tez orada kutilmoqda**\n\n"
+            f"Yoqimsiz, {account_type} hozircha ishlay olmaydi. Iltimos, 'Shaxsiy foydalanish uchun' ni tanlang.",
+            reply_markup=get_account_type_menu(),
+            parse_mode='Markdown'
+        )
+        await callback_query.answer()
+        return
+    
+    # Shaxsiy tanlangan - onboardingni davom ettiramiz
+    await callback_query.message.answer_photo(
+        photo=FSInputFile('welcome.png'),
+        caption=(
+            "✅ **Hisob turi tanlandi: Shaxsiy foydalanish**\n\n"
+            "Endi boshlang'ich balansni kiriting:"
+        ),
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode='Markdown'
+    )
+    await callback_query.answer()
+    await state.set_state(UserStates.onboarding_balance)
+
 # Onboarding: 1-qadam — naqd balans
 @dp.message(UserStates.waiting_for_initial_cash)
 async def onboarding_initial_cash(message: types.Message, state: FSMContext):
