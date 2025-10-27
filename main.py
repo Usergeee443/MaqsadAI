@@ -463,7 +463,7 @@ def get_profile_menu(user_tariff='FREE'):
     if user_tariff == 'FREE':
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="⚡ Kuchaytirish", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/payment"))],
+                [InlineKeyboardButton(text="⚡ Kuchaytirish", web_app=WebAppInfo(url="https://balansai.onrender.com/payment"))],
                 [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"), InlineKeyboardButton(text="💳 Tarif", callback_data="tariff_info")]
             ]
         )
@@ -1024,7 +1024,7 @@ def get_payment_method_keyboard() -> InlineKeyboardMarkup:
     """To'lov usuli tanlash tugmalari"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         # Mini ilova orqali to'lov
-        [InlineKeyboardButton(text="📱 Mini ilova orqali to'lash", web_app=WebAppInfo(url="https://pulbot-mini-app.onrender.com/payment"))],
+        [InlineKeyboardButton(text="📱 Mini ilova orqali to'lash", web_app=WebAppInfo(url="https://balansai.onrender.com/payment"))],
         # Telegram to'lov usullari
         [InlineKeyboardButton(text="💳 Telegram (Click)", callback_data="select_payment_telegram_click")],
         # Boshqa to'lov usullari
