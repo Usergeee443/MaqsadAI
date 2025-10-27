@@ -2608,19 +2608,51 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
     user_data = await db.get_user_data(user_id)
     
+    # Foydalanuvchi tarifini olish
+    user_tariff = await get_user_tariff(user_id)
+    
     # Yangi yagona profil formatiga mos
     display_name = user_data.get('name', 'Xojayin')
-    header_line = f"{display_name} (`{user_id}`)"
-    expires_str = '—'
-    if user_data.get('tariff_expires_at'):
-        expires_str = _format_date_uz(user_data['tariff_expires_at']) + " gacha"
-    profile_text = (
-        f"{header_line}\n\n"
-        f"Joriy tarif:\n"
-        f"• {TARIFFS.get(user_data['tariff'], 'Nomalum')}\n"
-        f"• Tugash: {expires_str}"
-    )
-    keyboard = get_profile_menu(user_data['tariff'])
+    
+    # FREE tarif uchun tranzaksiya sonini qo'shamiz
+    if user_tariff == 'FREE':
+        try:
+            row = await db.execute_one(
+                """
+                SELECT COUNT(*) 
+                FROM transactions 
+                WHERE user_id = %s 
+                AND MONTH(created_at) = MONTH(NOW())
+                AND YEAR(created_at) = YEAR(NOW())
+                """,
+                (user_id,)
+            )
+            monthly_count = row[0] if row else 0
+            remaining = max(0, 250 - monthly_count)
+            profile_text = (
+                f"{display_name} (ID: {user_id})\n\n"
+                f"Joriy tarif: Bepul\n"
+                f"Tranzaksiyalar: {monthly_count}/250"
+            )
+        except Exception as e:
+            logging.error(f"Error getting monthly stats: {e}")
+            profile_text = (
+                f"{display_name} (ID: {user_id})\n\n"
+                f"Joriy tarif: Bepul"
+            )
+    else:
+        # Boshqa tariflar uchun eski format
+        expires_str = '—'
+        if user_data.get('tariff_expires_at'):
+            expires_str = _format_date_uz(user_data['tariff_expires_at']) + " gacha"
+        profile_text = (
+            f"{display_name} (ID: {user_id})\n\n"
+            f"Joriy tarif:\n"
+            f"• {TARIFFS.get(user_tariff, 'Nomalum')}\n"
+            f"• Tugash: {expires_str}"
+        )
+    
+    keyboard = get_profile_menu(user_tariff)
     try:
         await callback_query.message.edit_caption(caption=profile_text, reply_markup=keyboard, parse_mode='Markdown')
     except Exception:
