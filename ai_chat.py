@@ -734,7 +734,7 @@ JSON: """
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt}
                         ],
-                        max_tokens=30,
+                        max_tokens=50,  # 30 dan 50 ga oshirish
                         temperature=0.0
                     )
                     return response.choices[0].message.content
@@ -748,7 +748,7 @@ JSON: """
                                 {"role": "system", "content": system_prompt},
                                 {"role": "user", "content": user_prompt}
                             ],
-                            max_tokens=30,
+                            max_tokens=40,
                             temperature=0.0
                         )
                         return response.choices[0].message.content
