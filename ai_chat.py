@@ -716,14 +716,12 @@ class AIChatFree:
     async def detect_and_save_transaction_free(self, message: str, user_id: int) -> Optional[Dict]:
         """Free tarif uchun tranzaksiya aniqlash - AI bilan (max 40 token)"""
         try:
-            # AI dan yordam so'rash - SYSTEM PROMPT bilan
-            system_prompt = """You are a JSON parser for financial transactions. Return ONLY valid JSON, no explanations, no markdown."""
+            # AI dan yordam so'rash - MINIMAL SYSTEM PROMPT (token tejash)
+            system_prompt = """Return only JSON."""
             
-            user_prompt = f"""Message: "{message}"
-
-Extract: amount, type (income/expense), category (food/transport/utilities/health/education/other/qarz_olish/qarz_berish)
-
-JSON: """
+            # User promptni ham qisqartiramiz
+            user_prompt = f"""{message}
+JSON: {{"type":"income/expense","amount":N,"category":"food/transport/other/qarz"}}"""
 
             def call_openai():
                 try:
@@ -734,7 +732,7 @@ JSON: """
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt}
                         ],
-                        max_tokens=50,  # 30 dan 50 ga oshirish
+                        max_tokens=40,  # 50 dan 40 ga - tejash
                         temperature=0.0
                     )
                     return response.choices[0].message.content
