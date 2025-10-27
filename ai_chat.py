@@ -716,9 +716,13 @@ class AIChatFree:
     async def detect_and_save_transaction_free(self, message: str, user_id: int) -> Optional[Dict]:
         """Free tarif uchun tranzaksiya aniqlash - AI bilan (max 40 token)"""
         try:
-            # AI dan yordam so'rash - MINIMAL prompt
-            prompt = f"""JSON: {message}
-Respond: {{"type":"expense/income","amount":N,"category":"food/transport/other/qarz"}}"""
+            # AI dan yordam so'rash - aniq tushuntirish bilan
+            prompt = f"""Message: "{message}"
+
+Extract: amount, type (income/expense), category (food/transport/utilities/health/education/other/qarz_olish/qarz_berish)
+
+Return ONLY valid JSON without markdown, no extra text:
+{{"type":"income","amount":10000000,"category":"other"}}"""
 
             def call_openai():
                 # OpenRouter dan mistral-7b modeli (JUDAAAAAAAA ARZON)
@@ -744,6 +748,9 @@ Respond: {{"type":"expense/income","amount":N,"category":"food/transport/other/q
             loop = asyncio.get_event_loop()
             ai_response = await loop.run_in_executor(None, call_openai)
             
+            # Debug log
+            logger.info(f"AI Response for '{message}': {ai_response}")
+            
             # JSON ni parse qilish
             import json
             # Agar ```json ... ``` formatida bo'lsa, tozalaymiz
@@ -752,8 +759,15 @@ Respond: {{"type":"expense/income","amount":N,"category":"food/transport/other/q
             elif "```" in ai_response:
                 ai_response = ai_response.split("```")[1].split("```")[0].strip()
             
+            # Oddiy json uchun { } ichini topish
+            if "{" in ai_response and "}" in ai_response:
+                start = ai_response.index("{")
+                end = ai_response.rindex("}") + 1
+                ai_response = ai_response[start:end]
+            
             try:
                 result = json.loads(ai_response)
+                logger.info(f"Parsed JSON: {result}")
                 
                 # Validate
                 if result.get('type') in ['income', 'expense'] and result.get('amount') and result.get('category'):
@@ -763,8 +777,10 @@ Respond: {{"type":"expense/income","amount":N,"category":"food/transport/other/q
                         "category": result['category'],
                         "description": ""  # Tafsif yo'q
                     }
-            except:
-                pass
+                else:
+                    logger.warning(f"Validation failed for result: {result}")
+            except Exception as e:
+                logger.error(f"JSON parse error: {e}, response: {ai_response}")
             
             # Agar AI ishlamasa, return None
             return None
