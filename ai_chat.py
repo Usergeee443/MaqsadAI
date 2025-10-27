@@ -721,7 +721,7 @@ Respond ONLY with JSON like: {{"type":"expense","amount":20000,"category":"food"
 
             def call_openai():
                 response = openai_client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model="gpt-3.5-turbo",  # Eng arzon model ($0.50 per 1M tokens)
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=40,  # Faqat 40 token
                     temperature=0.1
