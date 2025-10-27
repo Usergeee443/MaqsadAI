@@ -725,18 +725,8 @@ Return ONLY valid JSON without markdown, no extra text:
 {{"type":"income","amount":10000000,"category":"other"}}"""
 
             def call_openai():
-                # OpenRouter dan mistral-7b modeli (JUDAAAAAAAA ARZON)
+                # gpt-3.5-turbo modeli (Mistral-7B JSON bilan ishlamayapti, fallback)
                 try:
-                    response = openrouter_client.chat.completions.create(
-                        model="mistralai/mistral-7b-instruct",  # Mistral-7B (eng arzon)
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=30,
-                        temperature=0.0
-                    )
-                    return response.choices[0].message.content
-                except Exception as e:
-                    logger.error(f"OpenRouter xatolik: {e}")
-                    # Agar OpenRouter ishlamasa, oddiy OpenAI ishlatamiz
                     response = openai_client.chat.completions.create(
                         model="gpt-3.5-turbo",
                         messages=[{"role": "user", "content": prompt}],
@@ -744,6 +734,9 @@ Return ONLY valid JSON without markdown, no extra text:
                         temperature=0.0
                     )
                     return response.choices[0].message.content
+                except Exception as e:
+                    logger.error(f"OpenAI xatolik: {e}")
+                    return None
             
             loop = asyncio.get_event_loop()
             ai_response = await loop.run_in_executor(None, call_openai)
