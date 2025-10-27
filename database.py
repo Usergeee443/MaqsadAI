@@ -132,6 +132,14 @@ class Database:
                 )
             """)
             
+            # account_type ustunini qo'shish (SHI, OILA, BIZNES)
+            try:
+                await self.execute_query("ALTER TABLE users ADD COLUMN account_type VARCHAR(20) DEFAULT 'SHI'")
+                logging.info("Ustun account_type qo'shildi")
+            except Exception as e:
+                logging.info(f"Ustun account_type allaqachon mavjud: {e}")
+                pass
+            
             # Yangi ustunlarni qo'shish (agar mavjud bo'lmasa)
             await self.add_missing_columns()
             
