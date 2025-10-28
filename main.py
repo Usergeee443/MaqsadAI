@@ -60,7 +60,7 @@ def _format_date_uz(dt_obj) -> str:
         return dt_obj.strftime('%d.%m.%Y')
 
 PREMIUM_TARIFFS = {
-    'PLUS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX',
+    'PLUS', 'PRO', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_PRO',
     'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_MAX'
 }
 
@@ -246,9 +246,9 @@ def get_tariff_detail_text(tariff_code: str) -> str:
             "✔️ Tezkor moliyaviy tahlillar\n"
             "✔️ Shaxsiy byudjetni kuzatish\n"
         )
-    if tariff_code == "MAX":
+    if tariff_code == "PRO":
         return (
-            "💎 **Max — 49 990 so'm/oy**\n\n"
+            "💎 **Pro — 49 990 so'm/oy**\n\n"
             "Funksiyalar:\n"
             "✔️ Cheksiz tranzaksiyalar\n"
             "✔️ Premium AI tahlillari\n"
@@ -1255,8 +1255,14 @@ async def start_command(message: types.Message, state: FSMContext):
         )
         return
 
-    # 2.2) Agar onboarding jarayonida bo'lsa -> o'sha bosqichga qaytarish
+    # 2.2) Agar onboarding jarayonida bo'lsa -> faqat state qoldirish, xabar yubormasdan
     current_state = await state.get_state()
+    
+    # Onboarding state'larda /start tugma ishlatmaydi
+    if current_state in [UserStates.waiting_for_phone.state, UserStates.waiting_for_name.state, 
+                         UserStates.waiting_for_source.state, UserStates.waiting_for_account_type.state]:
+        # State'ni qoldirish, lekin yaxlit xabar yubormasdan
+        return
     
     # OnboardingState holatlari uchun
     if current_state == OnboardingState.waiting_for_income.state:
@@ -1454,27 +1460,99 @@ async def process_phone(message: types.Message, state: FSMContext):
     try:
         await message.delete()
         # Avvalgi "Telefon raqamni yuborish" xabarini o'chirish
-        if 'phone_request_msg_id' in (await state.get_data()):
-            phone_msg_id = (await state.get_data())['phone_request_msg_id']
+        data = await state.get_data()
+        if 'phone_request_msg_id' in data:
+            phone_msg_id = data['phone_request_msg_id']
             await message.bot.delete_message(chat_id=user_id, message_id=phone_msg_id)
     except:
         pass
     
-    # Tur tanlash
+    # Ism so'rash
     _msg = await message.answer_photo(
-        photo=FSInputFile('welcome.png'),
+        photo=FSInputFile('what_is_your_name.png'),
         caption=(
-            "🏢 **Hisob turini tanlang**\n\n"
-            "Iltimos, hisobingiz uchun mos turini tanlang:"
+            "👋 **Keling tanishib olsak!**\n\n"
+            "Ismingizni kiriting yoki `/skip` yuboring."
         ),
-        reply_markup=get_account_type_menu(),
         parse_mode="Markdown"
     )
     try:
-        await state.update_data(onboarding_last_prompt_id=_msg.message_id)
+        await state.update_data(name_request_msg_id=_msg.message_id)
     except Exception:
         pass
-    await state.set_state(UserStates.waiting_for_account_type)
+    await state.set_state(UserStates.waiting_for_name)
+
+# Ism qabul qilish
+@dp.message(UserStates.waiting_for_name)
+async def process_name(message: types.Message, state: FSMContext):
+    """Ismni qabul qilish"""
+    user_id = message.from_user.id
+    text = message.text
+    
+    # Agar /skip bo'lsa
+    if text and text.lower() == '/skip':
+        name = "Xojayin"
+        await db.execute_query(
+            "UPDATE users SET name = %s WHERE user_id = %s",
+            (name, user_id)
+        )
+        
+        # Eski xabarlarni o'chirish
+        try:
+            await message.delete()
+            data = await state.get_data()
+            if 'name_request_msg_id' in data:
+                await message.bot.delete_message(chat_id=user_id, message_id=data['name_request_msg_id'])
+        except:
+            pass
+        
+        # So'rov noma so'rash
+        await message.answer_photo(
+            photo=FSInputFile('where_did_you_hear_us.png'),
+            caption="Bizni qayerda eshitdingiz?",
+            reply_markup=get_source_menu(),
+            parse_mode="Markdown"
+        )
+        await state.set_state(UserStates.waiting_for_source)
+        return
+    
+    # Ism AI tekshiruvi
+    if text and len(text.strip()) > 0:
+        # AI bilan tekshirish
+        try:
+            result = await ai_chat_free._check_name(text.strip())
+            if result.get('is_valid', False):
+                name = text.strip()
+            else:
+                name = "Xojayin"
+        except:
+            name = "Xojayin"
+    else:
+        name = "Xojayin"
+    
+    # Ismni saqlash
+    await db.execute_query(
+        "UPDATE users SET name = %s WHERE user_id = %s",
+        (name, user_id)
+    )
+    
+    # Eski xabarlarni o'chirish
+    try:
+        await message.delete()
+        data = await state.get_data()
+        if 'name_request_msg_id' in data:
+            await message.bot.delete_message(chat_id=user_id, message_id=data['name_request_msg_id'])
+    except:
+        pass
+    
+    # So'rov noma so'rash
+    await message.answer_photo(
+        photo=FSInputFile('where_did_you_hear_us.png'),
+        caption="Bizni qayerda eshitdingiz?",
+        reply_markup=get_source_menu(),
+        parse_mode="Markdown"
+    )
+    await state.set_state(UserStates.waiting_for_source)
 
 # Tur tanlash handlerlari
 @dp.callback_query(lambda c: c.data.startswith("account_type_"))
@@ -1578,14 +1656,45 @@ async def process_account_type(callback_query: CallbackQuery, state: FSMContext)
         await callback_query.answer()
         return
     
-    # Shaxsiy tanlangan - onboardingni davom ettiramiz
+    # Shaxsiy tanlangan - xabarni o'chirish
+    try:
+        await callback_query.message.delete()
+    except:
+        pass
+    
+    # Tabrik xabari
+    tabrik_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Boshlash", callback_data="start_onboarding")]
+    ])
+    
     await callback_query.message.answer_photo(
         photo=FSInputFile('welcome.png'),
         caption=(
-            "✅ **Hisob turi tanlandi: Shaxsiy foydalanish**\n\n"
-            "Endi boshlang'ich balansni kiriting:"
+            "🎉 **Hammasi tayyor!**\n\n"
+            "Balans AI ga xush kelibsiz! Biz sizga shaxsiy moliyaviy yordam berishdan xursandmiz.\n\n"
+            "Boshlash tugmasini bosing."
         ),
-        reply_markup=ReplyKeyboardRemove(),
+        reply_markup=tabrik_keyboard,
+        parse_mode='Markdown'
+    )
+    await callback_query.answer()
+    await state.set_state(UserStates.onboarding_complete)
+
+# Boshlash tugmasini bosish
+@dp.callback_query(lambda c: c.data == "start_onboarding")
+async def start_onboarding(callback_query: CallbackQuery, state: FSMContext):
+    """Onboarding bosqichi boshlash"""
+    try:
+        await callback_query.message.delete()
+    except:
+        pass
+    
+    await callback_query.message.answer_photo(
+        photo=FSInputFile('welcome.png'),
+        caption=(
+            "💰 **Onboarding bosqichi**\n\n"
+            "1. Hozir balansingizda qancha pul bor?"
+        ),
         parse_mode='Markdown'
     )
     await callback_query.answer()
@@ -1803,6 +1912,7 @@ async def process_name(message: types.Message, state: FSMContext):
     await state.set_state(UserStates.waiting_for_source)
 
 # Manba tanlash
+# So'rov noma qabul qilish - faqat callback
 @dp.callback_query(lambda c: c.data.startswith("source_"), UserStates.waiting_for_source)
 async def process_source(callback_query: CallbackQuery, state: FSMContext):
     """Manbani qabul qilish"""
@@ -1815,28 +1925,24 @@ async def process_source(callback_query: CallbackQuery, state: FSMContext):
         (source, user_id)
     )
     
-    # Foydalanuvchi ismini olish
-    user_data = await db.get_user_data(user_id)
-    user_name = user_data.get('name', 'Xojayin')
-    
+    # Xabarni o'chirish va yangi xabar yuborish
     try:
         await callback_query.message.delete()
     except Exception:
         pass
+    
+    # Tur tanlash
     await callback_query.message.answer_photo(
-        photo=FSInputFile('tariff.png'),
+        photo=FSInputFile('welcome.png'),
         caption=(
-            "Balans AI sizga mos keladigan turli xil tariflarni taklif etadi. "
-            "Shaxsiy byudjetingizni nazorat qilmoqchimisiz, oilaviy xarajatlarni boshqarmoqchimisiz yoki "
-            "biznesingizni avtomatlashtirmoqchimisiz — bu yerda albatta sizga mos yechim bor.\n\n"
-            "Quyidagi tariflardan birini tanlang 👇\n"
-           
+            "🏢 **Hisob turini tanlang**\n\n"
+            "Iltimos, hisobingiz uchun mos turini tanlang:"
         ),
-        reply_markup=get_tariff_menu(),
+        reply_markup=get_account_type_menu(),
         parse_mode="Markdown"
     )
-    await state.set_state(UserStates.waiting_for_tariff)
-
+    await callback_query.answer()
+    await state.set_state(UserStates.waiting_for_account_type)
 
 # Help komandasi
 @dp.message(Command("help"))
@@ -2541,15 +2647,31 @@ async def start_onboarding_callback(callback_query: CallbackQuery, state: FSMCon
 async def process_onboarding_balance(message: types.Message, state: FSMContext):
     """Onboarding balans qabul qilish"""
     user_id = message.from_user.id
+    text = message.text
     
+    # AI bilan balansni tahlil qilish
     try:
-        balance = float(message.text.replace(',', '').replace(' ', ''))
-        if balance < 0:
-            await message.answer("❌ Balans manfiy bo'lishi mumkin emas. Qaytadan kiriting:")
+        from ai_chat import AIChat
+        ai = AIChat(db=db)
+        ai_result = await ai._analyze_balance_response(text)
+        balance = ai_result.get('balance', 0)
+        ai_message = ai_result.get('message', '')
+    except Exception as e:
+        logging.error(f"AI balans tahlili xatolik: {e}")
+        # Fallback - oddiy parse
+        try:
+            balance = float(text.replace(',', '').replace(' ', ''))
+            ai_message = ""
+        except ValueError:
+            await message.answer("❌ Noto'g'ri format. Iltimos, faqat raqam kiriting (masalan: 500000):")
             return
-    except ValueError:
-        await message.answer("❌ Noto'g'ri format. Faqat raqam kiriting (masalan: 500000):")
-        return
+    
+    if balance < 0:
+        balance = 0
+    
+    # AI xabari yuborish
+    if ai_message:
+        await message.answer(ai_message, parse_mode='Markdown')
     
     # Balansni saqlash (so'mda kiritilgan)
     if balance > 0:
@@ -2632,9 +2754,38 @@ async def onboarding_no_debts(callback_query: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback_query.answer()
 
+# Qarz qo'shishdan keyin keyingi bosqichga o'tish
+@dp.callback_query(lambda c: c.data == "onboarding_move_to_next")
+async def onboarding_move_to_next(callback_query: CallbackQuery, state: FSMContext):
+    """Qarzlar qo'shildi, keyingi bosqich - qarz olganlar"""
+    user_id = callback_query.from_user.id
+    
+    # Eski xabarni o'chirish
+    try:
+        await callback_query.message.delete()
+    except:
+        pass
+    
+    # 3-qadam: Qarz olgan odamlar
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Qarz olganman", callback_data="onboarding_debt_borrowed")],
+        [InlineKeyboardButton(text="❌ Qarzlar yo'q", callback_data="onboarding_complete_final")]
+    ])
+    
+    await callback_query.message.answer_photo(
+        photo=FSInputFile('welcome.png'),
+        caption=(
+            "💳 **3-qadam: Qarzlar holati**\n\n"
+            "Kimdan qarz olganmisiz?"
+        ),
+        reply_markup=keyboard,
+        parse_mode='Markdown'
+    )
+    await callback_query.answer()
+
 @dp.callback_query(lambda c: c.data == "onboarding_debt_lent")
 async def onboarding_debt_lent(callback_query: CallbackQuery, state: FSMContext):
-    """Qarz bergan - qarzlar qo'shish"""
+    """Qarz bergan - AI bilan qarzlar qo'shish"""
     user_id = callback_query.from_user.id
     
     # Eski xabarni o'chirish
@@ -2646,8 +2797,10 @@ async def onboarding_debt_lent(callback_query: CallbackQuery, state: FSMContext)
     await callback_query.message.answer_photo(
         photo=FSInputFile('welcome.png'),
         caption=(
-            "💸 **Qarz bergan odam ismini kiriting:**\n\n"
-            "Masalan: Akmal, Oila, Do'st, va h.k."
+            "💸 **Kimga qarz berganmisiz?**\n\n"
+            "Ism, summa va qaytarish sanasini yozing.\n\n"
+            "Masalan: *Akmalga 100000 so'm qarz bergan edim, 20-noyabrda qaytarishi kerak.*\n\n"
+            "Yoki oddiy: *Akmal 100000*"
         ),
         reply_markup=ReplyKeyboardRemove(),
         parse_mode='Markdown'
@@ -2656,37 +2809,140 @@ async def onboarding_debt_lent(callback_query: CallbackQuery, state: FSMContext)
     await state.update_data(debt_type='lent')
     await callback_query.answer()
 
-@dp.message(UserStates.onboarding_debt_waiting_for_person)
-async def process_onboarding_debt_person(message: types.Message, state: FSMContext):
-    """Onboarding qarz odam ismini qabul qilish"""
-    user_id = message.from_user.id
-    person_name = message.text.strip()
+# Qarz OLGAN handler
+@dp.callback_query(lambda c: c.data == "onboarding_debt_borrowed")
+async def onboarding_debt_borrowed(callback_query: CallbackQuery, state: FSMContext):
+    """Qarz olgan - AI bilan qarzlar qo'shish"""
+    user_id = callback_query.from_user.id
     
-    # Eski xabarlarni o'chirish
+    # Eski xabarni o'chirish
     try:
-        await message.delete()
-        # Avvalgi xabarni o'chirish
-        if 'onboarding_debt_person_msg_id' in (await state.get_data()):
-            person_msg_id = (await state.get_data())['onboarding_debt_person_msg_id']
-            await message.bot.delete_message(chat_id=user_id, message_id=person_msg_id)
+        await callback_query.message.delete()
     except:
         pass
     
-    # Qarz miqdorini so'rash
-    _msg = await message.answer_photo(
+    await callback_query.message.answer_photo(
         photo=FSInputFile('welcome.png'),
         caption=(
-            f"💰 **{person_name}ga qancha qarz berganmisiz?**\n\n"
-            "Masalan: 100000 (agar 100,000 so'm bo'lsa)"
+            "💸 **Kimdan qarz olganmisiz?**\n\n"
+            "Ism, summa va qaytarish sanasini yozing.\n\n"
+            "Masalan: *Karimdan 200000 so'm qarz oldim, 15-dekabrda qaytaraman.*\n\n"
+            "Yoki oddiy: *Karim 200000*"
         ),
         reply_markup=ReplyKeyboardRemove(),
         parse_mode='Markdown'
     )
-    await state.update_data(
-        debt_person=person_name,
-        onboarding_debt_person_msg_id=_msg.message_id
+    await state.set_state(UserStates.onboarding_debt_waiting_for_person)
+    await state.update_data(debt_type='borrowed')
+    await callback_query.answer()
+
+@dp.message(UserStates.onboarding_debt_waiting_for_person)
+async def process_onboarding_debt_person(message: types.Message, state: FSMContext):
+    """Onboarding qarz - AI bilan pars qilish"""
+    user_id = message.from_user.id
+    text = message.text.strip()
+    
+    # AI bilan qarz ma'lumotlarini parse qilish
+    try:
+        from ai_chat import AIChat
+        ai = AIChat(db=db)
+        debt_info = await ai._parse_debt_info(text)
+        
+        person_name = debt_info.get('person', 'Noma\'lum')
+        amount = debt_info.get('amount', 0)
+        due_date = debt_info.get('due_date')
+        
+    except Exception as e:
+        logging.error(f"AI qarz parse xatolik: {e}")
+        # Fallback - oddiy parse
+        person_name = text.split()[0] if text.split() else "Noma'lum"
+        try:
+            import re
+            numbers = re.findall(r'\d+', text)
+            amount = float(''.join(numbers)) if numbers else 0
+        except:
+            amount = 0
+        due_date = None
+    
+    # Qarzni saqlash
+    data = await state.get_data()
+    debt_type = data.get('debt_type', 'lent')
+    
+    if amount > 0:
+        await db.add_transaction(
+            user_id, 
+            'expense' if debt_type == 'lent' else 'income',
+            int(amount),
+            'qarz_berdim' if debt_type == 'lent' else 'qarz_oldim',
+            f"Onboarding: {person_name}ga qarz" + (f" (Qaytish: {due_date})" if due_date else "")
+        )
+        
+        # Eski xabarlarni o'chirish
+        try:
+            await message.delete()
+        except:
+            pass
+        
+        # Yana qo'shish yoki tugatish
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Yana qo'shish", callback_data=f"onboarding_debt_{debt_type}")],
+            [InlineKeyboardButton(text="✅ Tayyor", callback_data="onboarding_move_to_next")]
+        ])
+        
+        await message.answer(
+            f"✅ **{person_name}ga {amount:,.0f} so'm qarz qo'shildi!**\n\n"
+            f"{'Qaytarish sanasi: ' + str(due_date) if due_date else ''}\n\n"
+            "Yana qarz qo'shmoqchimisiz yoki davom etamizmi?",
+            reply_markup=keyboard,
+            parse_mode='Markdown'
+        )
+    else:
+        await message.answer("❌ Summani tushunmadim. Qaytadan kiriting (masalan: Akmal 100000):")
+
+# Onboarding yakunlash
+@dp.callback_query(lambda c: c.data == "onboarding_complete_final")
+async def onboarding_complete_final(callback_query: CallbackQuery, state: FSMContext):
+    """Onboarding tugadi - final"""
+    user_id = callback_query.from_user.id
+    
+    # Eski xabarni o'chirish
+    try:
+        await callback_query.message.delete()
+    except:
+        pass
+    
+    # Onboarding tugagach tabrik xabari + menyu bir xabarda
+    try:
+        await ensure_tariff_valid(user_id)
+    except Exception:
+        pass
+    current_tariff = await get_user_tariff(user_id)
+    
+    # Menyu tanlash
+    if current_tariff == 'FREE':
+        menu = get_free_menu()
+    elif current_tariff == 'BUSINESS':
+        menu = get_business_menu()
+    else:
+        menu = get_premium_menu()
+    
+    await callback_query.message.answer_photo(
+        photo=FSInputFile('welcome.png'),
+        caption=(
+            "🎉 **Tabriklaymiz! Onboarding tugadi!**\n\n"
+            "Sizning moliyaviy profilingiz tayyor. Endi quyidagi imkoniyatlardan foydalanishingiz mumkin:\n\n"
+            "• 💰 Balansni kuzatish\n"
+            "• 📊 Moliyaviy hisobotlar\n"
+            "• 🤖 AI yordamchi (FREE tarifda cheklangan)\n"
+            "• 📱 Qulay interfeys\n\n"
+            "Muvaffaqiyatlar! 🚀"
+        ),
+        reply_markup=menu,
+        parse_mode="Markdown"
     )
-    await state.set_state(UserStates.onboarding_debt_waiting_for_amount)
+    
+    await state.clear()
+    await callback_query.answer("✅ Onboarding yakunlandi!")
 
 @dp.message(UserStates.onboarding_debt_waiting_for_amount)
 async def process_onboarding_debt_amount(message: types.Message, state: FSMContext):
@@ -3782,7 +4038,7 @@ async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext
                 await callback_query.answer("❌ Xatolik yuz berdi.", show_alert=True)
                 return
 
-        if tariff_code in ("PLUS", "BUSINESS", "MAX", "FAMILY", "FAMILY_PLUS", "FAMILY_MAX", "BUSINESS_PLUS", "BUSINESS_MAX"):
+        if tariff_code in ("PLUS", "BUSINESS", "PRO", "FAMILY", "FAMILY_PLUS", "FAMILY_PRO", "BUSINESS_PLUS", "BUSINESS_PRO"):
             # Yangi tarif sotib olish jarayoni - muddat tanlash
             print(f"DEBUG: Processing paid tariff selection: {tariff_code}")
             user_id = callback_query.from_user.id
@@ -4116,6 +4372,26 @@ async def confirm_leave_team_callback(callback_query: CallbackQuery):
 async def process_financial_message(message: types.Message, state: FSMContext):
     """MAX va FREE tariflar uchun AI chat"""
     user_id = message.from_user.id
+    
+    # Onboarding state'larda xabar qabul qilinmasligi kerak
+    current_state = await state.get_state()
+    onboarding_states = [
+        UserStates.waiting_for_phone.state,
+        UserStates.waiting_for_name.state,
+        UserStates.waiting_for_source.state,
+        UserStates.waiting_for_account_type.state,
+        UserStates.onboarding_balance.state,
+        UserStates.onboarding_complete.state,
+        UserStates.onboarding_waiting_for_debt_action.state,
+        UserStates.onboarding_debt_waiting_for_person.state,
+        UserStates.onboarding_debt_waiting_for_amount.state,
+        UserStates.onboarding_debt_waiting_for_due_date.state,
+    ]
+    
+    if current_state in onboarding_states:
+        # Onboarding jarayonida oddiy xabarlar bloklanadi
+        return
+    
     await ensure_tariff_valid(user_id)
     user_tariff = await get_user_tariff(user_id)
     
@@ -4161,7 +4437,7 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         return
     
     # Faqat MAX va FREE tariflar uchun
-    if user_tariff not in ['MAX', 'FREE']:
+    if user_tariff not in ['PRO', 'FREE']:
         return
     
     # State'lar tekshiruvi
@@ -4178,8 +4454,8 @@ async def process_financial_message(message: types.Message, state: FSMContext):
     await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
     
     try:
-        if user_tariff == 'MAX':
-            # MAX tarif uchun to'liq AI chat
+        if user_tariff == 'PRO':
+            # PRO tarif uchun to'liq AI chat
             ai_messages = await ai_chat.generate_response(user_id, text)
             
             # Har bir xabarni 1-3 soniya orasida yuborish
@@ -5342,7 +5618,7 @@ async def get_tariffs():
     try:
         tariffs = [
             {"code": "PLUS", "name": "Plus", "monthly_price": 99900},
-            {"code": "MAX", "name": "Max", "monthly_price": 199900},
+            {"code": "PRO", "name": "Pro", "monthly_price": 199900},
             {"code": "BUSINESS", "name": "Business", "monthly_price": 299900},
         ]
         
@@ -5418,7 +5694,7 @@ async def load_config_from_db():
         
         result = await db.execute_one("SELECT value FROM config WHERE key_name = 'free_trial_max'")
         if result:
-            FREE_TRIAL_ENABLED['MAX'] = result[0].lower() == 'true'
+            FREE_TRIAL_ENABLED['PRO'] = result[0].lower() == 'true'
         
         result = await db.execute_one("SELECT value FROM config WHERE key_name = 'free_trial_business'")
         if result:

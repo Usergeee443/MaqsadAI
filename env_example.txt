@@ -1,6 +1,7 @@
 # Bot konfiguratsiyasi
 BOT_TOKEN=your_bot_token_here
 OPENAI_API_KEY=your_openai_api_key_here
+OPENROUTER_API_KEY=your_openrouter_api_key_here
 
 # Ma'lumotlar bazasi konfiguratsiyasi
 DB_HOST=localhost

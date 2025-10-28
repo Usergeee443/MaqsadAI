@@ -64,7 +64,7 @@ class Database:
                     phone VARCHAR(20),
                     name VARCHAR(255) DEFAULT 'Xojayin',
                     source VARCHAR(50),
-                    tariff ENUM('FREE', 'PLUS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'EMPLOYEE') DEFAULT 'FREE',
+                    tariff ENUM('FREE', 'PLUS', 'PRO', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_PRO', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_PRO', 'EMPLOYEE') DEFAULT 'FREE',
                     tariff_expires_at DATETIME NULL,
                     manager_id BIGINT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -179,7 +179,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS user_subscriptions (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     user_id BIGINT NOT NULL,
-                    tariff ENUM('PLUS', 'BUSINESS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'EMPLOYEE') NOT NULL,
+                    tariff ENUM('PLUS', 'BUSINESS', 'PRO', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_PRO', 'BUSINESS_PLUS', 'BUSINESS_PRO', 'EMPLOYEE') NOT NULL,
                     is_active BOOLEAN DEFAULT TRUE,
                     expires_at DATETIME NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -273,21 +273,21 @@ class Database:
             
             # Tarif enum ni yangilash
             try:
-                await self.execute_query("ALTER TABLE users MODIFY COLUMN tariff ENUM('FREE', 'PLUS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'EMPLOYEE') DEFAULT 'FREE'")
+                await self.execute_query("ALTER TABLE users MODIFY COLUMN tariff ENUM('FREE', 'PLUS', 'PRO', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_PRO', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_PRO', 'EMPLOYEE') DEFAULT 'FREE'")
                 logging.info("Tarif enum yangilandi")
             except Exception as e:
                 logging.error(f"Tarif enum yangilashda xatolik: {e}")
             
             # User subscriptions jadvalini yangilash
             try:
-                await self.execute_query("ALTER TABLE user_subscriptions MODIFY COLUMN tariff ENUM('PLUS', 'BUSINESS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'EMPLOYEE') NOT NULL")
+                await self.execute_query("ALTER TABLE user_subscriptions MODIFY COLUMN tariff ENUM('PLUS', 'BUSINESS', 'PRO', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_PRO', 'BUSINESS_PLUS', 'BUSINESS_PRO', 'EMPLOYEE') NOT NULL")
                 logging.info("User subscriptions tariff enum yangilandi")
             except Exception as e:
                 logging.error(f"User subscriptions tariff enum yangilashda xatolik: {e}")
             
             # Payments jadvalini yangilash
             try:
-                await self.execute_query("ALTER TABLE payments MODIFY COLUMN tariff ENUM('FREE', 'PLUS', 'MAX', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_MAX', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_MAX', 'EMPLOYEE') NOT NULL")
+                await self.execute_query("ALTER TABLE payments MODIFY COLUMN tariff ENUM('FREE', 'PLUS', 'PRO', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_PRO', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_PRO', 'EMPLOYEE') NOT NULL")
                 logging.info("Payments tariff enum yangilandi")
             except Exception as e:
                 logging.error(f"Payments tariff enum yangilashda xatolik: {e}")

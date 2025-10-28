@@ -12,7 +12,9 @@ import ssl
 import os
 
 # Bot token
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8087310424:AAGn99-GObyu8cU7ADPNTt950K3scdtGXUQ")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN environment variable is required")
 
 # Webhook sozlamalari
 WEBHOOK_HOST = "https://your-domain.com"  # O'z domain ingizni kiriting

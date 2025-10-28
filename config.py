@@ -30,7 +30,7 @@ MYSQL_CONFIG = {
 TARIFFS = {
     'FREE': 'Bepul',
     'PLUS': 'Plus',
-    'MAX': 'Max',
+    'PRO': 'Pro',
     'FAMILY': 'Oila',
     'FAMILY_PLUS': 'Oila Plus',
     'FAMILY_MAX': 'Oila Max',
@@ -51,7 +51,7 @@ CATEGORIES = {
 TARIFF_PRICES = {
     'PLUS': 2900000,  # 29,000 so'm (2,900,000 kopek)
     'BUSINESS': 999900,  # 9,999 so'm (99,990 kopek)
-    'MAX': 499900,  # 4,999 so'm (49,990 kopek)
+    'PRO': 199900,  # 199,900 so'm
     'FAMILY': 399900,  # 3,999 so'm (39,990 kopek)
     'FAMILY_PLUS': 599900,  # 5,999 so'm (59,990 kopek)
     'FAMILY_MAX': 799900,  # 7,999 so'm (79,990 kopek)
@@ -92,7 +92,7 @@ ACTIVE_SPEECH_MODELS = {
 # 1 haftalik sinov holati (admin tomonidan boshqariladi)
 FREE_TRIAL_ENABLED = {
     'PLUS': True,        # Plus tarif uchun 1 haftalik sinov yoqilgan
-    'MAX': True,         # Max tarif uchun 1 haftalik sinov yoqilgan
+    'PRO': True,         # Pro tarif uchun 1 haftalik sinov yoqilgan
     'FAMILY': True,      # Family tarif uchun 1 haftalik sinov yoqilgan
     'FAMILY_PLUS': True, # Family Plus tarif uchun 1 haftalik sinov yoqilgan
     'FAMILY_MAX': True,  # Family Max tarif uchun 1 haftalik sinov yoqilgan

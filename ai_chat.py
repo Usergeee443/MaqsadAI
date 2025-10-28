@@ -2,17 +2,17 @@ import os
 import logging
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 from database import Database
 import json
 import asyncio
 
-# OpenAI API key
+# OpenAI API key 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "your_api_key_here")
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # OpenRouter API (biznes uchun arzon variant)
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "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")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 openrouter_client = OpenAI(
     api_key=OPENROUTER_API_KEY,
     base_url="https://openrouter.ai/api/v1"
@@ -29,6 +29,7 @@ class AIChat:
     def __init__(self, db=None):
         # Agar db berilmasa, yangi Database yaratish
         self.db = db if db else Database()
+        self.openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
         self.system_prompt = """Sen Balans AI ning shaxsiy buxgalter va do'stisiz.
 
 MUHIM: Hech qachon formatlash belgilarini ishlatma (#, **, vs). Faqat oddiy, insoniy matn.
@@ -81,6 +82,131 @@ Tillar:
         except Exception as e:
             logger.error(f"Error getting monthly transaction count: {e}")
             return 0
+    
+    async def _analyze_balance_response(self, text: str) -> Dict:
+        """Balans javobini AI bilan tahlil qilish"""
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """Siz Balans AI onboarding yordamchisisiz. Foydalanuvchi balansi haqida javobni qizigarlilik bilan tahlil qiling.
+
+VAZIFA:
+1. Javobdan balans raqamini ajrating
+2. Qiziqarli javob bering
+
+QOIDALAR:
+- "yo'q", "bo'm bo'sh", "qo'llatda pul yo'q" = 0 so'm
+- "100 mln", "100mln", "100 million" = 100000000 so'm
+- "50 ming" = 50000 so'm
+- Raqamlarni to'g'ri tushunish
+- Qiziqarli va qisqa javob (max 2 gap)
+
+FORMAT:
+{"balance": X, "message": "Qiziqarli javob"}
+
+MISOL:
+Javob: "yo'q hozir"
+{"balance": 0, "message": "😊 Juda yaxshi! Sizga pulni to'g'ri boshqarishni o'rganamiz!"}
+
+Javob: "100 million"
+{"balance": 100000000, "message": "🤩 Ajoyib! Millionerlar ham ishlaydi. 100 mln ni boshlang'ich balans sifatida qo'shdim!"}
+
+Javob: "500 ming"
+{"balance": 500000, "message": "✨ Yaxshi! 500 ming so'm boshlang'ich balans sifatida qo'shildi."}"""
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Foydalanuvchi javobi: {text}"
+                    }
+                ],
+                max_tokens=150,
+                temperature=0.7
+            )
+            
+            result_text = response.choices[0].message.content.strip()
+            
+            # JSON parse
+            import json
+            if '```json' in result_text:
+                result_text = result_text.split('```json')[1].split('```')[0]
+            elif '```' in result_text:
+                result_text = result_text.split('```')[1]
+            
+            result = json.loads(result_text)
+            return result
+            
+        except Exception as e:
+            logger.error(f"AI balans tahlili xatolik: {e}")
+            # Fallback
+            try:
+                import re
+                # Oddiy regex bilan raqamni ajratish
+                numbers = re.findall(r'\d+', text)
+                if numbers:
+                    balance = float(''.join(numbers))
+                    return {"balance": balance, "message": ""}
+            except:
+                pass
+            return {"balance": 0, "message": ""}
+    
+    async def _parse_debt_info(self, text: str) -> Dict:
+        """Qarz ma'lumotlarini AI bilan parse qilish"""
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """Siz qarz ma'lumotlarini parse qiluvchi yordamchisisiz.
+
+VAZIFA:
+Javobdan qarz ma'lumotlarini ajrating: ism, summa, qaytarish sanasi (ixtiyoriy)
+
+QOIDALAR:
+- "Akmalga 100000 so'm qarz bergan edim" → {"person": "Akmal", "amount": 100000, "due_date": null}
+- "Oila 500000 20-noyabrda qaytaradi" → {"person": "Oila", "amount": 500000, "due_date": "20-noyabr"}
+- "Do'st 50 ming" → {"person": "Do'st", "amount": 50000, "due_date": null}
+- "100 mln" = 100000000
+- "50 ming" = 50000
+
+FORMAT - FAQAT JSON:
+{"person": "Ism", "amount": NUMBER, "due_date": "sana yoki null"}
+
+MISOL:
+Javob: "Akmalga 100000 so'm qarz bergan edim, 20-noyabrda qaytaradi"
+JSON: {"person": "Akmal", "amount": 100000, "due_date": "20-noyabr"}
+
+Javob: "Do'st 500000"
+JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Qarz ma'lumoti: {text}"
+                    }
+                ],
+                max_tokens=100,
+                temperature=0
+            )
+            
+            result_text = response.choices[0].message.content.strip()
+            
+            # JSON parse
+            import json
+            if '```json' in result_text:
+                result_text = result_text.split('```json')[1].split('```')[0]
+            elif '```' in result_text:
+                result_text = result_text.split('```')[1]
+            
+            result = json.loads(result_text)
+            return result
+            
+        except Exception as e:
+            logger.error(f"AI qarz parse xatolik: {e}")
+            # Fallback
+            return {"person": "Noma'lum", "amount": 0, "due_date": None}
 
 
 class AIChatFree:
@@ -89,6 +215,7 @@ class AIChatFree:
     def __init__(self, db=None):
         # Agar db berilmasa, yangi Database yaratish
         self.db = db if db else Database()
+        self.openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
         self.system_prompt = """Sen Balans AI ning yordamchisisiz. Free tarif uchunsiz.
 
 MUHIM: Hech qachon formatlash belgilarini ishlatma (#, **, vs). Faqat oddiy, insoniy matn.
@@ -149,6 +276,99 @@ Tillar:
         except Exception as e:
             logger.error(f"Error getting user info: {e}")
             return {"name": "Do'st", "phone": None}
+    
+    async def _check_name(self, name: str) -> Dict:
+        """Ismni AI bilan tekshirish - yomon so'z yoki haqorat bilan bo'lishini"""
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Siz ism tekshiruvchisisiz. Ism yaxshi bo'lsa 'valid' qaytaring, yomon so'z yoki haqorat bo'lsa 'invalid' qaytaring. Faqat 'valid' yoki 'invalid' javob bering."
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Ism tekshirish: {name}"
+                    }
+                ],
+                max_tokens=10,
+                temperature=0
+            )
+            result = response.choices[0].message.content.strip().lower()
+            return {"is_valid": "valid" in result}
+        except:
+            # Xatolik bo'lsa ham valid qilamiz
+            return {"is_valid": True}
+    
+    async def _analyze_balance_response(self, text: str) -> Dict:
+        """Balans javobini AI bilan tahlil qilish"""
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """Siz Balans AI onboarding yordamchisisiz. Foydalanuvchi balansi haqida javobni qizigarlilik bilan tahlil qiling.
+
+VAZIFA:
+1. Javobdan balans raqamini ajrating
+2. Qiziqarli javob bering
+
+QOIDALAR:
+- "yo'q", "bo'm bo'sh", "qo'llatda pul yo'q" = 0 so'm
+- "100 mln", "100mln", "100 million" = 100000000 so'm
+- "50 ming" = 50000 so'm
+- Raqamlarni to'g'ri tushunish
+- Qiziqarli va qisqa javob (max 2 gap)
+
+FORMAT:
+{"balance": X, "message": "Qiziqarli javob"}
+
+MISOL:
+Javob: "yo'q hozir"
+{"balance": 0, "message": "😊 Juda yaxshi! Sizga pulni to'g'ri boshqarishni o'rganamiz!"}
+
+Javob: "100 million"
+{"balance": 100000000, "message": "🤩 Ajoyib! Millionerlar ham ishlaydi. 100 mln ni boshlang'ich balans sifatida qo'shdim!"}
+
+Javob: "500 ming"
+{"balance": 500000, "message": "✨ Yaxshi! 500 ming so'm boshlang'ich balans sifatida qo'shildi."}"""
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Foydalanuvchi javobi: {text}"
+                    }
+                ],
+                max_tokens=150,
+                temperature=0.7
+            )
+            
+            result_text = response.choices[0].message.content.strip()
+            
+            # JSON parse
+            import json
+            if '```json' in result_text:
+                result_text = result_text.split('```json')[1].split('```')[0]
+            elif '```' in result_text:
+                result_text = result_text.split('```')[1]
+            
+            result = json.loads(result_text)
+            return result
+            
+        except Exception as e:
+            logger.error(f"AI balans tahlili xatolik: {e}")
+            # Fallback
+            try:
+                import re
+                # Oddiy regex bilan raqamni ajratish
+                numbers = re.findall(r'\d+', text)
+                if numbers:
+                    balance = float(''.join(numbers))
+                    return {"balance": balance, "message": ""}
+            except:
+                pass
+            return {"balance": 0, "message": ""}
 
     async def get_user_financial_context(self, user_id: int) -> Dict:
         """Foydalanuvchining moliyaviy kontekstini olish"""
