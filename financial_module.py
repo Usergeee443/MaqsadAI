@@ -558,7 +558,7 @@ FORMAT:
 {"transactions": [{"amount": X, "type": "Y", "category": "Z", "description": "ORIGINAL_TEXT", "confidence": 0.9}], "total_confidence": 0.9}
 
 AGAR TUSHUNMASA:
-{"transactions": [], "total_confidence": 0, "error": "tushunish_e_madi"}
+{"transactions": [], "total_confidence": 0, "error": "tushunish_e_madi"}"""
                     },
                     {
                         "role": "user",
