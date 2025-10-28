@@ -468,18 +468,16 @@ def get_profile_menu(user_tariff='FREE'):
             ]
         )
     elif user_tariff == 'PLUS':
-        # PLUS tarif uchun - Statistika va Pro ga yangilash
+        # PLUS tarif uchun - faqat Sozlamalar va Pro ga yangilash
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="📊 Statistika", callback_data="profile_stats")],
                 [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"), InlineKeyboardButton(text="💎 Pro ga yangilash", web_app=WebAppInfo(url="https://balansai.onrender.com/payment"))]
             ]
         )
     else:
-        # PRO va boshqa tariflar uchun - faqat Sozlamalar
+        # PRO va boshqa tariflar uchun - Sozlamalar va Tarif
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="📊 Statistika", callback_data="profile_stats")],
                 [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"), InlineKeyboardButton(text="💳 Tarif", callback_data="tariff_info")]
             ]
         )
