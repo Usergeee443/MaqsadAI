@@ -1319,12 +1319,6 @@ async def start_command(message: types.Message, state: FSMContext):
         except Exception:
             pass
         return
-    if current_state == UserStates.waiting_for_initial_cash.state:
-        await message.answer(
-            "💵 1-qadam: Joriy naqd (xamyonda) pul miqdorini kiriting.\nMasalan: 0 yoki 100000",
-            parse_mode="Markdown"
-        )
-        return
     if current_state == UserStates.waiting_for_initial_card.state:
         await message.answer(
             "💳 2-qadam: Karta balansini kiriting.\nMasalan: 0 yoki 200000",
@@ -1353,22 +1347,6 @@ async def start_command(message: types.Message, state: FSMContext):
         await message.answer("Qaytarish sanasini kiriting (YYYY-MM-DD) yoki 'skip'.")
         return
 
-    # 3) Telefon bor, lekin boshlang'ich balans kiritilmagan va umuman tranzaksiya yo'q -> sozlamalarni boshlash (faqat yangi user)
-    # Avvalo foydalanuvchi obunasini tekshirib/yangilab olamiz
-    try:
-        await ensure_tariff_valid(user_id)
-    except Exception:
-        pass
-    user_tariff = await get_user_tariff(user_id)
-    if (not has_initial_balance) and (not has_any_transactions) and (user_tariff in ("FREE", "PLUS")):
-        await message.answer(
-            "💵 Boshlaymiz!\n\n"
-            "1-qadam: Joriy naqd (xamyonda) pul miqdorini kiriting.\n"
-            "Masalan: 0 yoki 100000",
-            parse_mode="Markdown"
-        )
-        await state.set_state(UserStates.waiting_for_initial_cash)
-        return
 
     # 4) Aks holda, asosiy menyuni ko'rsatish
     if user_data and user_data.get('phone') and (await state.get_state()) != UserStates.waiting_for_tariff.state:
@@ -1511,12 +1489,6 @@ async def process_account_type(callback_query: CallbackQuery, state: FSMContext)
         (account_type, user_id)
     )
     
-    # Eski xabarni o'chirish
-    try:
-        await callback_query.message.delete()
-    except:
-        pass
-    
     # Oila va Biznes uchun rasmli xabar va tugmalar
     if account_type == 'OILA':
         # Oila uchun rasmli xabar
@@ -1525,22 +1497,39 @@ async def process_account_type(callback_query: CallbackQuery, state: FSMContext)
             [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_account_type")]
         ])
         
-        await callback_query.message.delete()
-        await callback_query.message.answer_photo(
-            photo=FSInputFile('welcome1.png'),
-            caption=(
-                "👨‍👩‍👧‍👦 **Oila Rejimi**\n\n"
-                "Oila rejimida siz o'z oilangiz bilan birgalikda moliyaviy ma'lumotlaringizni boshqarishingiz mumkin.\n\n"
-                "✨ **Imkoniyatlar:**\n"
-                "• Oiladagi barcha a'zolarning tranzaksiyalari\n"
-                "• Kelishilgan moliyaviy maqsadlar\n"
-                "• Oilaviy xarajatlar monitoringi\n"
-                "• Bolalar uchun alohida hisobotlar\n\n"
-                "⚡ **Tez orada ishga tushadi!**"
-            ),
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
+        # Xabarni yangilash
+        try:
+            await callback_query.message.edit_caption(
+                caption=(
+                    "👨‍👩‍👧‍👦 **Oila Rejimi**\n\n"
+                    "Oila rejimida siz o'z oilangiz bilan birgalikda moliyaviy ma'lumotlaringizni boshqarishingiz mumkin.\n\n"
+                    "✨ **Imkoniyatlar:**\n"
+                    "• Oiladagi barcha a'zolarning tranzaksiyalari\n"
+                    "• Kelishilgan moliyaviy maqsadlar\n"
+                    "• Oilaviy xarajatlar monitoringi\n"
+                    "• Bolalar uchun alohida hisobotlar\n\n"
+                    "⚡ **Tez orada ishga tushadi!**"
+                ),
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+        except:
+            await callback_query.message.delete()
+            await callback_query.message.answer_photo(
+                photo=FSInputFile('welcome1.png'),
+                caption=(
+                    "👨‍👩‍👧‍👦 **Oila Rejimi**\n\n"
+                    "Oila rejimida siz o'z oilangiz bilan birgalikda moliyaviy ma'lumotlaringizni boshqarishingiz mumkin.\n\n"
+                    "✨ **Imkoniyatlar:**\n"
+                    "• Oiladagi barcha a'zolarning tranzaksiyalari\n"
+                    "• Kelishilgan moliyaviy maqsadlar\n"
+                    "• Oilaviy xarajatlar monitoringi\n"
+                    "• Bolalar uchun alohida hisobotlar\n\n"
+                    "⚡ **Tez orada ishga tushadi!**"
+                ),
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
         await callback_query.answer()
         return
     
@@ -1551,23 +1540,41 @@ async def process_account_type(callback_query: CallbackQuery, state: FSMContext)
             [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_account_type")]
         ])
         
-        await callback_query.message.delete()
-        await callback_query.message.answer_photo(
-            photo=FSInputFile('tariff.png'),
-            caption=(
-                "🏢 **Biznes Rejimi**\n\n"
-                "Biznes rejimida kichik va o'rta bizneslarni boshqarishingiz mumkin.\n\n"
-                "✨ **Imkoniyatlar:**\n"
-                "• Xodimlar soni va ularning maoshlarini boshqarish\n"
-                "• Do'kon va filyallarning daromadlarini monitoring qilish\n"
-                "• Xarajatlar va foydaning tahlili\n"
-                "• Bir nechta hisobni boshqarish\n"
-                "• To'liq biznes hisobotlari\n\n"
-                "⚡ **Tez orada ishga tushadi!**"
-            ),
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
+        # Xabarni yangilash
+        try:
+            await callback_query.message.edit_caption(
+                caption=(
+                    "🏢 **Biznes Rejimi**\n\n"
+                    "Biznes rejimida kichik va o'rta bizneslarni boshqarishingiz mumkin.\n\n"
+                    "✨ **Imkoniyatlar:**\n"
+                    "• Xodimlar soni va ularning maoshlarini boshqarish\n"
+                    "• Do'kon va filyallarning daromadlarini monitoring qilish\n"
+                    "• Xarajatlar va foydaning tahlili\n"
+                    "• Bir nechta hisobni boshqarish\n"
+                    "• To'liq biznes hisobotlari\n\n"
+                    "⚡ **Tez orada ishga tushadi!**"
+                ),
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+        except:
+            await callback_query.message.delete()
+            await callback_query.message.answer_photo(
+                photo=FSInputFile('tariff.png'),
+                caption=(
+                    "🏢 **Biznes Rejimi**\n\n"
+                    "Biznes rejimida kichik va o'rta bizneslarni boshqarishingiz mumkin.\n\n"
+                    "✨ **Imkoniyatlar:**\n"
+                    "• Xodimlar soni va ularning maoshlarini boshqarish\n"
+                    "• Do'kon va filyallarning daromadlarini monitoring qilish\n"
+                    "• Xarajatlar va foydaning tahlili\n"
+                    "• Bir nechta hisobni boshqarish\n"
+                    "• To'liq biznes hisobotlari\n\n"
+                    "⚡ **Tez orada ishga tushadi!**"
+                ),
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
         await callback_query.answer()
         return
     
