@@ -1517,12 +1517,55 @@ async def process_account_type(callback_query: CallbackQuery, state: FSMContext)
     except:
         pass
     
-    # Hozircha faqat Shaxsiy ishlaydi
-    if account_type != 'SHI':
-        await callback_query.message.answer(
-            f"⚠️ **Tez orada kutilmoqda**\n\n"
-            f"Yoqimsiz, {account_type} hozircha ishlay olmaydi. Iltimos, 'Shaxsiy foydalanish uchun' ni tanlang.",
-            reply_markup=get_account_type_menu(),
+    # Oila va Biznes uchun rasmli xabar va tugmalar
+    if account_type == 'OILA':
+        # Oila uchun rasmli xabar
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⚡ Aktivlashtirish", callback_data="activate_oila")],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_account_type")]
+        ])
+        
+        await callback_query.message.delete()
+        await callback_query.message.answer_photo(
+            photo=FSInputFile('welcome1.png'),
+            caption=(
+                "👨‍👩‍👧‍👦 **Oila Rejimi**\n\n"
+                "Oila rejimida siz o'z oilangiz bilan birgalikda moliyaviy ma'lumotlaringizni boshqarishingiz mumkin.\n\n"
+                "✨ **Imkoniyatlar:**\n"
+                "• Oiladagi barcha a'zolarning tranzaksiyalari\n"
+                "• Kelishilgan moliyaviy maqsadlar\n"
+                "• Oilaviy xarajatlar monitoringi\n"
+                "• Bolalar uchun alohida hisobotlar\n\n"
+                "⚡ **Tez orada ishga tushadi!**"
+            ),
+            reply_markup=keyboard,
+            parse_mode='Markdown'
+        )
+        await callback_query.answer()
+        return
+    
+    if account_type == 'BIZNES':
+        # Biznes uchun rasmli xabar
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⚡ Aktivlashtirish", callback_data="activate_biznes")],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_account_type")]
+        ])
+        
+        await callback_query.message.delete()
+        await callback_query.message.answer_photo(
+            photo=FSInputFile('tariff.png'),
+            caption=(
+                "🏢 **Biznes Rejimi**\n\n"
+                "Biznes rejimida kichik va o'rta bizneslarni boshqarishingiz mumkin.\n\n"
+                "✨ **Imkoniyatlar:**\n"
+                "• Xodimlar soni va ularning maoshlarini boshqarish\n"
+                "• Do'kon va filyallarning daromadlarini monitoring qilish\n"
+                "• Xarajatlar va foydaning tahlili\n"
+                "• Bir nechta hisobni boshqarish\n"
+                "• To'liq biznes hisobotlari\n\n"
+                "⚡ **Tez orada ishga tushadi!**"
+            ),
+            reply_markup=keyboard,
             parse_mode='Markdown'
         )
         await callback_query.answer()
@@ -1540,6 +1583,35 @@ async def process_account_type(callback_query: CallbackQuery, state: FSMContext)
     )
     await callback_query.answer()
     await state.set_state(UserStates.onboarding_balance)
+
+# Aktivlashtirish tugmalari
+@dp.callback_query(lambda c: c.data.startswith("activate_"))
+async def activate_account_type(callback_query: CallbackQuery):
+    """Aktivlashtirish tugmasi bosilganda"""
+    account_type = callback_query.data.split("_")[1]  # oila yoki biznes
+    
+    # Modal xabar yuborish
+    await callback_query.answer(
+        "⚡ Tez orada ishga tushadi!",
+        show_alert=True
+    )
+
+# Orqaga tugmasi
+@dp.callback_query(lambda c: c.data == "back_to_account_type")
+async def back_to_account_type(callback_query: CallbackQuery, state: FSMContext):
+    """Hisob turi tanlash sahifasiga qaytish"""
+    await callback_query.message.delete()
+    await callback_query.message.answer_photo(
+        photo=FSInputFile('welcome.png'),
+        caption=(
+            "🏢 **Hisob turini tanlang**\n\n"
+            "Iltimos, hisobingiz uchun mos turini tanlang:"
+        ),
+        reply_markup=get_account_type_menu(),
+        parse_mode="Markdown"
+    )
+    await callback_query.answer()
+    await state.set_state(UserStates.waiting_for_account_type)
 
 # Onboarding: 1-qadam — naqd balans
 @dp.message(UserStates.waiting_for_initial_cash)
