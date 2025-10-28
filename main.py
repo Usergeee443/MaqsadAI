@@ -4040,6 +4040,36 @@ async def process_financial_message(message: types.Message, state: FSMContext):
     await ensure_tariff_valid(user_id)
     user_tariff = await get_user_tariff(user_id)
     
+    # PLUS tarif uchun financial_module ishlaydi
+    if user_tariff == 'PLUS':
+        # PLUS uchun financial_module orqali qayta ishlaymiz
+        text = message.text
+        result = await financial_module.process_ai_input_advanced(text, user_id)
+        
+        if result.get('success'):
+            # Javob yuborish
+            await message.answer(result['message'], parse_mode='Markdown')
+            
+            # Agar tranzaksiya tasdiqlangan bo'lsa, tugmalar bilan yuborish
+            if 'transaction_data' in result:
+                transaction_type = result.get('type', '')
+                buttons = financial_module.generate_transaction_buttons({
+                    'transactions': result['transaction_data'].get('transactions', []),
+                    'type': transaction_type
+                })
+                
+                if buttons:
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text=btn['text'], callback_data=btn['callback_data'])] 
+                        for row in buttons for btn in row
+                    ])
+                    await message.answer("Tanlang:", reply_markup=keyboard)
+        else:
+            # Xatolik xabari
+            await message.answer(result.get('message', '❌ Xatolik yuz berdi.'), parse_mode='Markdown')
+        
+        return
+    
     # Faqat MAX va FREE tariflar uchun
     if user_tariff not in ['MAX', 'FREE']:
         return
