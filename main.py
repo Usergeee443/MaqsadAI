@@ -4042,14 +4042,20 @@ async def process_financial_message(message: types.Message, state: FSMContext):
     
     # PLUS tarif uchun financial_module ishlaydi
     if user_tariff == 'PLUS':
+        # "Bajarilyapti..." xabari
+        processing_msg = await message.answer("🔄 Bajarilyapti...")
+        
         # PLUS uchun financial_module orqali qayta ishlaymiz
         text = message.text
         result = await financial_module.process_ai_input_advanced(text, user_id)
         
+        # Processing xabarni o'chirish
+        try:
+            await processing_msg.delete()
+        except:
+            pass
+        
         if result.get('success'):
-            # Javob yuborish
-            await message.answer(result['message'], parse_mode='Markdown')
-            
             # Agar tranzaksiya tasdiqlangan bo'lsa, tugmalar bilan yuborish
             if 'transaction_data' in result:
                 transaction_type = result.get('type', '')
@@ -4063,7 +4069,12 @@ async def process_financial_message(message: types.Message, state: FSMContext):
                         [InlineKeyboardButton(text=btn['text'], callback_data=btn['callback_data'])] 
                         for row in buttons for btn in row
                     ])
-                    await message.answer("Tanlang:", reply_markup=keyboard)
+                    # Javob va tugmalar bir xabarda
+                    await message.answer(result['message'], parse_mode='Markdown', reply_markup=keyboard)
+                else:
+                    await message.answer(result['message'], parse_mode='Markdown')
+            else:
+                await message.answer(result['message'], parse_mode='Markdown')
         else:
             # Xatolik xabari
             await message.answer(result.get('message', '❌ Xatolik yuz berdi.'), parse_mode='Markdown')

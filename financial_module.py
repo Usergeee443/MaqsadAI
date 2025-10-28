@@ -393,22 +393,15 @@ QOIDALAR:
     async def process_ai_input_advanced(self, text: str, user_id: int) -> Dict[str, Any]:
         """AI orqali matnni to'liq tahlil qilish va moliyaviy ma'lumotlarni ajratish"""
         try:
-            # 1-bosqich: Transkriptni yaxshilash va to'g'rilash
-            improved_text = await self._improve_transcription_with_ai(text)
-            refined_text = await self._refine_transcription_context(improved_text)
-            logging.info(f"Refined matn: {refined_text}")
-            extract_base = refined_text if refined_text else improved_text
-            logging.info(f"Yaxshilangan matn: {improved_text}")
-            
-            # 2-bosqich: Moliyaviy ma'lumotlarni ajratish - GPT-4 Turbo
-            financial_data = await self._extract_financial_data_with_gpt4(extract_base)
+            # 1-bosqich: Moliyaviy ma'lumotlarni ajratish - to'g'ridan-to'g'ri
+            financial_data = await self._extract_financial_data_with_gpt4(text)
             print(f"DEBUG AI financial_data: {financial_data}")
             # Taxminiy (approximate) bosqich o'chirildi: foydalanuvchi talabiga ko'ra taxmin qilinmasin
             # financial_data = await self._ensure_ai_guess(financial_data, extract_base)
             # print(f"DEBUG AI after ensure_guess: {financial_data}")
             
             # 3-bosqich: Ma'lumotlarni validatsiya qilish
-            validation_result = await self._validate_extracted_data(financial_data, extract_base)
+            validation_result = await self._validate_extracted_data(financial_data, text)
             
             if not validation_result['is_valid']:
                 return {
@@ -417,7 +410,7 @@ QOIDALAR:
                 }
             
             # 4-bosqich: Tranzaksiyalarni tahlil qilish va ko'rsatish
-            return await self._analyze_and_show_transactions(validation_result['data'], user_id, improved_text)
+            return await self._analyze_and_show_transactions(validation_result['data'], user_id, text)
             
         except Exception as e:
             logging.error(f"AI qayta ishlashda xatolik: {e}")
@@ -528,22 +521,22 @@ QOIDALAR:
         """GPT-4 orqali moliyaviy ma'lumotlarni ajratish - tabiiy nutqni tushunish bilan"""
         try:
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4o",  # Eng kuchli model
+                model="gpt-4o-mini",  # Tezroq model
                 messages=[
                     {
                         "role": "system",
-                        "content": """Siz professional moliyaviy tahlilchi AI siz. Siz tabiiy nutqni tushunasiz va hech qachon "TUSHUNMADIM" demasligingiz kerak!
+                        "content": """Siz moliyaviy tahlilchi AI siz. QUYIDAGI TASK LAR: 1) Summa 2) Type (income/expense/debt) 3) Category.
 
-KRITIK MUHIM QOIDALAR:
-1. TABIIY NUTQNI TUSHUNISH - odamlar rasmiy gapirmaydi, lekin siz tushunishingiz kerak
-2. HAR BIR RAQAM VA SUMMA ANIQ BO'LISHI KERAK
-3. BARCHA JAVOBLAR FAQAT O'ZBEK TILIDA
-4. HAR BIR TRANZAKSIYA ALOHIDA VA ANIQ AJRATILISHI KERAK
-5. RAQAMLARNI TO'G'RI HISOBLANG (ming = 1000, million = 1000000)
-6. BIR NECHTA DAROMAD MANBALARINI ALOHIDA TRANZAKSIYA SIFATIDA AJRATISH
-7. JAMI SUMMANI HISOBGA OLMANG - faqat alohida tranzaksiyalarni ajrating
-8. GAP OXIRIDA SO'Z QISQARGAN BO'LSA HAM, MA'NOSINI TAXMIN QILING (masalan "x" = "xarajat" yoki gapning davomi)
-9. FOYDALANUVCHI SUMMANI AYTGAN BO'LSA, UNI HECH QACHON 0 QILMANG – TAXMINIY BO'LSA HAM SONNI ANIQ CHIQARING
+AGAR TUSHUNMASA (salom, xabar kabi) - "tushunish_e_madi" qaytaring!
+
+QOIDALAR:
+- "oylik oldim" = income (daromad)
+- "qarz oldim" = debt (qarz olish)
+- "qarz berdim" = debt (qarz berish)
+- "sarfladim" = expense (chiqim)
+- "olim" = expense (sotib oldim = chiqim)
+- Description FAqAT foydalanuvchi nima deb yozgan (misol: "500 ming oylik oldim" → "500 ming oylik oldim")
+- AGAR tranzaksiya TUSHUNILMASA → "tushunish_e_madi"
 
 TABIIY NUTQ TUSHUNISH:
 - "pul tushdi", "daromad qildim", "ishlab topdim" = income
@@ -553,63 +546,19 @@ TABIIY NUTQ TUSHUNISH:
 - "200 ming filyalimdan daromad" = 200000 so'm income biznes kategoriyasida
 - "jami 1mln bo'ldi" = bu jami hisobi, alohida tranzaksiya EMAS!
 
-TRANZAKSIYA TURLARI:
-- "income" - ishlab topish, maosh olish, pul topish, daromad, kirim, pul tushdi, sotish
-- "expense" - sarflash, xarajat qilish, sotib olish, to'lash, chiqim  
-- "debt" - qarz olish, qarz berish
+TYPES:
+- "income" = daromad, kirim, pul oldim
+- "expense" = chiqim, sarfladim, sotib oldim
+- "debt" = qarz oldim/berdim
 
 KATEGORIYALAR:
-- "biznes" - do'kon, filyal, savdo, sotish, biznes daromadi
-- "ish haqi" - ishlab topish, maosh, oylik, daromad (agar biznes bo'lmasa)
-- "ovqat" - taom, ovqat, restoran, cafe
-- "transport" - taksi, benzin, mashina, avtoubus
-- "kiyim" - kiyim-kechak, poyabzal, moda
-- "uy" - uy harajatlari, kommunal, remont
-- "sog'liq" - shifoxona, dori, shifokor
-- "ta'lim" - maktab, universitet, kitob, kurs
-- "o'yin-kulgi" - kino, o'yinlar, dam olish
-- "investitsiya" - investitsiya, aktsiya, biznes qo'yish
-- "boshqa" - boshqa barcha xarajatlar
+- "ish haqi", "biznes", "ovqat", "transport", "kiyim", "uy", "sog'liq", "ta'lim", "o'yin-kulgi", "boshqa"
 
-MUHIM MISOLLAR:
-"do'konimda 800 ming so'm pul tushdi keyin 200 ming so'm filyalimdan daromad qildim" = 
-2 ta ALOHIDA tranzaksiya:
-1) 800000 so'm income biznes (do'kondan)
-2) 200000 so'm income biznes (filyaldan)
+FORMAT:
+{"transactions": [{"amount": X, "type": "Y", "category": "Z", "description": "ORIGINAL_TEXT", "confidence": 0.9}], "total_confidence": 0.9}
 
-"25 ming so'm ishlab topdim" = 25000 so'm income ish haqi
-"20 ming so'm ovqatga sarfladim" = 20000 so'm expense ovqat
-"100 ming so'm qarz oldim" = 100000 so'm debt boshqa
-"bugun 10 ming so'm suv uchun x" = 10000 so'm expense uy kategoriyasi (kommunal suv to'lovi)
-
-JAVOB FORMATI - faqat JSON:
-{
-    "transactions": [
-        {
-            "amount": 800000,
-            "type": "income", 
-            "category": "biznes",
-            "description": "do'kon daromadi",
-            "confidence": 0.95
-        },
-        {
-            "amount": 200000,
-            "type": "income", 
-            "category": "biznes",
-            "description": "filyal daromadi",
-            "confidence": 0.95
-        }
-    ],
-    "total_confidence": 0.95
-}
-
-MUHIM: 
-- Har bir raqamni to'g'ri hisoblang
-- Description o'zbek tilida va qisqa bo'lsin  
-- Confidence 0.5 dan yuqori bo'lishi kerak
-- JAMI summalarni e'tiborsiz qoldiring - faqat alohida tranzaksiyalarni ajrating
-- Bir xil kontekstdagi alohida daromadlarni alohida tranzaksiya qiling
-- HECH QACHON bo'sh qaytarmang, har doim kamida 1 ta tranzaksiya qaytaring"""
+AGAR TUSHUNMASA:
+{"transactions": [], "total_confidence": 0, "error": "tushunish_e_madi"}
                     },
                     {
                         "role": "user",
@@ -617,8 +566,7 @@ MUHIM:
                     }
                 ],
                 temperature=0.0,
-                max_tokens=2000,
-                top_p=0.1
+                max_tokens=500
             )
             
             ai_response = response.choices[0].message.content
@@ -634,12 +582,17 @@ MUHIM:
                 elif '```' in ai_response:
                     ai_response = ai_response.split('```')[1]
                 
-                # Agar AI javobida JSON yo'q bo'lsa, fallback qilish
-                if not ai_response or ai_response.startswith('Kechirasiz') or 'matnni ko\'rmayapman' in ai_response:
-                    logging.info("AI javobida JSON yo'q, fallback qilinmoqda")
-                    return {"transactions": [], "total_confidence": 0}
+                # Agar AI "tushunmasligini" yozgan bo'lsa
+                if not ai_response or 'tushunish_e_madi' in ai_response.lower():
+                    logging.info("AI tushunmadi")
+                    return {"transactions": [], "total_confidence": 0, "error": "tushunish_e_madi"}
                 
                 data = json.loads(ai_response)
+                
+                # Agar transactions bo'sh bo'lsa
+                if not data.get('transactions'):
+                    return {"transactions": [], "total_confidence": 0, "error": "tushunish_e_madi"}
+                
                 return data
                 
             except json.JSONDecodeError as e:
@@ -719,10 +672,10 @@ MUHIM:
                     'confidence': trans_confidence
                 })
             
-            if not validated_transactions:
+            if not validated_transactions or data.get('error') == 'tushunish_e_madi':
                 return {
                     'is_valid': False,
-                    'message': "❌ Hech qanday to'g'ri tranzaksiya topilmadi. Iltimos, aniqroq yozing.\n\nMisol: 'Bugun do'konimda 500 ming so'm pul tushdi'"
+                    'message': "❌ Hech qanday to'g'ri tranzaksiya topilmadi. Iltimos, aniqroq yozing."
                 }
             
             return {
