@@ -467,7 +467,16 @@ def get_profile_menu(user_tariff='FREE'):
                 [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"), InlineKeyboardButton(text="💳 Tarif", callback_data="tariff_info")]
             ]
         )
+    elif user_tariff == 'PLUS':
+        # PLUS tarif uchun - Statistika va Pro ga yangilash
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="📊 Statistika", callback_data="profile_stats")],
+                [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"), InlineKeyboardButton(text="💎 Pro ga yangilash", web_app=WebAppInfo(url="https://balansai.onrender.com/payment"))]
+            ]
+        )
     else:
+        # PRO va boshqa tariflar uchun - faqat Sozlamalar
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="📊 Statistika", callback_data="profile_stats")],
@@ -2512,6 +2521,92 @@ async def profile_handler(message: Message, state: FSMContext):
             profile_text = (
                 f"{display_name} (ID: {user_id})\n\n"
                 f"Joriy tarif: Bepul"
+            )
+    elif user_tariff == 'PLUS':
+        # PLUS tarif uchun maxsus format
+        try:
+            row = await db.execute_one(
+                """
+                SELECT COUNT(*) 
+                FROM transactions 
+                WHERE user_id = %s 
+                AND MONTH(created_at) = MONTH(NOW())
+                AND YEAR(created_at) = YEAR(NOW())
+                """,
+                (user_id,)
+            )
+            monthly_count = row[0] if row else 0
+            
+            audio_row = await db.execute_one(
+                """
+                SELECT COUNT(*) 
+                FROM transactions 
+                WHERE user_id = %s 
+                AND MONTH(created_at) = MONTH(NOW())
+                AND YEAR(created_at) = YEAR(NOW())
+                AND description LIKE '%voice%'
+                """,
+                (user_id,)
+            )
+            audio_count = audio_row[0] if audio_row else 0
+            
+            expires_str = _format_date_uz(user_data['tariff_expires_at']) + " gacha" if user_data.get('tariff_expires_at') else '—'
+            
+            profile_text = (
+                f"{display_name} (ID: {user_id})\n\n"
+                f"Tarif: Plus ({expires_str})\n"
+                f"Tranzaksiyalar: {monthly_count}/500\n"
+                f"Ovozli Tranzaksiyalar: {audio_count}/250"
+            )
+        except Exception as e:
+            logging.error(f"Error getting PLUS stats: {e}")
+            expires_str = _format_date_uz(user_data['tariff_expires_at']) + " gacha" if user_data.get('tariff_expires_at') else '—'
+            profile_text = (
+                f"{display_name} (ID: {user_id})\n\n"
+                f"Tarif: Plus ({expires_str})"
+            )
+    elif user_tariff == 'PRO':
+        # PRO tarif uchun maxsus format
+        try:
+            row = await db.execute_one(
+                """
+                SELECT COUNT(*) 
+                FROM transactions 
+                WHERE user_id = %s 
+                AND MONTH(created_at) = MONTH(NOW())
+                AND YEAR(created_at) = YEAR(NOW())
+                """,
+                (user_id,)
+            )
+            monthly_count = row[0] if row else 0
+            
+            audio_row = await db.execute_one(
+                """
+                SELECT COUNT(*) 
+                FROM transactions 
+                WHERE user_id = %s 
+                AND MONTH(created_at) = MONTH(NOW())
+                AND YEAR(created_at) = YEAR(NOW())
+                AND description LIKE '%voice%'
+                """,
+                (user_id,)
+            )
+            audio_count = audio_row[0] if audio_row else 0
+            
+            expires_str = _format_date_uz(user_data['tariff_expires_at']) + " gacha" if user_data.get('tariff_expires_at') else '—'
+            
+            profile_text = (
+                f"{display_name} (ID: {user_id})\n\n"
+                f"Tarif: Pro ({expires_str})\n"
+                f"Tranzaksiyalar: {monthly_count}/1 000\n"
+                f"Ovozli Tranzaksiyalar: {audio_count}/500"
+            )
+        except Exception as e:
+            logging.error(f"Error getting PRO stats: {e}")
+            expires_str = _format_date_uz(user_data['tariff_expires_at']) + " gacha" if user_data.get('tariff_expires_at') else '—'
+            profile_text = (
+                f"{display_name} (ID: {user_id})\n\n"
+                f"Tarif: Pro ({expires_str})"
             )
     else:
         # Boshqa tariflar uchun eski format
