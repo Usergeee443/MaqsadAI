@@ -3100,7 +3100,7 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
     # Yangi yagona profil formatiga mos
     display_name = user_data.get('name', 'Xojayin')
     
-    # FREE tarif uchun tranzaksiya sonini qo'shamiz
+    # FREE tarif uchun
     if user_tariff == 'FREE':
         try:
             row = await db.execute_one(
@@ -3285,22 +3285,11 @@ async def activate_tariff_callback(callback_query: CallbackQuery):
     
     await callback_query.answer()
 
-@dp.callback_query(lambda c: c.data == "back_to_profile")
-async def back_to_profile_callback(callback_query: CallbackQuery):
-    """Profilga qaytish"""
-    user_id = callback_query.from_user.id
-    user_data = await db.get_user_data(user_id)
-    user_tariff = await get_user_tariff(user_id)
-    all_subscriptions = await get_user_all_subscriptions(user_id)
-    
-    profile_text = f"👤 **Profil**\n\n"
-    profile_text += f"🆔 ID: `{user_id}`\n"
-    profile_text += f"📅 Ro'yxat: {user_data['created_at'].strftime('%d.%m.%Y')}\n"
-    profile_text += f"👤 Ism: {user_data.get('name', 'Nomalum')}\n"
-    if user_data.get('phone'):
-        profile_text += f"📱 Tel: {user_data['phone']}\n\n"
-    
-    profile_text += f"🎯 **Aktiv tarif:** {TARIFFS.get(user_tariff, 'Nomalum')}\n"
+@dp.callback_query(lambda c: c.data.startswith("back_to_profile"))
+async def back_to_profile_callback_handler(callback_query: CallbackQuery):
+    """Profilga qaytish - duplicated, redirecting to main handler"""
+    # Ignore this duplicate, use the first one
+    pass
     
     if all_subscriptions:
         profile_text += f"\n📋 **Sotib olingan tariflar:**\n"
