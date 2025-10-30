@@ -323,22 +323,30 @@ QOIDALAR:
                 messages=[
                     {
                         "role": "system",
-                        "content": """Moliyaviy ma'lumotni ajratish: Summa, Type (income/expense/debt), Category.
-
-TUSHUNMASA: "tushunish_e_madi"
+                        "content": """Moliyaviy ma'lumotni ajratish: Summa, Type, Category.
 
 TYPES:
-- income: daromad, tushdi, maosh, oylik, ish haqi, olyik oldim, oylik oldim
-- expense: sarfladim, to'ladim, sotib oldim, ketdi
+- income: daromad, tushdi, maosh, oylik, ish haqi (oylik oldim, maosh oldim, daromad tushdi)
+- expense: sarfladim, to'ladim, sotib oldim, ketdi, xarajat (mashina oldim, oziq oldim, kiyim oldim)
 - debt: qarz oldim/berdim
 
-MISOL:
-"500 mln so'm olyik oldim" → income, ish haqi
-"500 million so'm oylik oldim" → income, ish haqi
-"100 ming oziq sotib oldim" → expense, ovqat
-
 KATEGORIYALAR:
-ish haqi, maosh, biznes, ovqat, transport, kiyim, uy, sog'liq, ta'lim, o'yin-kulgi, boshqa
+- ish haqi: oylik, maosh, ish haqi, daromad
+- biznes: do'kon, sotish, reklama, biznes daromadi
+- ovqat: oziq, ovqat, restoran, taom, do'stona
+- transport: mashina, taksi, benzin, yandex
+- kiyim: kiyim, poyabzal, ko'ylak
+- uy: kommunal, uy, kvartira, gaz, elektr
+- sog'liq: shifokor, dori, apteka, davolanish
+- ta'lim: kitob, kurs, dars, ta'lim
+- o'yin-kulgi: kino, o'yin, kafe, ichimlik
+- boshqa: noma'lum
+
+MISOL:
+"500 mln so'm oylik oldim" → income, ish haqi
+"100 ming oziq sotib oldim" → expense, ovqat
+"taksi 20 ming ketdi" → expense, transport
+"mashina 5 million sotib oldim" → expense, transport
 
 FORMAT:
 {"transactions": [{"amount": X, "type": "Y", "category": "Z"}], "total_confidence": 0.9}
