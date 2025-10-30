@@ -5,8 +5,9 @@ import aiofiles
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
-from openai import AsyncOpenAI
+from openai import OpenAI, AsyncOpenAI
 from google.cloud import speech_v1p1beta1 as speech
+import asyncio
 
 from config import (
     OPENAI_API_KEY,
@@ -21,10 +22,11 @@ from models import Transaction, TransactionType
 class FinancialModule:
     def __init__(self):
         self.openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-        self.openrouter_client = AsyncOpenAI(
+        # OpenRouter uchun sync client (Bepul tarifda ishlaganidek)
+        self.openrouter_client = OpenAI(
             api_key=OPENROUTER_API_KEY,
             base_url="https://openrouter.ai/api/v1"
-        )
+        ) if OPENROUTER_API_KEY else None
         self.speech_client = None
 
     def _format_amount_with_sign(self, amount: float, trans_type: str) -> str:
@@ -339,31 +341,41 @@ FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"ka
 
             user_prompt = f'Message: "{text}"\n\nJSON:'
 
-            # Mistral-7B-Instruct orqali (OpenRouter) - fallback bilan
-            try:
-                response = await self.openrouter_client.chat.completions.create(
-                    model="mistralai/mistral-7b-instruct",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    max_tokens=150,
-                    temperature=0.0
-                )
-            except Exception as e:
-                logging.warning(f"Mistral xatolik, GPT-3.5 ga o'tilmoqda: {e}")
-                # Fallback: GPT-3.5-turbo
-                response = await self.openai_client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    max_tokens=150,
-                    temperature=0.0
-                )
+            # Mistral-7B-Instruct orqali (OpenRouter) - sync client bilan
+            def call_ai():
+                try:
+                    if self.openrouter_client:
+                        response = self.openrouter_client.chat.completions.create(
+                            model="mistralai/mistral-7b-instruct",
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt}
+                            ],
+                            max_tokens=150,
+                            temperature=0.0
+                        )
+                        return response.choices[0].message.content
+                    else:
+                        raise Exception("OpenRouter client not available")
+                except Exception as e:
+                    logging.warning(f"Mistral xatolik, GPT-3.5 ga o'tilmoqda: {e}")
+                    # Fallback: GPT-3.5-turbo (sync)
+                    from openai import OpenAI
+                    openai_sync = OpenAI(api_key=OPENAI_API_KEY)
+                    response = openai_sync.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        max_tokens=150,
+                        temperature=0.0
+                    )
+                    return response.choices[0].message.content
             
-            ai_response = response.choices[0].message.content
+            loop = asyncio.get_event_loop()
+            ai_response = await loop.run_in_executor(None, call_ai)
+            
             logging.info(f"AI moliyaviy javob: {ai_response}")
             print(f"DEBUG AI raw response: {ai_response}")
             
