@@ -30,7 +30,7 @@ class AIChat:
         # Agar db berilmasa, yangi Database yaratish
         self.db = db if db else Database()
         self.openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-        self.system_prompt = """Sen Balans AI ning shaxsiy buxgalter va do'stisiz.
+        self.system_prompt = """Sen Balans AI ning shaxsiy buxgalter va do'stisiz. PRO tarifda.
 
 MUHIM: Hech qachon formatlash belgilarini ishlatma (#, **, vs). Faqat oddiy, insoniy matn.
 
@@ -40,15 +40,34 @@ Xaraktering:
 - Foydalanuvchiga "sen" deb murojaat qilasiz
 - Ko'p xarajat qilsa - jahl chiqarading, kam qilsa - maqtaysiz
 
+Asosiy Vazifang:
+1. TRANZAKSIYALAR - Xarajat/daromad aniqlash va saqlash:
+   - "Kofe 15000" → Xarajat, kofe, 15000 so'm (avtomatik saqlanadi)
+   - "Oylik tushdi 5 million" → Daromad, 5 000 000 so'm (avtomatik saqlanadi)
+   - "Netflixga obuna uchun $5" → Xarajat, obunalar, 5$ (avtomatik saqlanadi)
+   - "Do'stimdan 500k qaytdi" → Daromad, qarz qaytish, 500 000 so'm
+
+2. HISOBOTLAR - Statistika va tahlil:
+   - "Shu oy kofega qancha ketdi?" → Tahlil va javob
+   - "O'tgan haftadagi eng katta xarajatim nima?" → Javob
+   - "Avgust oyi uchun hisobot" → Umumiy statistik
+   - "Shu oy taksi va ovqatga jami qancha?" → Javob
+
+3. MAQSADLAR - Byudjet va monitoring:
+   - "Bu hafta 1 mln ishlatmoqchiman" → Maqsad saqlash
+   - "Shu oy 'Restoranlar' uchun 500k byudjetim bor" → Byudjet saqlash
+   - "Maqsadlarim qanaqa?" → Monitoring
+
+4. MASLAHATLAR - Tahlil va tavsiya:
+   - "Pulni qanday tejashim mumkin?" → Maslahat
+   - "Mening moliyaviy ahvolim qanaqa?" → Tahlil
+   - "Xarajatlarim juda ko'payib ketmadimi?" → Tahlil va maslahat
+
 Javob tuzishi (2-4 bosqich):
 1. Asosiy javob - qisqa va aniq
 2. Tahlil - kamchiliklar/tavsiyalar (format belgilarisiz)
 3. Ruhlantiruvchi - ijobiy natijalar (emoji bilan)
 4. Taklif - keyingi qadam
-
-Replay:
-- "Ha", "ok", "go" → keyingi bosqich
-- "Yo'q", "bekor" → boshqa yechim
 
 Uslub:
 - Har bir bosqich alohida qator (max 2-3 gap)
@@ -612,10 +631,14 @@ Javob: "500 ming"
         try:
             message_lower = message.lower()
             
-            # Xarajat kalit so'zlar
-            expense_keywords = ['sarfladim', 'to\'ladim', 'oldim', 'chiqim', 'xarajat', 'yozish', 'oydim']
-            # Daromad kalit so'zlar
-            income_keywords = ['kirdim', 'oldim', 'oylik', 'daromad', 'kirim', 'tushdi', 'pul']
+            # Xarajat kalit so'zlar (PRO tarif uchun kengaytirilgan)
+            expense_keywords = ['sarfladim', 'to\'ladim', 'oldim', 'chiqim', 'xarajat', 'yozish', 'oydim', 
+                               'ketdi', 'xarj', 'tuladim', 'ishlatdim', 'berdim', 'yuboraman', 'to\'layman', 
+                               'ketkazdim', 'summa', 'masraf', 'xarakat']
+            # Daromad kalit so'zlar (PRO tarif uchun kengaytirilgan)
+            income_keywords = ['kirdim', 'oldim', 'oylik', 'daromad', 'kirim', 'tushdi', 'pul', 
+                              'tushgan', 'olgan', 'kirgan', 'aylandi', 'qaytdi', 'kelgan', 
+                              'qabul', 'maosh', 'ish haqi', 'avans']
             # Qarz kalit so'zlar
             debt_keywords = ['qarz oldim', 'qarz berdim', 'to\'layman', 'qarz', 'berdim', 'oldim']
             
@@ -623,44 +646,80 @@ Javob: "500 ming"
             transaction_type = None
             category = None
             
-            # Kategoriyalarni topish
+            # Kategoriyalarni topish (PRO tarif uchun kengaytirilgan)
             categories_map = {
-                'xarajat': 'other',
-                'chiqim': 'other',
-                'daromad': 'other',
-                'kirim': 'other',
+                # Oziq-ovqat
                 'oziq': 'food',
                 'ovqat': 'food',
                 'restoran': 'food',
                 'taom': 'food',
+                'korzinka': 'groceries',
+                'supermarket': 'groceries',
+                'do\'kon': 'groceries',
+                'market': 'groceries',
+                'oziq_ovqat': 'groceries',
+                # Transport
                 'transport': 'transport',
                 'taksi': 'transport',
                 'mashina': 'transport',
                 'benzin': 'transport',
+                'yandex': 'transport',
+                'uber': 'transport',
+                # Kofe va gazaklar
                 'kofe': 'coffee',
                 'choy': 'coffee',
+                'latte': 'coffee',
+                'cappuccino': 'coffee',
                 'shirinlik': 'snacks',
                 'suv': 'snacks',
+                'gazak': 'snacks',
+                # Ichimliklar
                 'giyohvand': 'drinks',
                 'ichimlik': 'drinks',
-                'market': 'groceries',
-                'oziq_ovqat': 'groceries',
-                'do\'kon': 'groceries',
+                'alkogol': 'drinks',
+                'kola': 'drinks',
+                'pepsi': 'drinks',
+                # Kiyim va poyabzal
                 'kiyim': 'clothing',
                 'poyabzal': 'clothing',
+                'oyoq kiyim': 'clothing',
+                # Kommunal xizmatlar
                 'gaz': 'utilities',
                 'elektr': 'utilities',
                 'interney': 'utilities',
-                'telefon': 'utilities',
                 'internet': 'utilities',
+                'telefon': 'utilities',
+                'kvartira': 'utilities',
+                # Sog'liq
                 'davolanish': 'health',
                 'dori': 'health',
                 'shifokor': 'health',
+                'apteka': 'health',
+                'stomatolog': 'health',
+                # Ta'lim
                 'ta\'lim': 'education',
                 'kitob': 'education',
+                'kurs': 'education',
+                'dars': 'education',
+                'mentor': 'education',
+                # Go'zallik
                 'salon': 'beauty',
                 'barbar': 'beauty',
                 'kilim': 'beauty',
+                'kosmetika': 'beauty',
+                'mani': 'beauty',
+                'pedikyur': 'beauty',
+                # Obunalar
+                'netflix': 'subscriptions',
+                'spotify': 'subscriptions',
+                'youtube': 'subscriptions',
+                'obuna': 'subscriptions',
+                'premium': 'subscriptions',
+                # Xarajat/daromad (umumiy)
+                'xarajat': 'other',
+                'chiqim': 'other',
+                'daromad': 'other',
+                'kirim': 'other',
             }
             
             # Qarz tekshirish
@@ -672,6 +731,10 @@ Javob: "500 ming"
                 else:
                     transaction_type = 'income'
                     category = 'qarz_olish'
+            # Daromad tekshirish (xarajatdan oldin)
+            elif any(keyword in message_lower for keyword in ['oylik', 'maosh', 'ish haqi', 'avans', 'tushdi', 'qaytdi', 'aylandi']):
+                transaction_type = 'income'
+                category = 'other'
             # Xarajat tekshirish
             elif any(keyword in message_lower for keyword in expense_keywords):
                 transaction_type = 'expense'
@@ -681,7 +744,7 @@ Javob: "500 ming"
                     if key in message_lower:
                         category = val
                         break
-            # Daromad tekshirish
+            # Umumiy daromad (qolgan)
             elif any(keyword in message_lower for keyword in income_keywords):
                 transaction_type = 'income'
                 category = 'other'

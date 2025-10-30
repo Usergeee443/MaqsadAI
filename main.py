@@ -475,7 +475,7 @@ def get_profile_menu(user_tariff='FREE'):
         # PLUS tarif uchun - faqat Sozlamalar va Pro ga yangilash
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"), InlineKeyboardButton(text="💎 Pro ga yangilash", web_app=WebAppInfo(url="https://balansai.onrender.com/payment"))]
+                [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"), InlineKeyboardButton(text="💎 Pro ga yangilash", web_app=WebAppInfo(url="https://balansai.onrender.com/payment-pro"))]
             ]
         )
     else:
