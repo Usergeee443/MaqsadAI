@@ -339,16 +339,29 @@ FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"ka
 
             user_prompt = f'Message: "{text}"\n\nJSON:'
 
-            # Mistral-7B-Instruct orqali (OpenRouter)
-            response = await self.openrouter_client.chat.completions.create(
-                model="mistralai/mistral-7b-instruct",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                max_tokens=150,
-                temperature=0.0
-            )
+            # Mistral-7B-Instruct orqali (OpenRouter) - fallback bilan
+            try:
+                response = await self.openrouter_client.chat.completions.create(
+                    model="mistralai/mistral-7b-instruct",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    max_tokens=150,
+                    temperature=0.0
+                )
+            except Exception as e:
+                logging.warning(f"Mistral xatolik, GPT-3.5 ga o'tilmoqda: {e}")
+                # Fallback: GPT-3.5-turbo
+                response = await self.openai_client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    max_tokens=150,
+                    temperature=0.0
+                )
             
             ai_response = response.choices[0].message.content
             logging.info(f"AI moliyaviy javob: {ai_response}")
