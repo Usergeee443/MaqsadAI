@@ -10,6 +10,7 @@ from google.cloud import speech_v1p1beta1 as speech
 
 from config import (
     OPENAI_API_KEY,
+    OPENROUTER_API_KEY,
     GOOGLE_CLOUD_PROJECT,
     GOOGLE_APPLICATION_CREDENTIALS,
     CATEGORIES,
@@ -20,6 +21,10 @@ from models import Transaction, TransactionType
 class FinancialModule:
     def __init__(self):
         self.openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+        self.openrouter_client = AsyncOpenAI(
+            api_key=OPENROUTER_API_KEY,
+            base_url="https://openrouter.ai/api/v1"
+        )
         self.speech_client = None
 
     def _format_amount_with_sign(self, amount: float, trans_type: str) -> str:
@@ -316,54 +321,33 @@ QOIDALAR:
             return text
 
     async def _extract_financial_data_with_gpt4(self, text: str) -> Dict[str, Any]:
-        """Arzonroq model orqali moliyaviy ma'lumotlarni ajratish - optimizatsiya qilingan"""
+        """Mistral bilan moliyaviy ma'lumotlarni ajratish - tez va arzon (PLUS tarif)"""
         try:
-            response = await self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",  # Arzonroq model (5x arzonroq)
-                messages=[
-                    {
-                        "role": "system",
-                        "content": """Sen moliyaviy tranzaksiyalarni aniqlaydigan AI assistantsan. Har bir xabardan summa, tur (income/expense/debt) va kategoriyani aniqla.
+            # System prompt - Mistral uchun optimallashtirilgan
+            system_prompt = """Sen tranzaksiya aniqlovchisan. JSON formatda javob ber.
 
-QOIDA: Kategoriyani matndan aniqla. Agar aniq kategoriya topilmasa, "boshqa" qo'y.
-
-TURLAR:
-- income: daromad tushdi, maosh oldim, oylik tushdi, pul oldim (ish uchun)
-- expense: xarajat, sotib oldim, to'ladim, sarfladim, ketdi
-- debt: qarz berdim, qarz oldim
-
-KATEGORIYALAR (muhim kalit so'zlar):
-1. ish haqi - maosh, oylik, ish haqi, daromad (ish uchun)
-2. biznes - sotdim, sotish, do'kon, biznes
-3. ovqat - ovqat, oziq, restoran, taom, kafe, kofe, breakfast, lunch, dinner
-4. transport - taksi, yandex, mashina, benzin, yo'l, avtomobil
-5. kiyim - ko'ylak, shim, poyabzal, kiyim
-6. uy - uy, kvartira, ijara, kommunal, gaz, elektr, suv
-7. sog'liq - shifokor, bemor, dori, apteka, hospital
-8. ta'lim - kitob, kurs, maktab, universitet, o'qish
-9. o'yin-kulgi - kino, teatr, konsert, o'yin, dam olish
-10. boshqa - FAQAT kategoriya aniqlab bo'lmasa
+KATEGORIYALAR:
+ish haqi, biznes, ovqat, transport, kiyim, uy, sog'liq, ta'lim, o'yin-kulgi, boshqa
 
 MISOLLAR:
-"500 million oylik oldim" → {"amount": 500000000, "type": "income", "category": "ish haqi"}
-"100 ming xarajat" → {"amount": 100000, "type": "expense", "category": "boshqa"}
-"100 ming oziq oldim" → {"amount": 100000, "type": "expense", "category": "ovqat"}
-"taksi 20k" → {"amount": 20000, "type": "expense", "category": "transport"}
-"restoranga 150 ming" → {"amount": 150000, "type": "expense", "category": "ovqat"}
+"500 million oylik oldim" → {"transactions":[{"amount":500000000,"type":"income","category":"ish haqi"}],"total_confidence":0.95}
+"100k xarajat" → {"transactions":[{"amount":100000,"type":"expense","category":"boshqa"}],"total_confidence":0.8}
+"50 ming oziq" → {"transactions":[{"amount":50000,"type":"expense","category":"ovqat"}],"total_confidence":0.9}
+"taksi 20k" → {"transactions":[{"amount":20000,"type":"expense","category":"transport"}],"total_confidence":0.95}
 
-FORMAT (JSON faqat):
-{"transactions": [{"amount": 100000, "type": "expense", "category": "ovqat"}], "total_confidence": 0.9}
+FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"kategoriya"}],"total_confidence":0.9}"""
 
-AGAR TUSHUNMASANG:
-{"transactions": [], "total_confidence": 0, "error": "tushunish_e_madi"}"""
-                    },
-                    {
-                        "role": "user",
-                        "content": text
-                    }
+            user_prompt = f'Message: "{text}"\n\nJSON:'
+
+            # Mistral-7B-Instruct orqali (OpenRouter)
+            response = await self.openrouter_client.chat.completions.create(
+                model="mistralai/mistral-7b-instruct",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.0,
-                max_tokens=200  # Kamaytirilgan (500 → 200)
+                max_tokens=150,
+                temperature=0.0
             )
             
             ai_response = response.choices[0].message.content
