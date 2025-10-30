@@ -323,35 +323,38 @@ QOIDALAR:
                 messages=[
                     {
                         "role": "system",
-                        "content": """Moliyaviy ma'lumotni ajratish: Summa, Type, Category.
+                        "content": """Sen moliyaviy tranzaksiyalarni aniqlaydigan AI assistantsan. Har bir xabardan summa, tur (income/expense/debt) va kategoriyani aniqla.
 
-TYPES:
-- income: daromad, tushdi, maosh, oylik, ish haqi (oylik oldim, maosh oldim, daromad tushdi)
-- expense: sarfladim, to'ladim, sotib oldim, ketdi, xarajat (mashina oldim, oziq oldim, kiyim oldim)
-- debt: qarz oldim/berdim
+QOIDA: Kategoriyani matndan aniqla. Agar aniq kategoriya topilmasa, "boshqa" qo'y.
 
-KATEGORIYALAR:
-- ish haqi: oylik, maosh, ish haqi, daromad
-- biznes: do'kon, sotish, reklama, biznes daromadi
-- ovqat: oziq, ovqat, restoran, taom, do'stona
-- transport: mashina, taksi, benzin, yandex
-- kiyim: kiyim, poyabzal, ko'ylak
-- uy: kommunal, uy, kvartira, gaz, elektr
-- sog'liq: shifokor, dori, apteka, davolanish
-- ta'lim: kitob, kurs, dars, ta'lim
-- o'yin-kulgi: kino, o'yin, kafe, ichimlik
-- boshqa: noma'lum
+TURLAR:
+- income: daromad tushdi, maosh oldim, oylik tushdi, pul oldim (ish uchun)
+- expense: xarajat, sotib oldim, to'ladim, sarfladim, ketdi
+- debt: qarz berdim, qarz oldim
 
-MISOL:
-"500 mln so'm oylik oldim" → income, ish haqi
-"100 ming oziq sotib oldim" → expense, ovqat
-"taksi 20 ming ketdi" → expense, transport
-"mashina 5 million sotib oldim" → expense, transport
+KATEGORIYALAR (muhim kalit so'zlar):
+1. ish haqi - maosh, oylik, ish haqi, daromad (ish uchun)
+2. biznes - sotdim, sotish, do'kon, biznes
+3. ovqat - ovqat, oziq, restoran, taom, kafe, kofe, breakfast, lunch, dinner
+4. transport - taksi, yandex, mashina, benzin, yo'l, avtomobil
+5. kiyim - ko'ylak, shim, poyabzal, kiyim
+6. uy - uy, kvartira, ijara, kommunal, gaz, elektr, suv
+7. sog'liq - shifokor, bemor, dori, apteka, hospital
+8. ta'lim - kitob, kurs, maktab, universitet, o'qish
+9. o'yin-kulgi - kino, teatr, konsert, o'yin, dam olish
+10. boshqa - FAQAT kategoriya aniqlab bo'lmasa
 
-FORMAT:
-{"transactions": [{"amount": X, "type": "Y", "category": "Z"}], "total_confidence": 0.9}
+MISOLLAR:
+"500 million oylik oldim" → {"amount": 500000000, "type": "income", "category": "ish haqi"}
+"100 ming xarajat" → {"amount": 100000, "type": "expense", "category": "boshqa"}
+"100 ming oziq oldim" → {"amount": 100000, "type": "expense", "category": "ovqat"}
+"taksi 20k" → {"amount": 20000, "type": "expense", "category": "transport"}
+"restoranga 150 ming" → {"amount": 150000, "type": "expense", "category": "ovqat"}
 
-TUSHUNMASA:
+FORMAT (JSON faqat):
+{"transactions": [{"amount": 100000, "type": "expense", "category": "ovqat"}], "total_confidence": 0.9}
+
+AGAR TUSHUNMASANG:
 {"transactions": [], "total_confidence": 0, "error": "tushunish_e_madi"}"""
                     },
                     {
