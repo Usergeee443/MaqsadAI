@@ -670,23 +670,18 @@ async def admin_speech_models_callback(callback_query: CallbackQuery):
     
     # Hozirgi holatni ko'rsatish
     google_status = "✅ Yoqilgan" if ACTIVE_SPEECH_MODELS['GOOGLE'] else "❌ O'chirilgan"
-    whisper_status = "✅ Yoqilgan" if ACTIVE_SPEECH_MODELS['WHISPER'] else "❌ O'chirilgan"
     
     text = f"""🎤 **Speech Model Boshqarish**
 
 **Hozirgi holat:**
 • Google Cloud Speech-to-Text: {google_status}
-• OpenAI Whisper: {whisper_status}
 
 **Boshqarish:**
-Quyidagi tugmalardan foydalaning:"""
+Quyidagi tugmadan foydalaning:"""
     
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=f"Google: {google_status}", callback_data="admin_toggle_google")],
-            [InlineKeyboardButton(text=f"Whisper: {whisper_status}", callback_data="admin_toggle_whisper")],
-            [InlineKeyboardButton(text="🔄 Ikkalasini ham yoqish", callback_data="admin_enable_all")],
-            [InlineKeyboardButton(text="❌ Ikkalasini ham o'chirish", callback_data="admin_disable_all")],
             [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin_back")]
         ]
     )
@@ -709,48 +704,6 @@ async def admin_toggle_google_callback(callback_query: CallbackQuery):
     )
     await admin_speech_models_callback(callback_query)
 
-@dp.callback_query(lambda c: c.data == "admin_toggle_whisper")
-async def admin_toggle_whisper_callback(callback_query: CallbackQuery):
-    if callback_query.from_user.id != ADMIN_USER_ID:
-        await callback_query.answer()
-        return
-    
-    # Whisper ni toggle qilish
-    ACTIVE_SPEECH_MODELS['WHISPER'] = not ACTIVE_SPEECH_MODELS['WHISPER']
-    # Bazaga saqlash
-    await db.execute_query(
-        "UPDATE config SET value = %s WHERE key_name = 'active_speech_whisper'",
-        (str(ACTIVE_SPEECH_MODELS['WHISPER']).lower(),)
-    )
-    await admin_speech_models_callback(callback_query)
-
-@dp.callback_query(lambda c: c.data == "admin_enable_all")
-async def admin_enable_all_callback(callback_query: CallbackQuery):
-    if callback_query.from_user.id != ADMIN_USER_ID:
-        await callback_query.answer()
-        return
-    
-    # Ikkalasini ham yoqish
-    ACTIVE_SPEECH_MODELS['GOOGLE'] = True
-    ACTIVE_SPEECH_MODELS['WHISPER'] = True
-    # Bazaga saqlash
-    await db.execute_query("UPDATE config SET value = 'true' WHERE key_name = 'active_speech_google'")
-    await db.execute_query("UPDATE config SET value = 'true' WHERE key_name = 'active_speech_whisper'")
-    await admin_speech_models_callback(callback_query)
-
-@dp.callback_query(lambda c: c.data == "admin_disable_all")
-async def admin_disable_all_callback(callback_query: CallbackQuery):
-    if callback_query.from_user.id != ADMIN_USER_ID:
-        await callback_query.answer()
-        return
-    
-    # Ikkalasini ham o'chirish
-    ACTIVE_SPEECH_MODELS['GOOGLE'] = False
-    ACTIVE_SPEECH_MODELS['WHISPER'] = False
-    # Bazaga saqlash
-    await db.execute_query("UPDATE config SET value = 'false' WHERE key_name = 'active_speech_google'")
-    await db.execute_query("UPDATE config SET value = 'false' WHERE key_name = 'active_speech_whisper'")
-    await admin_speech_models_callback(callback_query)
 
 @dp.callback_query(lambda c: c.data == "admin_back")
 async def admin_back_callback(callback_query: CallbackQuery):
@@ -4722,69 +4675,6 @@ async def process_google_audio(message: types.Message, state: FSMContext, audio_
         logging.error(f"Google background task error: {e}")
 
 
-async def process_whisper_result(message: types.Message, state: FSMContext, audio_path: str, user_id: int):
-    """Whisper natijalarini alohida qayta ishlash"""
-    try:
-        # Whisper ni ishga tushirish
-        whisper_result = await financial_module.process_whisper_audio(audio_path, user_id)
-        
-        # Whisper natijasini yuborish
-        if whisper_result['success']:
-            if whisper_result.get('type') == 'single_confirmation':
-                # Bitta tranzaksiya tasdiqlash
-                await state.set_state(UserStates.waiting_for_transaction_confirmation)
-                await state.update_data(transaction_data=whisper_result['transaction_data'])
-                
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="💾 Saqlash", callback_data="trans_single")],
-                    [InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_cancel_single")]
-                ])
-                
-                await message.answer(whisper_result['message'], parse_mode='Markdown', reply_markup=keyboard)
-                
-            elif whisper_result.get('type') == 'multiple_preview':
-                # Ko'p tranzaksiyalar oldindan ko'rinishi
-                await state.set_state(UserStates.waiting_for_transaction_confirmation)
-                await state.update_data(transaction_data=whisper_result['buttons_data'])
-                
-                # Tugmalarni yaratish
-                buttons_data = whisper_result['buttons_data']
-                transactions = buttons_data.get('transactions', [])
-                
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-                
-                # Har bir tranzaksiya uchun tugma
-                for trans in transactions:
-                    if trans['status'] == 'confirmed':
-                        emoji = "💾" if trans['data']['type'] == 'expense' else "💰"
-                        button_text = f"{emoji} #{trans['index']}"
-                        keyboard.inline_keyboard.append([
-                            InlineKeyboardButton(text=button_text, callback_data=f"trans_toggle_{trans['index']}")
-                        ])
-                
-                # Umumiy boshqaruv tugmalari
-                keyboard.inline_keyboard.append([
-                    InlineKeyboardButton(text="✅ Hammasini saqlash", callback_data="trans_save_all"),
-                    InlineKeyboardButton(text="❌ Hammasini bekor qilish", callback_data="trans_cancel_all")
-                ])
-                
-                await message.answer(whisper_result['message'], parse_mode='Markdown', reply_markup=keyboard)
-            
-            elif whisper_result.get('type') == 'completed':
-                # Natijani ko'rsatish
-                await message.answer(whisper_result['message'], parse_mode='Markdown')
-            
-            else:
-                # Oddiy natija
-                await message.answer(whisper_result['message'], parse_mode='Markdown')
-        else:
-            # Xatolik yuz berdi
-            await message.answer(whisper_result['message'], parse_mode='Markdown')
-    
-    except Exception as e:
-        logging.error(f"Whisper background task error: {e}")
-
-
 # Audio xabarlarni qayta ishlash (Premium)
 @dp.message(lambda message: message.voice or message.audio)
 async def process_audio_message(message: types.Message, state: FSMContext):
@@ -4844,37 +4734,15 @@ async def process_audio_message(message: types.Message, state: FSMContext):
         # Bajarilmoqda xabarini yuborish
         processing_msg = await message.answer("🔄 Bajarilmoqda...", parse_mode='Markdown')
         
-        # Faqat faol modellarni ishga tushirish
-        import asyncio
-        tasks = []
-        
-        # Google Cloud Speech-to-Text ni tekshirish va ishga tushirish
+        # Google Cloud Speech-to-Text
         if ACTIVE_SPEECH_MODELS['GOOGLE']:
-            google_task = asyncio.create_task(process_google_audio(message, state, audio_path, user_id))
-            tasks.append(google_task)
-        
-        # Whisper ni tekshirish va ishga tushirish
-        if ACTIVE_SPEECH_MODELS['WHISPER']:
-            whisper_task = asyncio.create_task(process_whisper_result(message, state, audio_path, user_id))
-            tasks.append(whisper_task)
-        
-        # Agar hech qaysi model yoqilmagan bo'lsa
-        if not tasks:
+            await process_google_audio(message, state, audio_path, user_id)
+        else:
             await processing_msg.delete()
             await message.answer(
-                "❌ Hozircha hech qaysi speech model yoqilmagan. Admin bilan bog'laning.",
+                "❌ Hozircha speech model yoqilmagan. Admin bilan bog'laning.",
                 parse_mode='Markdown'
             )
-            return
-        
-        # Bajarilmoqda xabarini o'chirish
-        try:
-            await processing_msg.delete()
-        except:
-            pass
-        
-        # Faol tasklarni kutish
-        await asyncio.gather(*tasks, return_exceptions=True)
         
     except Exception as e:
         logging.error(f"Audio xabarni qayta ishlashda xatolik: {e}")
@@ -5899,10 +5767,6 @@ async def load_config_from_db():
         result = await db.execute_one("SELECT value FROM config WHERE key_name = 'active_speech_google'")
         if result:
             ACTIVE_SPEECH_MODELS['GOOGLE'] = result[0].lower() == 'true'
-        
-        result = await db.execute_one("SELECT value FROM config WHERE key_name = 'active_speech_whisper'")
-        if result:
-            ACTIVE_SPEECH_MODELS['WHISPER'] = result[0].lower() == 'true'
         
         # Free trials
         result = await db.execute_one("SELECT value FROM config WHERE key_name = 'free_trial_plus'")

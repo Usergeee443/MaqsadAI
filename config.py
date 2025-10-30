@@ -79,14 +79,12 @@ PAYMENT_METHODS = {
 
 # Speech-to-Text model sozlamalari
 SPEECH_MODELS = {
-    'GOOGLE': 'Google Cloud Speech-to-Text',
-    'WHISPER': 'OpenAI Whisper'
+    'GOOGLE': 'Google Cloud Speech-to-Text'
 }
 
 # Hozirgi faol modellar (admin tomonidan boshqariladi)
 ACTIVE_SPEECH_MODELS = {
-    'GOOGLE': True,  # Google Cloud Speech-to-Text yoqilgan
-    'WHISPER': True  # OpenAI Whisper yoqilgan
+    'GOOGLE': True  # Google Cloud Speech-to-Text yoqilgan
 }
 
 # 1 haftalik sinov holati (admin tomonidan boshqariladi)
