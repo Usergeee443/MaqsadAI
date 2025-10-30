@@ -5684,11 +5684,15 @@ async def get_tariffs():
 async def payment_webhook(data: dict):
     """Mini ilova dan to'lov ma'lumotlarini qabul qilish"""
     try:
+        logging.info(f"Payment webhook received: {data}")
+        
         user_id = data.get("user_id")
         tariff = data.get("tariff")
         months = data.get("months", 1)
         amount = data.get("amount")
         payment_method = data.get("payment_method", "test")
+        
+        logging.info(f"Processing payment for user {user_id}, tariff {tariff}, months {months}")
         
         # To'lovni tasdiqlash va tarifni aktiv qilish
         from datetime import datetime, timedelta
@@ -5720,6 +5724,7 @@ async def payment_webhook(data: dict):
             tariff_info = "\n• Tranzaksiyalar: 1 000 ta/oy\n• Ovozli Tranzaksiyalar: 500 ta/oy"
         
         try:
+            logging.info(f"Sending payment confirmation message to user {user_id}")
             # Tabrik xabarini rasmli ko'rinishda yuborish
             await bot.send_photo(
                 chat_id=user_id,
@@ -5734,19 +5739,25 @@ async def payment_webhook(data: dict):
                 ),
                 parse_mode='Markdown'
             )
-        except:
+            logging.info(f"Payment confirmation message sent successfully to user {user_id}")
+        except Exception as e:
+            logging.error(f"Error sending photo message: {e}")
             # Agar rasm yuborishda xatolik bo'lsa, oddiy matn yuborish
-            await bot.send_message(
-                chat_id=user_id,
-                text=(
-                    f"🎉 Tabriklaymiz, {user_name}!\n\n"
-                    f"✅ To'lov muvaffaqiyatli amalga oshirildi!\n\n"
-                    f"📦 Tarif: {tariff_name}\n"
-                    f"⏰ Muddati: {expires_str}\n"
-                    f"{tariff_info}\n\n"
-                    f"🚀 Endi sizning botingiz tayyor!"
+            try:
+                await bot.send_message(
+                    chat_id=user_id,
+                    text=(
+                        f"🎉 Tabriklaymiz, {user_name}!\n\n"
+                        f"✅ To'lov muvaffaqiyatli amalga oshirildi!\n\n"
+                        f"📦 Tarif: {tariff_name}\n"
+                        f"⏰ Muddati: {expires_str}\n"
+                        f"{tariff_info}\n\n"
+                        f"🚀 Endi sizning botingiz tayyor!"
+                    )
                 )
-            )
+                logging.info(f"Payment confirmation text message sent to user {user_id}")
+            except Exception as e2:
+                logging.error(f"Error sending text message: {e2}")
         
         return {
             "success": True,
