@@ -397,27 +397,23 @@ FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"ka
             
             transactions = data.get('transactions', [])
             if not transactions:
-                # Agar tranzaksiya yo'q bo'lsa, fallback qo'shamiz
-                transactions = [{
-                    "amount": 0,
-                    "type": "expense",
-                    "category": "boshqa",
-                    "description": f"Noaniq kiritish: {original_text[:30]}",
-                    "confidence": 0.3
-                }]
-                data['transactions'] = transactions
-                data['total_confidence'] = 0.3
+                # Agar tranzaksiya yo'q bo'lsa, xato qaytaramiz
+                return {
+                    'is_valid': False,
+                    'message': "❌ Hech qanday to'g'ri tranzaksiya topilmadi. Iltimos, aniqroq yozing."
+                }
             
             # Har bir tranzaksiyani validatsiya qilish
             validated_transactions = []
             
             for trans in transactions:
-                # Amount validatsiya - 0 ham qabul qilamiz
+                # Amount validatsiya
                 amount = trans.get('amount', 0)
                 if not isinstance(amount, (int, float)):
                     amount = 0
                 
-                if amount > 10000000000:  # 10 milliard dan ko'p
+                # 0 yoki juda katta summalarni skip qilamiz
+                if amount == 0 or amount > 10000000000:  # 10 milliard dan ko'p
                     continue
                     
                 # Type validatsiya
