@@ -466,9 +466,9 @@ FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"ka
                 elif len(description) > 100:
                     description = description[:100]
                 
-                # Confidence validatsiya - har doim qabul qilamiz
-                trans_confidence = trans.get('confidence', 0)
-                # Hech qachon rad etmaymiz, har doim taxmin qilamiz
+                # Confidence validatsiya - total_confidence dan foydalanamiz
+                trans_confidence = trans.get('confidence', total_confidence)
+                # Agar tranzaksiyada confidence bo'lmasa, total_confidence ishlatamiz
                 
                 validated_transactions.append({
                     'amount': float(amount),
