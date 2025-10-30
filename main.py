@@ -5706,7 +5706,7 @@ async def get_tariffs():
     """Tariflar ro'yxatini qaytarish"""
     try:
         tariffs = [
-            {"code": "PLUS", "name": "Plus", "monthly_price": 99900},
+            {"code": "PLUS", "name": "Plus", "monthly_price": 19990},
             {"code": "PRO", "name": "Pro", "monthly_price": 199900},
             {"code": "BUSINESS", "name": "Business", "monthly_price": 299900},
         ]

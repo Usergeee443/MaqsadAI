@@ -49,7 +49,7 @@ CATEGORIES = {
 
 # Tarif narxlari (1 oy uchun) - kopeklarda
 TARIFF_PRICES = {
-    'PLUS': 2900000,  # 29,000 so'm (2,900,000 kopek)
+    'PLUS': 1999000,  # 19,990 so'm (1,999,000 kopek)
     'BUSINESS': 999900,  # 9,999 so'm (99,990 kopek)
     'PRO': 199900,  # 199,900 so'm
     'FAMILY': 399900,  # 3,999 so'm (39,990 kopek)
