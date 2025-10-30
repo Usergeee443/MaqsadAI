@@ -518,55 +518,38 @@ QOIDALAR:
             return text
 
     async def _extract_financial_data_with_gpt4(self, text: str) -> Dict[str, Any]:
-        """GPT-4 orqali moliyaviy ma'lumotlarni ajratish - tabiiy nutqni tushunish bilan"""
+        """Arzonroq model orqali moliyaviy ma'lumotlarni ajratish - optimizatsiya qilingan"""
         try:
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",  # Tezroq model
+                model="gpt-3.5-turbo",  # Arzonroq model (5x arzonroq)
                 messages=[
                     {
                         "role": "system",
-                        "content": """Siz moliyaviy tahlilchi AI siz. QUYIDAGI TASK LAR: 1) Summa 2) Type (income/expense/debt) 3) Category.
+                        "content": """Moliyaviy ma'lumotni ajratish: Summa, Type (income/expense/debt), Category.
 
-AGAR TUSHUNMASA (salom, xabar kabi) - "tushunish_e_madi" qaytaring!
-
-QOIDALAR:
-- "oylik oldim" = income (daromad)
-- "qarz oldim" = debt (qarz olish)
-- "qarz berdim" = debt (qarz berish)
-- "sarfladim" = expense (chiqim)
-- "olim" = expense (sotib oldim = chiqim)
-- Description FAqAT foydalanuvchi nima deb yozgan (misol: "500 ming oylik oldim" → "500 ming oylik oldim")
-- AGAR tranzaksiya TUSHUNILMASA → "tushunish_e_madi"
-
-TABIIY NUTQ TUSHUNISH:
-- "pul tushdi", "daromad qildim", "ishlab topdim" = income
-- "sarfladim", "xarajat qildim", "sotib oldim", "to'ladim" = expense  
-- "qarz oldim", "qarz berdim" = debt
-- "do'konimda 800 ming pul tushdi" = 800000 so'm income biznes kategoriyasida
-- "200 ming filyalimdan daromad" = 200000 so'm income biznes kategoriyasida
-- "jami 1mln bo'ldi" = bu jami hisobi, alohida tranzaksiya EMAS!
+TUSHUNMASA: "tushunish_e_madi"
 
 TYPES:
-- "income" = daromad, kirim, pul oldim
-- "expense" = chiqim, sarfladim, sotib oldim
-- "debt" = qarz oldim/berdim
+- income: daromad, tushdi, oldim, maosh
+- expense: sarfladim, to'ladim, olim, ketdi
+- debt: qarz oldim/berdim
 
 KATEGORIYALAR:
-- "ish haqi", "biznes", "ovqat", "transport", "kiyim", "uy", "sog'liq", "ta'lim", "o'yin-kulgi", "boshqa"
+ish haqi, biznes, ovqat, transport, kiyim, uy, sog'liq, ta'lim, o'yin-kulgi, boshqa
 
 FORMAT:
-{"transactions": [{"amount": X, "type": "Y", "category": "Z", "description": "ORIGINAL_TEXT", "confidence": 0.9}], "total_confidence": 0.9}
+{"transactions": [{"amount": X, "type": "Y", "category": "Z"}], "total_confidence": 0.9}
 
-AGAR TUSHUNMASA:
+TUSHUNMASA:
 {"transactions": [], "total_confidence": 0, "error": "tushunish_e_madi"}"""
                     },
                     {
                         "role": "user",
-                        "content": f"Bu tabiiy nutqdan moliyaviy ma'lumotlarni ajratib oling va har bir alohida daromad/xarajatni alohida tranzaksiya sifatida ko'rsating:\n\n{text}"
+                        "content": text
                     }
                 ],
                 temperature=0.0,
-                max_tokens=500
+                max_tokens=200  # Kamaytirilgan (500 → 200)
             )
             
             ai_response = response.choices[0].message.content
@@ -653,10 +636,10 @@ AGAR TUSHUNMASA:
                 if category not in valid_categories:
                     category = 'boshqa'
                 
-                # Description validatsiya  
+                # Description validatsiya - AI description kiritmaydi, shuning uchun avtomatik qo'shamiz
                 description = trans.get('description', '').strip()
                 if not description:
-                    description = 'Tavsif kiritilmagan'
+                    description = f"{trans_type}: {amount:,.0f} so'm ({category})"
                 elif len(description) > 100:
                     description = description[:100]
                 
