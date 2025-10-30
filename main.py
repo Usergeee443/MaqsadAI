@@ -51,12 +51,16 @@ app.add_middleware(
 # Sana formatlash (uzbekcha oy)
 def _format_date_uz(dt_obj) -> str:
     try:
+        if not dt_obj:
+            return '—'
         months = {
             1: "Yanvar", 2: "Fevral", 3: "Mart", 4: "Aprel", 5: "May", 6: "Iyun",
             7: "Iyul", 8: "Avgust", 9: "Sentyabr", 10: "Oktyabr", 11: "Noyabr", 12: "Dekabr"
         }
         return f"{dt_obj.day}-{months.get(dt_obj.month, dt_obj.strftime('%B'))}, {dt_obj.year}"
     except Exception:
+        if not dt_obj:
+            return '—'
         return dt_obj.strftime('%d.%m.%Y')
 
 PREMIUM_TARIFFS = {
@@ -4495,6 +4499,9 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         if result.get('success'):
             # Agar tranzaksiya tasdiqlangan bo'lsa, tugmalar bilan yuborish
             if 'transaction_data' in result:
+                # State ga transaction_data ni saqlash
+                await state.update_data(transaction_data=result['transaction_data'])
+                
                 transaction_type = result.get('type', '')
                 buttons = financial_module.generate_transaction_buttons({
                     'transactions': result['transaction_data'].get('transactions', []),
@@ -5744,6 +5751,48 @@ async def payment_webhook(data: dict):
             """,
             (user_id, tariff, payment_method, amount, 'UZS')
         )
+        
+        # Foydalanuvchiga tabrik xabari yuborish
+        user_data = await db.get_user_data(user_id)
+        user_name = user_data.get('name', 'Xojayin') if user_data else 'Xojayin'
+        
+        tariff_name = TARIFFS.get(tariff, tariff)
+        expires_str = _format_date_uz(expires_at) + " gacha"
+        
+        tariff_info = ""
+        if tariff == 'PLUS':
+            tariff_info = "\n• Tranzaksiyalar: 500 ta/oy\n• Ovozli Tranzaksiyalar: 250 ta/oy"
+        elif tariff == 'PRO':
+            tariff_info = "\n• Tranzaksiyalar: 1 000 ta/oy\n• Ovozli Tranzaksiyalar: 500 ta/oy"
+        
+        try:
+            # Tabrik xabarini rasmli ko'rinishda yuborish
+            await bot.send_photo(
+                chat_id=user_id,
+                photo=FSInputFile('welcome.png'),
+                caption=(
+                    f"🎉 *Tabriklaymiz, {user_name}!*\n\n"
+                    f"✅ *To'lov muvaffaqiyatli amalga oshirildi!*\n\n"
+                    f"📦 **Tarif:** {tariff_name}\n"
+                    f"⏰ **Muddati:** {expires_str}\n"
+                    f"{tariff_info}\n\n"
+                    f"🚀 *Endi sizning botingiz tayyor!*"
+                ),
+                parse_mode='Markdown'
+            )
+        except:
+            # Agar rasm yuborishda xatolik bo'lsa, oddiy matn yuborish
+            await bot.send_message(
+                chat_id=user_id,
+                text=(
+                    f"🎉 Tabriklaymiz, {user_name}!\n\n"
+                    f"✅ To'lov muvaffaqiyatli amalga oshirildi!\n\n"
+                    f"📦 Tarif: {tariff_name}\n"
+                    f"⏰ Muddati: {expires_str}\n"
+                    f"{tariff_info}\n\n"
+                    f"🚀 Endi sizning botingiz tayyor!"
+                )
+            )
         
         return {
             "success": True,
