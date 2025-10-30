@@ -328,13 +328,14 @@ QOIDALAR:
 TUSHUNMASA: "tushunish_e_madi"
 
 TYPES:
-- income: daromad, tushdi, maosh, oylik, ish haqi
+- income: daromad, tushdi, maosh, oylik, ish haqi, olyik oldim, oylik oldim
 - expense: sarfladim, to'ladim, sotib oldim, ketdi
 - debt: qarz oldim/berdim
 
 MISOL:
-"besh million so'm oylik olim" → income, ish haqi
-"100 ming oziq oldim" → expense, ovqat
+"500 mln so'm olyik oldim" → income, ish haqi
+"500 million so'm oylik oldim" → income, ish haqi
+"100 ming oziq sotib oldim" → expense, ovqat
 
 KATEGORIYALAR:
 ish haqi, maosh, biznes, ovqat, transport, kiyim, uy, sog'liq, ta'lim, o'yin-kulgi, boshqa
