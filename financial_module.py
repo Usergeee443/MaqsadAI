@@ -84,40 +84,22 @@ class FinancialModule:
         return self.speech_client
     
     async def _enhance_whisper_transcript(self, text: str) -> str:
-        """Whisper transkriptini yaxshilash - summa va kontekst qo'shish"""
+        """Whisper transkriptini yaxshilash - arzonroq model"""
         try:
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-3.5-turbo",  # Arzonroq model
                 messages=[
                     {
                         "role": "system",
-                        "content": """Siz audio transkriptni yaxshilovchi AI siz. Whisper transkriptida summa yo'q bo'lsa, siz uni mantiqiy ravishda qo'shishingiz kerak.
-
-VAZIFANGIZ:
-1. Whisper transkriptini o'zbek tiliga to'g'ri tarjima qiling
-2. Agar summa yo'q bo'lsa, mantiqiy summa qo'shing
-3. Tabiiy nutqni saqlab qoling
-4. Faqat yaxshilangan matnni qaytaring
-
-MISOLLAR:
-- "Coca-Cola sotib olish" → "10 ming so'mga Coca-Cola sotib oldim"
-- "mikser sotib olish" → "50 ming so'mga mikser sotib oldim"  
-- "ovqat xarajati" → "30 ming so'mga ovqat xarajati qildim"
-- "do'kon daromadi" → "100 ming so'm do'kon daromadi bo'ldi"
-
-QOIDALAR:
-- Har doim aniq summa qo'shing
-- O'zbek tilida yozing
-- Tabiiy nutqni saqlang
-- Faqat yaxshilangan matnni qaytaring"""
+                        "content": """Whisper transkriptini yaxshilash. Agar summa yo'q bo'lsa, qo'shing. O'zbek tilida. Faqat matn."""
                     },
                     {
                         "role": "user",
-                        "content": f"Bu Whisper transkriptini yaxshilab, summa qo'shib, to'g'ri o'zbek tiliga tarjima qiling:\n\n{text}"
+                        "content": text
                     }
                 ],
                 temperature=0.3,
-                max_tokens=500
+                max_tokens=200  # Kamaytirilgan
             )
             
             enhanced = response.choices[0].message.content.strip()
