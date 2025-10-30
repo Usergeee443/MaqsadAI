@@ -2553,7 +2553,7 @@ async def profile_handler(message: Message, state: FSMContext):
             profile_text = (
                 f"{display_name} (ID: {user_id})\n\n"
                 f"Tarif: Pro ({expires_str})\n"
-                f"Tranzaksiyalar: {monthly_count}/1 000\n"
+                f"Tranzaksiyalar: {monthly_count}/1000\n"
                 f"Ovozli Tranzaksiyalar: {audio_count}/500"
             )
         except Exception as e:
@@ -3159,7 +3159,7 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
             profile_text = (
                 f"{display_name} (ID: {user_id})\n\n"
                 f"Tarif: Pro ({expires_str})\n"
-                f"Tranzaksiyalar: {monthly_count}/1 000\n"
+                f"Tranzaksiyalar: {monthly_count}/1000\n"
                 f"Ovozli Tranzaksiyalar: {audio_count}/500"
             )
         except Exception as e:

@@ -428,11 +428,15 @@ TUSHUNMASA:
                 # Category validatsiya
                 category = trans.get('category', 'boshqa')
                 valid_categories = [
-                    'ovqat', 'transport', 'ish haqi', 'biznes', 'investitsiya',
+                    'ovqat', 'transport', 'ish haqi', 'maosh', 'biznes', 'investitsiya',
                     'kiyim', 'uy', 'sog\'liq', 'ta\'lim', 'o\'yin-kulgi', 'boshqa'
                 ]
                 if category not in valid_categories:
                     category = 'boshqa'
+                
+                # "maosh" ni "ish haqi" ga aylantirish
+                if category == 'maosh':
+                    category = 'ish haqi'
                 
                 # Description validatsiya - AI description kiritmaydi, shuning uchun avtomatik qo'shamiz
                 description = trans.get('description', '').strip()
