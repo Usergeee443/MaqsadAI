@@ -83,155 +83,12 @@ class FinancialModule:
             self.speech_client = speech.SpeechClient()
         return self.speech_client
     
-    async def _enhance_whisper_transcript(self, text: str) -> str:
-        """Whisper transkriptini yaxshilash - arzonroq model"""
-        try:
-            response = await self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",  # Arzonroq model
-                messages=[
-                    {
-                        "role": "system",
-                        "content": """Whisper transkriptini yaxshilash. Agar summa yo'q bo'lsa, qo'shing. O'zbek tilida. Faqat matn."""
-                    },
-                    {
-                        "role": "user",
-                        "content": text
-                    }
-                ],
-                temperature=0.3,
-                max_tokens=200  # Kamaytirilgan
-            )
-            
-            enhanced = response.choices[0].message.content.strip()
-            return enhanced if enhanced else text
-            
-        except Exception as e:
-            logging.error(f"Whisper transkript yaxshilashda xatolik: {e}")
-            return text
-    
-    def _is_wrong_language(self, text: str) -> bool:
-        """Matn noto'g'ri til ekanligini tekshirish"""
-        if not text:
-            return True
-        
-        # Sinhala, Arabic, Chinese va boshqa noto'g'ri tillar uchun tekshirish
-        wrong_indicators = [
-            'ඔ', 'ඣ', '඾', 'එ', 'ක', 'ඇ', 'න්', 'ද', 'ි', 'ය', 'ය', 'න', 'ක්',  # Sinhala (yangi belgilar)
-            'Ի', 'ස', 'ා', 'ල', 'හ', 'ි', 'ර', 'ු', 'න්',  # Sinhala (eski belgilar)
-            'ا', 'ب', 'ت', 'ث', 'ج', 'ح', 'خ', 'د', 'ذ', 'ر', 'ز', 'س', 'ش', 'ص', 'ض', 'ط', 'ظ', 'ع', 'غ', 'ف', 'ق', 'ك', 'ل', 'م', 'ن', 'ه', 'و', 'ي',  # Arabic
-            '一', '二', '三', '四', '五', '六', '七', '八', '九', '十',  # Chinese
-            'あ', 'い', 'う', 'え', 'お', 'か', 'き', 'く', 'け', 'こ',  # Japanese
-            'ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ',  # Korean
-        ]
-        
-        for indicator in wrong_indicators:
-            if indicator in text:
-                return True
-        
-        # Agar matn juda qisqa yoki faqat belgilar bo'lsa
-        if len(text.strip()) < 3:
-            return True
-        
-        # O'zbek tiliga yaqin tillar uchun tekshirish (rus, turk, ingliz)
-        # Agar matn faqat lotin harflaridan iborat bo'lsa va o'zbek tiliga yaqin bo'lsa, qabul qilamiz
-        latin_chars = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ')
-        cyrillic_chars = set('абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ')
-        
-        text_chars = set(text)
-        
-        # Agar matn lotin yoki kirill harflaridan iborat bo'lsa va o'zbek tiliga yaqin bo'lsa
-        if text_chars.issubset(latin_chars | cyrillic_chars | set(' .,!?-0123456789')):
-            # O'zbek tiliga yaqin so'zlar
-            uzbek_indicators = ['futbol', 'ming', 'so\'m', 'uchun', 'olim', 'korsatuv', 'pul', 'qarz', 'daromad', 'xarajat']
-            text_lower = text.lower()
-            for indicator in uzbek_indicators:
-                if indicator in text_lower:
-                    return False  # O'zbek tiliga yaqin, qabul qilamiz
-            
-            # Rus tiliga yaqin so'zlar
-            russian_indicators = ['футбол', 'тысяч', 'рублей', 'для', 'взял', 'показать', 'деньги', 'долг', 'доход', 'расход']
-            for indicator in russian_indicators:
-                if indicator in text_lower:
-                    return False  # Rus tiliga yaqin, qabul qilamiz
-            
-            # Turk tiliga yaqin so'zlar
-            turkish_indicators = ['futbol', 'bin', 'lira', 'için', 'aldım', 'göstermek', 'para', 'borç', 'gelir', 'gider']
-            for indicator in turkish_indicators:
-                if indicator in text_lower:
-                    return False  # Turk tiliga yaqin, qabul qilamiz
-            
-            # Ingliz tiliga yaqin so'zlar
-            english_indicators = ['football', 'thousand', 'dollar', 'for', 'took', 'show', 'money', 'debt', 'income', 'expense']
-            for indicator in english_indicators:
-                if indicator in text_lower:
-                    return False  # Ingliz tiliga yaqin, qabul qilamiz
-            
-        return False  # Boshqa hollarda qabul qilamiz
-    
-    async def _transcribe_with_whisper(self, audio_file_path: str) -> Optional[str]:
-        """OpenAI Whisper API orqali transkripti olish"""
-        try:
-            if not OPENAI_API_KEY:
-                raise Exception("OpenAI API kaliti topilmadi")
-            
-            # Audio fayl mavjudligini tekshirish
-            import os
-            if not os.path.exists(audio_file_path):
-                raise Exception(f"Audio fayl topilmadi: {audio_file_path}")
-            
-            file_size = os.path.getsize(audio_file_path)
-            print(f"DEBUG: Audio file size: {file_size} bytes")
-            
-            if file_size == 0:
-                raise Exception("Audio fayl bo'sh")
-            
-            # OpenAI Whisper API ga so'rov yuborish (o'zbek tiliga yaqin tillar bilan)
-            with open(audio_file_path, "rb") as audio_file:
-                response = await self.openai_client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    language="ru",  # Rus tili (o'zbek tiliga yaqin)
-                    response_format="text"
-                )
-            
-            print(f"DEBUG: Whisper raw response: '{response}'")
-            result = response.strip() if response else None
-            print(f"DEBUG: Whisper processed result: '{result}'")
-            
-            # Agar natija bo'sh yoki faqat bo'shliq bo'lsa yoki noto'g'ri til bo'lsa
-            if not result or result.isspace() or len(result.strip()) == 0 or self._is_wrong_language(result):
-                print("DEBUG: Whisper returned empty or wrong language result, trying with different parameters")
-                # Qaytadan urinib ko'ramiz, boshqa tillar bilan
-                for lang in ["en", "tr", "kk", "ky"]:  # Ingliz, Turk, Qozoq, Qirg'iz tillari
-                    try:
-                        with open(audio_file_path, "rb") as audio_file:
-                            response2 = await self.openai_client.audio.transcriptions.create(
-                                model="whisper-1",
-                                file=audio_file,
-                                language=lang,
-                                response_format="text"
-                            )
-                        print(f"DEBUG: Whisper with {lang}: '{response2}'")
-                        if response2 and response2.strip() and not self._is_wrong_language(response2):
-                            result = response2.strip()
-                            print(f"DEBUG: Whisper successful with {lang}: '{result}'")
-                            break
-                    except Exception as e:
-                        print(f"DEBUG: Whisper failed with {lang}: {e}")
-                        continue
-            
-            return result if result and not result.isspace() else None
-                        
-        except Exception as e:
-            logging.error(f"Whisper transkripti xatolik: {e}")
-            raise e
-        
     async def process_audio_input(self, audio_file_path: str, user_id: int) -> Dict[str, Any]:
-        """Audio faylni qayta ishlash va moliyaviy ma'lumotlarni ajratish - 2 ta texnologiya alohida"""
+        """Audio faylni qayta ishlash - faqat Google Cloud Speech-to-Text"""
         try:
             print(f"DEBUG: Processing audio file: {audio_file_path}")
             
-            # Google Cloud Speech-to-Text ni avval ishga tushiramiz (tezroq)
+            # Google Cloud Speech-to-Text
             google_result = None
             try:
                 client = self._ensure_speech_client()
@@ -250,58 +107,17 @@ class FinancialModule:
             except Exception as google_error:
                 print(f"DEBUG: Google Speech failed: {google_error}")
             
-            # Agar Google ishlamasa, Whisper ni sinab ko'ramiz
-            return await self.process_whisper_audio(audio_file_path, user_id)
-
-        except Exception as e:
-            logging.error(f"Audio qayta ishlashda xatolik: {e}")
-            return {
-                "success": False,
-                "message": "❌ Audio faylni qayta ishlashda xatolik yuz berdi."
-            }
-
-    async def process_whisper_audio(self, audio_file_path: str, user_id: int) -> Dict[str, Any]:
-        """Whisper orqali audio faylni qayta ishlash - alohida funksiya"""
-        try:
-            print(f"DEBUG: Processing Whisper audio file: {audio_file_path}")
-            
-            # OpenAI Whisper API ni ishga tushiramiz
-            try:
-                whisper_text = await self._transcribe_with_whisper(audio_file_path)
-                print(f"DEBUG: Whisper transcription: {whisper_text}")
-                
-                if whisper_text and whisper_text.strip() and not self._is_wrong_language(whisper_text):
-                    # Whisper transkriptini yaxshilash - summa qo'shish
-                    enhanced_text = await self._enhance_whisper_transcript(whisper_text)
-                    print(f"DEBUG Enhanced Whisper: {enhanced_text}")
-                    
-                    # Whisper natijasini qayta ishlaymiz
-                    whisper_result = await self.process_ai_input_advanced(enhanced_text, user_id)
-                    if whisper_result['success']:
-                        whisper_result['message'] += f"\n\n🔊 **Texnologiya:** OpenAI Whisper"
-                        # Whisper natijasini qaytaramiz
-                        return whisper_result
-                    else:
-                        # Agar AI tushunmasa, oddiy transkripti yuboramiz
-                        return {
-                            "success": True,
-                            "message": f"🔊 **Whisper transkripti:**\n{whisper_text}\n\n❌ AI bu matnni tushunmadi.",
-                            "type": "completed"
-                        }
-            except Exception as whisper_error:
-                print(f"DEBUG: Whisper failed: {whisper_error}")
-            
-            # Agar Whisper ham ishlamasa
+            # Agar Google ishlamasa, xatolik qaytaramiz
             return {
                 "success": False,
                 "message": "❌ Audio aniq eshitilmadi. Iltimos, aniqroq gapiring."
             }
 
         except Exception as e:
-            logging.error(f"Whisper audio qayta ishlashda xatolik: {e}")
+            logging.error(f"Audio qayta ishlashda xatolik: {e}")
             return {
                 "success": False,
-                "message": "❌ Whisper audio faylni qayta ishlashda xatolik yuz berdi."
+                "message": "❌ Audio faylni qayta ishlashda xatolik yuz berdi."
             }
 
     async def _transcribe_with_google(self, client: speech.SpeechClient, audio_content: bytes) -> Optional[str]:
