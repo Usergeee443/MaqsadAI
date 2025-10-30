@@ -328,12 +328,16 @@ QOIDALAR:
 TUSHUNMASA: "tushunish_e_madi"
 
 TYPES:
-- income: daromad, tushdi, oldim, maosh
-- expense: sarfladim, to'ladim, olim, ketdi
+- income: daromad, tushdi, maosh, oylik, ish haqi
+- expense: sarfladim, to'ladim, sotib oldim, ketdi
 - debt: qarz oldim/berdim
 
+MISOL:
+"besh million so'm oylik olim" → income, ish haqi
+"100 ming oziq oldim" → expense, ovqat
+
 KATEGORIYALAR:
-ish haqi, biznes, ovqat, transport, kiyim, uy, sog'liq, ta'lim, o'yin-kulgi, boshqa
+ish haqi, maosh, biznes, ovqat, transport, kiyim, uy, sog'liq, ta'lim, o'yin-kulgi, boshqa
 
 FORMAT:
 {"transactions": [{"amount": X, "type": "Y", "category": "Z"}], "total_confidence": 0.9}
