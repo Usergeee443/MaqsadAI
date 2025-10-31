@@ -32,7 +32,9 @@ class AIChat:
         self.openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
         self.system_prompt = """Sen Balans AI ning shaxsiy buxgalter va do'stisiz. PRO tarifda.
 
-MUHIM: Hech qachon formatlash belgilarini ishlatma (#, **, vs). Faqat oddiy, insoniy matn.
+MUHIM 1: Hech qachon formatlash belgilarini ishlatma (#, **, vs). Faqat oddiy, insoniy matn.
+
+MUHIM 2: Har safar sizga berilgan MOLIYAVIY HOLAT ma'lumotlarini birinchi o'rinda ishlating. Chat tarixidagi eski ma'lumotlar eskirgan bo'lishi mumkin. Faqat Hozirgi vaqtda sizga berilgan ma'lumotlarga ishonish kerak.
 
 Xaraktering:
 - Hazil va do'stona, ammo professional
@@ -683,25 +685,29 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
             
             # Summani topish (raqamlar)
             import re
-            # "500000", "1 000 000", "50ming" kabilarni topish
-            amounts = re.findall(r'(\d{1,3}(?:\s?\d{3})*)\s*(?:ming|so\'m|sum|р)??', message_lower, re.IGNORECASE)
+            # "ming" bilan raqamlarni topish ("20 ming", "50 ming")
+            ming_amounts = re.findall(r'(\d{1,6})\s*ming', message_lower)
+            if ming_amounts:
+                try:
+                    amount = float(ming_amounts[0]) * 1000
+                except:
+                    amount = None
             
-            if not amounts:
-                # Oddiy raqamlarni topish
-                amounts = re.findall(r'\d{4,}', message)
-            
-            if not amounts:
-                return None
-            
-            # Summani tozalash
-            amount_str = amounts[0].replace(' ', '').replace(',', '')
-            try:
-                amount = float(amount_str)
-                # Agar "ming" yoki kichik raqam bo'lsa, 1000 ga ko'paytirish
-                if amount < 1000 and 'ming' in message_lower:
-                    amount *= 1000
-            except:
-                return None
+            # Agar "ming" yo'q bo'lsa, oddiy raqamlarni topish ("500000", "50 000", "1 000 000")
+            if not ming_amounts:
+                amounts = re.findall(r'(\d{1,3}(?:\s?\d{3})*)', message)
+                if not amounts:
+                    # Oxirgi imkoniyat: har qanday raqam
+                    amounts = re.findall(r'\d{4,}', message)
+                
+                if not amounts:
+                    return None
+                
+                amount_str = amounts[0].replace(' ', '').replace(',', '')
+                try:
+                    amount = float(amount_str)
+                except:
+                    return None
             
             # Tranzaksiyani saqlash - Database metodidan foydalanish
             await self.db.add_transaction(
