@@ -1148,8 +1148,60 @@ async def start_command(message: types.Message, state: FSMContext):
             )
         return
     
-    # Yangi foydalanuvchi uchun faqat xush kelibsiz xabari (onboarding boshlanmaydi)
-    # Onboarding faqat telefon raqami yuborilgandan keyin boshlanadi
+    # Agar onboarding yarim qolgan bo'lsa (phone bor, lekin balance yo'q) -> davom ettirish
+    if user_data and user_data.get('phone') and not has_initial_balance and not has_any_transactions:
+        # Qayerda to'xtaganini tekshirish
+        if not user_data.get('name'):
+            # Ism kiritilmagan
+            await message.answer_photo(
+                photo=FSInputFile('what_is_your_name.png'),
+                caption=(
+                    "👋 **Keling tanishib olsak!**\n\n"
+                    "Ismingizni kiriting yoki 'Xojayin' deb chaqirilsin."
+                ),
+                parse_mode="Markdown"
+            )
+            await state.set_state(UserStates.waiting_for_name)
+            return
+        elif not user_data.get('source'):
+            # Source kiritilmagan
+            await message.answer_photo(
+                photo=FSInputFile('where_did_you_hear_us.png'),
+                caption="Bizni qayerda eshitdingiz?",
+                reply_markup=get_source_menu(),
+                parse_mode="Markdown"
+            )
+            await state.set_state(UserStates.waiting_for_source)
+            return
+        elif not user_data.get('account_type'):
+            # Account type tanlanmagan
+            await message.answer_photo(
+                photo=FSInputFile('tariff.png'),
+                caption=(
+                    "Hisob turini tanlang:\n\n"
+                    "👤 Shaxsiy — yagona shaxs uchun\n"
+                    "👨‍👩‍👧‍👦 Oila — oila a'zolari uchun\n"
+                    "🏢 Biznes — kichik biznes uchun"
+                ),
+                reply_markup=get_account_type_menu(),
+                parse_mode="Markdown"
+            )
+            await state.set_state(UserStates.waiting_for_account_type)
+            return
+        else:
+            # Onboarding balans qismida - balans qismiga yo'naltirish
+            await message.answer_photo(
+                photo=FSInputFile('welcome.png'),
+                caption=(
+                    "💰 **1-qadam: Boshlang'ich balans**\n\n"
+                    "Qancha pulingiz bor? (naqd pul + karta)\n\n"
+                    "Masalan: 500000 (agar 500,000 so'm bo'lsa)"
+                ),
+                reply_markup=ReplyKeyboardRemove(),
+                parse_mode='Markdown'
+            )
+            await state.set_state(UserStates.onboarding_balance)
+            return
     
     # Onboarding oqimini to'g'ri tartibda yo'naltirish
     # 1) Telefon yo'q -> telefon so'rash
