@@ -657,12 +657,11 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
                 else:
                     transaction_type = 'income'
                     category = 'qarz_olish'
-            # Daromad tekshirish (xarajatdan oldin)
-            elif any(keyword in message_lower for keyword in ['oylik', 'maosh', 'ish haqi', 'avans', 'tushdi', 'qaytdi', 'aylandi']):
-                transaction_type = 'income'
-                category = 'other'
-            # Xarajat tekshirish
-            elif any(keyword in message_lower for keyword in expense_keywords):
+            # Xarajat kalit so'zlar tekshirish (daromaddan OLDIN, chunki "sotib oldim" bor)
+            elif any(keyword in message_lower for keyword in ['sarfladim', 'to\'ladim', 'chetim', 'xarajat', 'yozish', 'oydim', 
+                                                              'ketdi', 'xarj', 'tuladim', 'ishlatdim', 'yuboraman', 'to\'layman', 
+                                                              'ketkazdim', 'summa', 'masraf', 'sotib oldim', 'pul sarfladim', 
+                                                              'pul to\'ladim', 'pul ketdi']):
                 transaction_type = 'expense'
                 # Kategoriyani aniqlash
                 category = 'other'
@@ -670,7 +669,11 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
                     if key in message_lower:
                         category = val
                         break
-            # Umumiy daromad (qolgan)
+            # Maxsus daromad kalit so'zlar (faqat daromad bo'lganda)
+            elif any(keyword in message_lower for keyword in ['oylik', 'maosh', 'ish haqi', 'avans', 'tushdi', 'qaytdi', 'aylandi', 'kirim', 'daromad']):
+                transaction_type = 'income'
+                category = 'other'
+            # Qolgan "oldim" holatlari daromad sifatida (xarajatda yuqoridagi aniq so'zlar ishlatilgan bo'lsa)
             elif any(keyword in message_lower for keyword in income_keywords):
                 transaction_type = 'income'
                 category = 'other'
