@@ -919,6 +919,11 @@ class AIChatFree:
                 category = transaction['category']
                 
                 response = f"{type_name}: {amount:,} so'm ({category})"
+                
+                # OpenAI fallback ishlatilganda xabar qo'shamiz
+                if transaction.get('fallback_warning'):
+                    response += "\n⚠️ Zaxira AI ishlayapti (Mistral xatolik)"
+                
                 return [response]
             else:
                 # Tranzaksiya aniqlanmadi (limit allaqachon kamaydi)
@@ -992,7 +997,7 @@ JSON: """
                         max_tokens=50,  # Yaxshiroq javob uchun
                         temperature=0.0
                     )
-                    return response.choices[0].message.content
+                    return {"content": response.choices[0].message.content, "provider": "mistral"}
                 except Exception as e:
                     logger.error(f"Mistral-7B xatolik: {e}")
                     # Fallback: gpt-3.5-turbo
@@ -1006,13 +1011,19 @@ JSON: """
                             max_tokens=40,
                             temperature=0.0
                         )
-                        return response.choices[0].message.content
+                        return {"content": response.choices[0].message.content, "provider": "openai"}
                     except Exception as e2:
                         logger.error(f"OpenAI xatolik: {e2}")
                         return None
             
             loop = asyncio.get_event_loop()
-            ai_response = await loop.run_in_executor(None, call_openai)
+            ai_result = await loop.run_in_executor(None, call_openai)
+            
+            if not ai_result:
+                return None
+            
+            ai_response = ai_result.get("content") if isinstance(ai_result, dict) else ai_result
+            provider = ai_result.get("provider") if isinstance(ai_result, dict) else "unknown"
             
             # Debug log
             logger.info(f"AI Response for '{message}': {ai_response}")
@@ -1037,12 +1048,16 @@ JSON: """
                 
                 # Validate
                 if result.get('type') in ['income', 'expense'] and result.get('amount') and result.get('category'):
-                    return {
+                    tx_result = {
                         "type": result['type'],
                         "amount": float(result['amount']),
                         "category": result['category'],
                         "description": ""  # Tafsif yo'q
                     }
+                    # OpenAI fallback ishlatilganda xabar qo'shamiz
+                    if provider == "openai":
+                        tx_result["fallback_warning"] = True
+                    return tx_result
                 else:
                     logger.warning(f"Validation failed for result: {result}")
             except Exception as e:
