@@ -4588,7 +4588,7 @@ async def process_financial_message(message: types.Message, state: FSMContext):
             
             # Har bir xabarni 1-3 soniya orasida yuborish
             for msg in ai_messages:
-                await message.answer(msg, parse_mode='Markdown')
+                await message.answer(msg)  # parse_mode olib tashlandi - emoji ishlatiladi
                 await asyncio.sleep(1.5)
         
         elif user_tariff == 'FREE':
