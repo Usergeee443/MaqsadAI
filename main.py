@@ -1214,14 +1214,8 @@ async def start_command(message: types.Message, state: FSMContext):
         )
         return
 
-    # 2.2) Agar onboarding jarayonida bo'lsa -> faqat state qoldirish, xabar yubormasdan
+    # 2.2) Agar onboarding jarayonida bo'lsa -> davom etish
     current_state = await state.get_state()
-    
-    # Onboarding state'larda /start tugma ishlatmaydi
-    if current_state in [UserStates.waiting_for_phone.state, UserStates.waiting_for_name.state, 
-                         UserStates.waiting_for_source.state, UserStates.waiting_for_account_type.state]:
-        # State'ni qoldirish, lekin yaxlit xabar yubormasdan
-        return
     
     # OnboardingState holatlari uchun
     if current_state == OnboardingState.waiting_for_income.state:
