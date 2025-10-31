@@ -2799,28 +2799,22 @@ async def onboarding_no_debts(callback_query: CallbackQuery, state: FSMContext):
         pass
     current_tariff = await get_user_tariff(user_id)
     
-    # Menyu tanlash
-    if current_tariff == 'FREE':
-        menu = get_free_menu()
-    elif current_tariff == 'BUSINESS':
-        menu = get_business_menu()
-    else:
-        menu = get_premium_menu()
+    # Onboarding tugashi - maxsus tugmalar
+    onboarding_complete_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Kuchaytirish (Plus/Pro)", web_app=WebAppInfo(url="https://balansai.onrender.com/"))],
+        [InlineKeyboardButton(text="✅ Bepul bilan davom etish", callback_data="continue_free")]
+    ])
     
     await callback_query.message.answer_photo(
         photo=FSInputFile('welcome.png'),
         caption=(
-            "🎉 **Tabriklaymiz! Onboarding tugadi!**\n\n"
-            "Sizning moliyaviy profilingiz tayyor. Endi quyidagi imkoniyatlardan foydalanishingiz mumkin:\n\n"
-            "• 💰 Balansni kuzatish\n"
-            "• 📊 Moliyaviy hisobotlar\n"
-            "• 🤖 AI yordamchi\n"
-            "• 📱 Qulay interfeys\n\n"
-            "Agar qanday foydalanishni tushunmasangiz, admin bilan bog'laning:\n"
-            "👤 @nurmuxammadrayimov\n\n"
-            "Muvaffaqiyatlar! 🚀"
+            "✅ **Sizning buxgalteringiz ishga tayyor!**\n\n"
+            "Hozir siz **Bepul rejim**dasiz — u ham yetarlicha kuchli 💪\n\n"
+            "Ammo agar xohlasangiz, **AI hammasini o'zi kuzatadigan**, yanada aqlli va xotirjam tajribani tanlang:\n"
+            "✨ Plus yoki Pro rejimiga o'ting.\n\n"
+            "👇 Quyidagilardan birini tanlang:\n"
         ),
-        reply_markup=menu,
+        reply_markup=onboarding_complete_keyboard,
         parse_mode="Markdown"
     )
     
@@ -3016,6 +3010,27 @@ async def onboarding_complete_final(callback_query: CallbackQuery, state: FSMCon
     
     await state.clear()
     await callback_query.answer("✅ Onboarding yakunlandi!")
+
+@dp.callback_query(lambda c: c.data == "continue_free")
+async def continue_free_handler(callback_query: CallbackQuery, state: FSMContext):
+    """Bepul bilan davom etish"""
+    user_id = callback_query.from_user.id
+    
+    # Eski xabarni o'chirish
+    try:
+        await callback_query.message.delete()
+    except:
+        pass
+    
+    # Bepul menyuni ko'rsatish
+    await callback_query.message.answer(
+        "✅ Marhamat! Bepul rejimda davom etyapsiz.\n\n"
+        "Keyinchalik Profildan kuchaytirishingiz mumkin.\n\n"
+        "Quyidagi tugmalardan foydalaning:",
+        reply_markup=get_free_menu()
+    )
+    
+    await callback_query.answer()
 
 @dp.message(UserStates.onboarding_debt_waiting_for_amount)
 async def process_onboarding_debt_amount(message: types.Message, state: FSMContext):
