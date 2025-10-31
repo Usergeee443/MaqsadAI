@@ -467,8 +467,7 @@ def get_profile_menu(user_tariff='FREE'):
     if user_tariff == 'FREE':
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="⚡ Kuchaytirish", web_app=WebAppInfo(url="https://balansai.onrender.com/payment"))],
-                [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"), InlineKeyboardButton(text="💳 Tarif", callback_data="tariff_info")]
+                [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"), InlineKeyboardButton(text="⚡ Kuchaytirish", web_app=WebAppInfo(url="https://balansai.onrender.com/payment"))]
             ]
         )
     elif user_tariff == 'PLUS':
@@ -482,7 +481,7 @@ def get_profile_menu(user_tariff='FREE'):
         # PRO va boshqa tariflar uchun - Sozlamalar va Tarif
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings"), InlineKeyboardButton(text="💳 Tarif", callback_data="tariff_info")]
+                [InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings")]
             ]
         )
     return keyboard
@@ -1298,7 +1297,7 @@ async def start_command(message: types.Message, state: FSMContext):
         return
     if current_state == UserStates.waiting_for_account_type.state:
         _msg = await message.answer_photo(
-            photo=FSInputFile('welcome.png'),
+            photo=FSInputFile('hisob_turini_tanlang.png'),
             caption=(
                 "🏢 **Hisob turini tanlang**\n\n"
                 "Iltimos, hisobingiz uchun mos turini tanlang:"
@@ -1424,8 +1423,7 @@ def get_account_type_menu():
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="👤 Shaxsiy foydalanish uchun", callback_data="account_type_SHI")],
-            [InlineKeyboardButton(text="👨‍👩‍👧‍👦 Oila uchun", callback_data="account_type_OILA")],
-            [InlineKeyboardButton(text="🏢 Biznes uchun", callback_data="account_type_BIZNES")]
+            [InlineKeyboardButton(text="👨‍👩‍👧‍👦 Oila uchun", callback_data="account_type_OILA"), InlineKeyboardButton(text="🏢 Biznes uchun", callback_data="account_type_BIZNES")]
         ]
     )
     return keyboard
@@ -1625,7 +1623,7 @@ async def process_account_type(callback_query: CallbackQuery, state: FSMContext)
         except:
             await callback_query.message.delete()
             await callback_query.message.answer_photo(
-                photo=FSInputFile('tariff.png'),
+                photo=FSInputFile('tarifflar.png'),
                 caption=(
                     "🏢 **Biznes Rejimi**\n\n"
                     "Biznes rejimida kichik va o'rta bizneslarni boshqarishingiz mumkin.\n\n"
@@ -1705,7 +1703,7 @@ async def back_to_account_type(callback_query: CallbackQuery, state: FSMContext)
     """Hisob turi tanlash sahifasiga qaytish"""
     await callback_query.message.delete()
     await callback_query.message.answer_photo(
-        photo=FSInputFile('welcome.png'),
+        photo=FSInputFile('hisob_turini_tanlang.png'),
         caption=(
             "🏢 **Hisob turini tanlang**\n\n"
             "Iltimos, hisobingiz uchun mos turini tanlang:"
@@ -1920,7 +1918,7 @@ async def process_source(callback_query: CallbackQuery, state: FSMContext):
     
     # Tur tanlash
     await callback_query.message.answer_photo(
-        photo=FSInputFile('welcome.png'),
+        photo=FSInputFile('hisob_turini_tanlang.png'),
         caption=(
             "🏢 **Hisob turini tanlang**\n\n"
             "Iltimos, hisobingiz uchun mos turini tanlang:"
@@ -2801,17 +2799,17 @@ async def onboarding_no_debts(callback_query: CallbackQuery, state: FSMContext):
     
     # Onboarding tugashi - maxsus tugmalar
     onboarding_complete_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Kuchaytirish (Plus/Pro)", web_app=WebAppInfo(url="https://balansai.onrender.com/"))],
+        [InlineKeyboardButton(text="🚀 Kuchaytirish (Plus/Pro)", web_app=WebAppInfo(url="https://balansai.onrender.com/payment"))],
         [InlineKeyboardButton(text="✅ Bepul bilan davom etish", callback_data="continue_free")]
     ])
     
     await callback_query.message.answer_photo(
-        photo=FSInputFile('welcome.png'),
+        photo=FSInputFile('tarifflar.png'),
         caption=(
             "✅ **Sizning buxgalteringiz ishga tayyor!**\n\n"
             "Hozir siz **Bepul rejim**dasiz — u ham yetarlicha kuchli 💪\n\n"
             "Ammo agar xohlasangiz, **AI hammasini o'zi kuzatadigan**, yanada aqlli va xotirjam tajribani tanlang:\n"
-            "✨ Plus yoki Pro rejimiga o'ting.\n\n"
+            "Plus yoki Pro rejimiga o'ting.\n\n"
             "👇 Quyidagilardan birini tanlang:\n"
         ),
         reply_markup=onboarding_complete_keyboard,
@@ -2987,17 +2985,17 @@ async def onboarding_complete_final(callback_query: CallbackQuery, state: FSMCon
     
     # Onboarding tugashi - maxsus tugmalar
     onboarding_complete_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Kuchaytirish (Plus/Pro)", web_app=WebAppInfo(url="https://balansai.onrender.com/"))],
+        [InlineKeyboardButton(text="🚀 Kuchaytirish (Plus/Pro)", web_app=WebAppInfo(url="https://balansai.onrender.com/payment"))],
         [InlineKeyboardButton(text="✅ Bepul bilan davom etish", callback_data="continue_free")]
     ])
     
     await callback_query.message.answer_photo(
-        photo=FSInputFile('welcome.png'),
+        photo=FSInputFile('tarifflar.png'),
         caption=(
             "✅ **Sizning buxgalteringiz ishga tayyor!**\n\n"
             "Hozir siz **Bepul rejim**dasiz — u ham yetarlicha kuchli 💪\n\n"
             "Ammo agar xohlasangiz, **AI hammasini o'zi kuzatadigan**, yanada aqlli va xotirjam tajribani tanlang:\n"
-            "✨ Plus yoki Pro rejimiga o'ting.\n\n"
+            "Plus yoki Pro rejimiga o'ting.\n\n"
             "👇 Quyidagilardan birini tanlang:\n"
         ),
         reply_markup=onboarding_complete_keyboard,
