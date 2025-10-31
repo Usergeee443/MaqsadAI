@@ -1158,34 +1158,29 @@ async def start_command(message: types.Message, state: FSMContext):
             _msg = await message.answer_photo(
                 photo=FSInputFile('welcome.png'),
                 caption=(
-                    "Balans AI'ga Xush kelibsiz!\n\n"
-                    "• Moliyaviy holatingizni aniq va estetik hisobotlarda namoyish qilaman.\n"
-                    "• Xarajatlaringizni oqilona tasniflab, tejash strategiyasini taklif qilaman.\n"
-                    "• Premium'da — shaxsiy maslahatlar, cheklanmagan AI yordam va ustuvor xizmat.\n\n"
-                    "🔐 Xavfsiz, shaffof va nafis. Moliyangizni boshqarish hech qachon bunday oson bo'lmagan.\n\n"
+                    "Balans AI’ga xush kelibsiz.\n\n"
+                    "💵 Balans AI — sizning shaxsiy buxgalteringiz.\n"
+                    "U har bir so‘mingizni hisoblab, daromad va xarajatlaringizni tartibda saqlaydi.\n\n"
+                    "• Har kuni pulingiz qayerga ketayotganini aniq bilasiz.\n"
+                    "• Har oy qancha tejayotganingizni ko‘rasiz.\n"
+                    "• AI hammasini kuzatadi — siz esa xotirjam bo‘lasiz.\n\n"
                     "⏩ Boshlash: telefoningizni pastdagi tugma orqali yuboring."
                 ),
-                reply_markup=ReplyKeyboardMarkup(
-                    keyboard=[[KeyboardButton(text="📱 Telefon raqamni yuborish", request_contact=True)]],
-                    resize_keyboard=True
-                ),
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
             await state.update_data(phone_request_msg_id=_msg.message_id)
         except Exception as _e:
             logging.warning(f"Welcome rasm yuborilmadi: {_e}")
             await message.answer(
-                "👋 Salom, men – Balans AI.\n\n"
-                "💼 Shaxsiy moliyaviy yordamchingiz:\n"
-                "• Kirim-chiqimlaringizni avtomatik tahlil qilaman\n"
-                "• Xarajatlaringizni aniq toifalarga ajrataman\n"
-                "• Moliyaviy nazorat va tejamkorlikni shakllantiraman\n\n"
-                "⚡ Bepul va Premium tariflar mavjud\n"
-                "🌟 Premium foydalanuvchilar uchun cheklanmagan imkoniyatlar va shaxsiy maslahatlar\n"
-                "…va buning ustiga yana ko'plab maxsus funksiyalar mavjud, faqat bot ichida ochiladi.\n\n"
-                "⏩ Boshlash uchun pastdagi tugma orqali telefon raqamingizni yuboring.",
+                "Balans AI’ga xush kelibsiz.\n\n"
+                "💵 Balans AI — sizning shaxsiy buxgalteringiz.\n"
+                "U har bir so‘mingizni hisoblab, daromad va xarajatlaringizni tartibda saqlaydi.\n\n"
+                "• Har kuni pulingiz qayerga ketayotganini aniq bilasiz.\n"
+                "• Har oy qancha tejayotganingizni ko‘rasiz.\n"
+                "• AI hammasini kuzatadi — siz esa xotirjam bo‘lasiz.\n\n"
+                "⏩ Boshlash: telefoningizni pastdagi tugma orqali yuboring.",
                 reply_markup=ReplyKeyboardMarkup(
-                    keyboard=[[KeyboardButton(text="📱 Telefon raqamni yuborish", request_contact=True)]],
+                    keyboard=[[KeyboardButton(text="Telefon raqamni yuborish", request_contact=True)]],
                     resize_keyboard=True
                 ),
                 parse_mode="Markdown"
@@ -1322,6 +1317,7 @@ async def start_command(message: types.Message, state: FSMContext):
     if user_data and user_data.get('phone') and (await state.get_state()) != UserStates.waiting_for_tariff.state:
         # Eski foydalanuvchi - asosiy menyuni ko'rsatish
         user_name = await get_user_name(user_id)
+        user_tariff = await get_user_tariff(user_id)
         
         try:
             if user_tariff == "FREE":
@@ -1436,7 +1432,7 @@ async def process_phone(message: types.Message, state: FSMContext):
         photo=FSInputFile('what_is_your_name.png'),
         caption=(
             "👋 **Keling tanishib olsak!**\n\n"
-            "Ismingizni kiriting yoki `/skip` yuboring."
+            "Ismingizni kiriting yoki /skip yuboring."
         ),
         parse_mode="Markdown"
     )
