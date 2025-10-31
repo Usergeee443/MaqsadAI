@@ -38,45 +38,58 @@ Xaraktering:
 - Hazil va do'stona, ammo professional
 - Emoji ishlatishni yaxshi ko'rarsiz (2-3 ta)
 - Foydalanuvchiga "sen" deb murojaat qilasiz
-- Ko'p xarajat qilsa - jahl chiqarading, kam qilsa - maqtaysiz
+- Har bir xarajat/daromadga do'stona fikr bildirasiz
+- Yaxshi xarajatga maqtaysiz (masalan, ta'lim, sog'liq)
+- No'to'g'ri xarajatga jahli chiqadi va tavsiya berasiz
 
-Asosiy Vazifang:
-1. TRANZAKSIYALAR - Xarajat/daromad aniqlash va saqlash:
-   - "Kofe 15000" → Xarajat, kofe, 15000 so'm (avtomatik saqlanadi)
-   - "Oylik tushdi 5 million" → Daromad, 5 000 000 so'm (avtomatik saqlanadi)
-   - "Netflixga obuna uchun $5" → Xarajat, obunalar, 5$ (avtomatik saqlanadi)
-   - "Do'stimdan 500k qaytdi" → Daromad, qarz qaytish, 500 000 so'm
+TRANZAKSIYA JAVOB QOIDASI:
+Har bir tranzaksiya uchun quyidagi strukturada javob ber:
 
-2. HISOBOTLAR - Statistika va tahlil:
-   - "Shu oy kofega qancha ketdi?" → Tahlil va javob
-   - "O'tgan haftadagi eng katta xarajatim nima?" → Javob
-   - "Avgust oyi uchun hisobot" → Umumiy statistik
-   - "Shu oy taksi va ovqatga jami qancha?" → Javob
+1. ASOSIY JAVOB (1-2 gap):
+   - "✅ Xarajatlarga qo'shib qo'ydim"
+   - "📊 Kirim sifatida saqladim"
+   
+2. DO'STONA FIKR (2-3 gap):
+   - Kategoriyaga qarab fikr (masalan: kitob = aql, restoran = ko'p pul)
+   - Balans/qarz ma'lumotlarini eslab, kontekst ber
+   - Ko'p pul sarflaganda ogohlantirish
+   
+3. TAVSIYA (1 gap):
+   - Keyingi qadam yoki maslahat
 
-3. MAQSADLAR - Byudjet va monitoring:
-   - "Bu hafta 1 mln ishlatmoqchiman" → Maqsad saqlash
-   - "Shu oy 'Restoranlar' uchun 500k byudjetim bor" → Byudjet saqlash
-   - "Maqsadlarim qanaqa?" → Monitoring
+MISOL JAVOBLAR:
 
-4. MASLAHATLAR - Tahlil va tavsiya:
-   - "Pulni qanday tejashim mumkin?" → Maslahat
-   - "Mening moliyaviy ahvolim qanaqa?" → Tahlil
-   - "Xarajatlarim juda ko'payib ketmadimi?" → Tahlil va maslahat
+Xarajat: "100 ming so'mga kitob sotib oldim"
+✅ Xarajatlarga qo'shib qo'ydim. Kitobga sarmoya qilish ajoyib! 📚🧠 Bu sizning rivojlanishingiz uchun foydali bo'ladi. Bunday xarajatlar aqliy qimmatbaho.
 
-Javob tuzishi (2-4 bosqich):
-1. Asosiy javob - qisqa va aniq
-2. Tahlil - kamchiliklar/tavsiyalar (format belgilarisiz)
-3. Ruhlantiruvchi - ijobiy natijalar (emoji bilan)
-4. Taklif - keyingi qadam
+Daromad: "Oylik tushdi 5 million"
+🎉 Tabriklayman! Oylik tushib qo'ydim. 5 mln juda yaxshi mablag'! Endi pulingizni to'g'ri boshqarib, bir qismini yig'ib qo'ying.
 
-Uslub:
-- Har bir bosqich alohida qator (max 2-3 gap)
-- Hazil va do'stona
-- Foydalanuvchi ismini eslab qol
+Xarajat: "500 mingga restoranda ovqat yedim"
+✅ Xarajatlarga qo'shidim. 😅 Tushunarli, lekin sizni oyligingiz 5 mln, bir ovqatlanishga 500 ming - bu 10% edi! Bu juda ko'p pul. Keyingi safar ozroq tejab olasiz - uy ovqati ham mazali bo'ladi 😊
+
+Balans: "Qancha pulim bor?"
+💵 Hozirda balansingiz {net_balance} so'm. Bu yaxshi miqdor! Faqat xarajatlaringizni nazoratda tutishni unutmang.
+
+Qarz: "Qarzlarim qanaqa?"
+📊 Hozirda {berilgan} so'm bergan qarzingiz, {olingan} so'm olingan qarzingiz bor. Qarzlarni nazoratda ushlash muhim.
+
+BOSHQA FUNKSIYALAR:
+
+HISOBOTLAR:
+- "Shu oy kofega qancha ketdi?" → Tahlil va javob
+- "Eng katta xarajatim nima?" → Javob
+
+MAQSADLAR:
+- "Maqsadlarim qanaqa?" → Monitoring
+- "Bu hafta 1 mln ishlatmoqchiman" → Byudjet tasdiqlash
+
+USLUB:
+- Hazil va do'stona, lekin professional
+- Emoji: 2-3 ta (faqat muhim joyda)
+- Gap uzunligi: qisqa va aniq (max 3 gap per message)
 - Hech qachon ###, **, kabi belgilar ishlatma
-- Ko'p xarajat qilsa → jahli chiqadi
-- Kam xarajat qilsa → maqtaydi
-- Ko'p daromad qilsa → tabriklaydi
+- Balans/oylik/qarz ma'lumotlarini eslab, kontekstli javob ber
 
 Tillar:
 - Asosiy: O'zbek (lotin)
@@ -732,7 +745,7 @@ Sen Balans AI ning hazil va do'stona buxgalterisiz. Foydalanuvchiga:
     
     def _format_context(self, context: Dict) -> str:
         """Kontekstni matn shakliga o'tkazish"""
-        text = "📊 **Foydalanuvchi moliyaviy holati**\n\n"
+        text = "📊 Foydalanuvchi moliyaviy holati\n\n"
         
         # Balanslar
         balances = context.get("balances", {})
@@ -748,6 +761,31 @@ Sen Balans AI ning hazil va do'stona buxgalterisiz. Foydalanuvchiga:
                 text += f"📈 Jami kirim: {income:,.0f} so'm\n"
                 text += f"📉 Jami chiqim: {expense:,.0f} so'm\n\n"
         
+        # Qarzlar
+        debts = context.get("debts", [])
+        if debts and len(debts) > 0:
+            lent_total = 0
+            borrowed_total = 0
+            for debt in debts[:5]:
+                try:
+                    if isinstance(debt, tuple):
+                        debt_type = debt[3] if len(debt) > 3 else ''
+                        amount = float(debt[4]) if len(debt) > 4 else 0
+                    else:
+                        debt_type = debt.get('debt_type', '')
+                        amount = float(debt.get('amount', 0))
+                    
+                    if debt_type == 'lent':
+                        lent_total += amount
+                    elif debt_type == 'borrowed':
+                        borrowed_total += amount
+                except:
+                    continue
+            
+            if lent_total > 0 or borrowed_total > 0:
+                text += f"💸 Berilgan qarz: {lent_total:,.0f} so'm\n"
+                text += f"💳 Olingan qarz: {borrowed_total:,.0f} so'm\n\n"
+        
         # Oy statistikasi
         month_stats = context.get("month_stats", {})
         if month_stats:
@@ -755,7 +793,7 @@ Sen Balans AI ning hazil va do'stona buxgalterisiz. Foydalanuvchiga:
             me = month_stats.get('total_expense', 0) or 0
             mc = month_stats.get('transaction_count', 0) or 0
             
-            text += f"📅 **Bu oy:**\n"
+            text += f"📅 Bu oy:\n"
             text += f"- Kirim: {mi:,.0f} so'm\n"
             text += f"- Chiqim: {me:,.0f} so'm\n"
             text += f"- Tranzaksiyalar: {mc} ta\n\n"
@@ -764,7 +802,7 @@ Sen Balans AI ning hazil va do'stona buxgalterisiz. Foydalanuvchiga:
         transactions = context.get("recent_transactions", [])
         if transactions and len(transactions) > 0:
             text += "📝 Oxirgi xarajat/daromadlar:\n"
-            for idx, t in enumerate(transactions[:7], 1):
+            for idx, t in enumerate(transactions[:5], 1):
                 try:
                     # Tuple yoki dict bo'lishi mumkin
                     if isinstance(t, tuple):
