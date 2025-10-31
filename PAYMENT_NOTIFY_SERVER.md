@@ -85,14 +85,35 @@ Server holatini tekshirish.
 
 ## Test Qilish
 
+### Qisqa test
+
 ```bash
-python3 test_payment_notify.py
+python3 test_notify_server.py
 ```
 
 Bu script:
 1. Server holatini tekshiradi
-2. Test to'lov ma'lumotlarini yuboradi
-3. Natijani ko'rsatadi
+2. Muvaffaqiyatli to'lov simulyatsiya qiladi
+3. Xatolik to'lov simulyatsiya qiladi
+4. Noto'g'ri so'rov testi
+5. Barcha natijalarni ko'rsatadi
+
+### Manual test
+
+```bash
+# Health check
+curl http://localhost:5005/health
+
+# Payment notify (success)
+curl -X POST http://localhost:5005/payment-notify \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": 123456789, "amount": 29990, "status": "success"}'
+
+# Payment notify (failed)
+curl -X POST http://localhost:5005/payment-notify \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": 123456789, "amount": 29990, "status": "failed"}'
+```
 
 ## Deployment
 
