@@ -1296,6 +1296,21 @@ async def start_command(message: types.Message, state: FSMContext):
         except Exception:
             pass
         return
+    if current_state == UserStates.waiting_for_account_type.state:
+        _msg = await message.answer_photo(
+            photo=FSInputFile('welcome.png'),
+            caption=(
+                "🏢 **Hisob turini tanlang**\n\n"
+                "Iltimos, hisobingiz uchun mos turini tanlang:"
+            ),
+            reply_markup=get_account_type_menu(),
+            parse_mode="Markdown"
+        )
+        try:
+            await state.update_data(onboarding_last_prompt_id=_msg.message_id)
+        except Exception:
+            pass
+        return
     if current_state == UserStates.waiting_for_initial_card.state:
         await message.answer(
             "💳 2-qadam: Karta balansini kiriting.\nMasalan: 0 yoki 200000",
