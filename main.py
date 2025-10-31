@@ -1166,6 +1166,10 @@ async def start_command(message: types.Message, state: FSMContext):
                     "• AI hammasini kuzatadi — siz esa xotirjam bo‘lasiz.\n\n"
                     "⏩ Boshlash: telefoningizni pastdagi tugma orqali yuboring."
                 ),
+                reply_markup=ReplyKeyboardMarkup(
+                    keyboard=[[KeyboardButton(text="Telefon raqamni yuborish", request_contact=True)]],
+                    resize_keyboard=True
+                ),
                 parse_mode="HTML"
             )
             await state.update_data(phone_request_msg_id=_msg.message_id)
@@ -2443,24 +2447,44 @@ async def profile_handler(message: Message, state: FSMContext):
     
     # FREE tarif uchun tranzaksiya sonini qo'shamiz
     if user_tariff == 'FREE':
+        # Boshlang'ich balans bor-yo'qligini tekshirish (onboarding tugaganmi)
         try:
-            row = await db.execute_one(
+            balance_check = await db.execute_one(
                 """
-                SELECT COUNT(*) 
-                FROM transactions 
-                WHERE user_id = %s 
-                AND MONTH(created_at) = MONTH(NOW())
-                AND YEAR(created_at) = YEAR(NOW())
+                SELECT COUNT(*) FROM transactions 
+                WHERE user_id = %s AND category IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
                 """,
                 (user_id,)
             )
-            monthly_count = row[0] if row else 0
-            remaining = max(0, 250 - monthly_count)
-            profile_text = (
-                f"{display_name} (ID: {user_id})\n\n"
-                f"Joriy tarif: Bepul\n"
-                f"Tranzaksiyalar: {monthly_count}/250"
-            )
+            has_initial_balance = balance_check[0] > 0 if balance_check else False
+            
+            if has_initial_balance:
+                # Onboarding tugagan - tranzaksiyalar sonini hisoblash
+                row = await db.execute_one(
+                    """
+                    SELECT COUNT(*) 
+                    FROM transactions 
+                    WHERE user_id = %s 
+                    AND MONTH(created_at) = MONTH(NOW())
+                    AND YEAR(created_at) = YEAR(NOW())
+                    AND category NOT IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
+                    """,
+                    (user_id,)
+                )
+                monthly_count = row[0] if row else 0
+                remaining = max(0, 250 - monthly_count)
+                profile_text = (
+                    f"{display_name} (ID: {user_id})\n\n"
+                    f"Joriy tarif: Bepul\n"
+                    f"Tranzaksiyalar: {monthly_count}/250"
+                )
+            else:
+                # Onboarding tugamagan - tranzaksiyalar ko'rsatilmaydi
+                profile_text = (
+                    f"{display_name} (ID: {user_id})\n\n"
+                    f"Joriy tarif: Bepul\n"
+                    f"Ro'yxatdan o'tish yakunlanmoqda..."
+                )
         except Exception as e:
             logging.error(f"Error getting monthly stats: {e}")
             profile_text = (
@@ -2610,23 +2634,39 @@ async def profile_stats_callback(callback_query: CallbackQuery):
     
     # FREE tarif uchun oylik limit ko'rsatish
     if user_tariff == 'FREE':
+        # Boshlang'ich balans bor-yo'qligini tekshirish (onboarding tugaganmi)
         try:
-            row = await db.execute_one(
+            balance_check = await db.execute_one(
                 """
-                SELECT COUNT(*) 
-                FROM transactions 
-                WHERE user_id = %s 
-                AND MONTH(created_at) = MONTH(NOW())
-                AND YEAR(created_at) = YEAR(NOW())
+                SELECT COUNT(*) FROM transactions 
+                WHERE user_id = %s AND category IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
                 """,
                 (user_id,)
             )
-            monthly_count = row[0] if row else 0
-            remaining = max(0, 250 - monthly_count)
-            text = f"📊 Statistika (FREE tarif)\n\n"
-            text += f"Bu oy: {monthly_count}/250 tranzaksiya\n"
-            text += f"Qolgan: {remaining} ta\n\n"
-            text += f"Jami tranzaksiyalar: {total:,} ta"
+            has_initial_balance = balance_check[0] > 0 if balance_check else False
+            
+            if has_initial_balance:
+                # Onboarding tugagan - tranzaksiyalar sonini hisoblash
+                row = await db.execute_one(
+                    """
+                    SELECT COUNT(*) 
+                    FROM transactions 
+                    WHERE user_id = %s 
+                    AND MONTH(created_at) = MONTH(NOW())
+                    AND YEAR(created_at) = YEAR(NOW())
+                    AND category NOT IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
+                    """,
+                    (user_id,)
+                )
+                monthly_count = row[0] if row else 0
+                remaining = max(0, 250 - monthly_count)
+                text = f"📊 Statistika (FREE tarif)\n\n"
+                text += f"Bu oy: {monthly_count}/250 tranzaksiya\n"
+                text += f"Qolgan: {remaining} ta\n\n"
+                text += f"Jami tranzaksiyalar: {total:,} ta"
+            else:
+                # Onboarding tugamagan
+                text = f"📊 Statistika\n\nRo'yxatdan o'tish yakunlanmoqda...\n\nJami tranzaksiyalar: {total:,} ta"
         except Exception as e:
             logging.error(f"Error getting monthly stats: {e}")
             text = f"📊 Statistika\n\nJami tranzaksiyalar: {total:,} ta"
@@ -3049,24 +3089,44 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
     
     # FREE tarif uchun
     if user_tariff == 'FREE':
+        # Boshlang'ich balans bor-yo'qligini tekshirish (onboarding tugaganmi)
         try:
-            row = await db.execute_one(
+            balance_check = await db.execute_one(
                 """
-                SELECT COUNT(*) 
-                FROM transactions 
-                WHERE user_id = %s 
-                AND MONTH(created_at) = MONTH(NOW())
-                AND YEAR(created_at) = YEAR(NOW())
+                SELECT COUNT(*) FROM transactions 
+                WHERE user_id = %s AND category IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
                 """,
                 (user_id,)
             )
-            monthly_count = row[0] if row else 0
-            remaining = max(0, 250 - monthly_count)
-            profile_text = (
-                f"{display_name} (ID: {user_id})\n\n"
-                f"Joriy tarif: Bepul\n"
-                f"Tranzaksiyalar: {monthly_count}/250"
-            )
+            has_initial_balance = balance_check[0] > 0 if balance_check else False
+            
+            if has_initial_balance:
+                # Onboarding tugagan - tranzaksiyalar sonini hisoblash
+                row = await db.execute_one(
+                    """
+                    SELECT COUNT(*) 
+                    FROM transactions 
+                    WHERE user_id = %s 
+                    AND MONTH(created_at) = MONTH(NOW())
+                    AND YEAR(created_at) = YEAR(NOW())
+                    AND category NOT IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
+                    """,
+                    (user_id,)
+                )
+                monthly_count = row[0] if row else 0
+                remaining = max(0, 250 - monthly_count)
+                profile_text = (
+                    f"{display_name} (ID: {user_id})\n\n"
+                    f"Joriy tarif: Bepul\n"
+                    f"Tranzaksiyalar: {monthly_count}/250"
+                )
+            else:
+                # Onboarding tugamagan - tranzaksiyalar ko'rsatilmaydi
+                profile_text = (
+                    f"{display_name} (ID: {user_id})\n\n"
+                    f"Joriy tarif: Bepul\n"
+                    f"Ro'yxatdan o'tish yakunlanmoqda..."
+                )
         except Exception as e:
             logging.error(f"Error getting monthly stats: {e}")
             profile_text = (
