@@ -235,6 +235,37 @@ class Database:
                 )
             """)
             
+            # Debts jadvali - qarzlar uchun
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS debts (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    debt_type ENUM('lent', 'borrowed') NOT NULL,
+                    amount DECIMAL(15,2) NOT NULL,
+                    person_name VARCHAR(255),
+                    due_date DATE NULL,
+                    status ENUM('active', 'paid') DEFAULT 'active',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    INDEX idx_user_id (user_id),
+                    INDEX idx_status (status)
+                )
+            """)
+            
+            # Debt reminders jadvali
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS debt_reminders (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    transaction_id INT NULL,
+                    reminder_date DATE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+                )
+            """)
+            
             # Boshlang'ich qiymatlarni qo'shish
             await self.execute_query("""
                 INSERT IGNORE INTO config (key_name, value) VALUES
