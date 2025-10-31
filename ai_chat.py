@@ -696,13 +696,18 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
                     return None
             
             # Tranzaksiyani saqlash - Database metodidan foydalanish
-            await self.db.add_transaction(
-                user_id=user_id,
-                transaction_type=transaction_type,
-                amount=amount,
-                category=category,
-                description=message[:100]
-            )
+            try:
+                transaction_id = await self.db.add_transaction(
+                    user_id=user_id,
+                    transaction_type=transaction_type,
+                    amount=amount,
+                    category=category,
+                    description=message[:100]
+                )
+                logger.info(f"Transaction saved: id={transaction_id}, type={transaction_type}, amount={amount}, user={user_id}")
+            except Exception as save_error:
+                logger.error(f"Error saving transaction: {save_error}")
+                return None
             
             return {
                 "type": transaction_type,

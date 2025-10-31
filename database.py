@@ -18,7 +18,10 @@ class Database:
                 db=MYSQL_CONFIG['database'],
                 autocommit=True,
                 minsize=1,
-                maxsize=10
+                maxsize=10,
+                connect_timeout=60,
+                read_timeout=60,
+                write_timeout=60
             )
             logging.info("Ma'lumotlar bazasi ulanishi muvaffaqiyatli yaratildi")
         except Exception as e:
