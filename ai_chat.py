@@ -452,9 +452,6 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
             # Moliyaviy kontekstni olish
             context = await self.get_user_financial_context(user_id)
             
-            # Chat tarixini olish
-            history = await self.get_chat_history(user_id, limit=10)
-            
             # Kontekstni matn shakliga o'tkazish
             context_text = self._format_context(context)
             
@@ -466,13 +463,6 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
                 "role": "system", 
                 "content": f"Foydalanuvchi ismi: {user_name}\n\nFoydalanuvchining joriy moliyaviy holati:\n{context_text}"
             })
-            
-            # Chat tarixini qo'shish
-            for msg in history[-6:]:
-                messages.append({
-                    "role": msg["role"],
-                    "content": msg["content"]
-                })
             
             # Foydalanuvchi savolini qo'shish
             messages.append({"role": "user", "content": question})
@@ -489,10 +479,6 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
             
             loop = asyncio.get_event_loop()
             ai_response = await loop.run_in_executor(None, call_openai)
-            
-            # Tarixga saqlash
-            await self.save_to_history(user_id, "user", question)
-            await self.save_to_history(user_id, "assistant", ai_response)
             
             # Ko'p qatorli javobni bo'lish (max 2-3 gap per message)
             messages_list = self._split_response(ai_response)
