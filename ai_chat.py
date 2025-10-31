@@ -346,13 +346,47 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
                 (user_id,)
             )
             
+            # month_stats tuple bo'lishi mumkin, uni dict ga o'tkazish kerak
+            month_stats_dict = {}
+            if month_stats and month_stats[0]:
+                stat = month_stats[0]
+                if isinstance(stat, tuple):
+                    # (total_income, total_expense, transaction_count)
+                    month_stats_dict = {
+                        'total_income': float(stat[0]) if len(stat) > 0 and stat[0] else 0,
+                        'total_expense': float(stat[1]) if len(stat) > 1 and stat[1] else 0,
+                        'transaction_count': int(stat[2]) if len(stat) > 2 and stat[2] else 0,
+                    }
+                elif isinstance(stat, dict):
+                    month_stats_dict = stat
+                else:
+                    month_stats_dict = {}
+            
+            # today_expenses tuple
+            today_exp = 0
+            if today_expenses and today_expenses[0]:
+                exp = today_expenses[0]
+                if isinstance(exp, tuple):
+                    today_exp = float(exp[0]) if len(exp) > 0 and exp[0] else 0
+                elif isinstance(exp, dict):
+                    today_exp = exp.get('today_total', 0) or 0
+            
+            # yesterday_expenses tuple
+            yesterday_exp = 0
+            if yesterday_expenses and yesterday_expenses[0]:
+                exp = yesterday_expenses[0]
+                if isinstance(exp, tuple):
+                    yesterday_exp = float(exp[0]) if len(exp) > 0 and exp[0] else 0
+                elif isinstance(exp, dict):
+                    yesterday_exp = exp.get('yesterday_total', 0) or 0
+            
             context = {
                 "balances": balances,
                 "recent_transactions": recent_transactions if recent_transactions else [],
                 "debts": debts if debts else [],
-                "month_stats": month_stats[0] if month_stats else {},
-                "today_expenses": today_expenses[0].get('today_total', 0) if today_expenses and today_expenses[0] else 0,
-                "yesterday_expenses": yesterday_expenses[0].get('yesterday_total', 0) if yesterday_expenses and yesterday_expenses[0] else 0,
+                "month_stats": month_stats_dict,
+                "today_expenses": today_exp,
+                "yesterday_expenses": yesterday_exp,
             }
             
             return context
