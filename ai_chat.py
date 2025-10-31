@@ -879,6 +879,23 @@ class AIChatFree:
     async def generate_response(self, user_id: int, question: str) -> List[str]:
         """Free tarif uchun - tranzaksiya aniqlash (AI bilan, tafsif yo'q, muvaffaqiyatsiz ham limit kamayadi)"""
         try:
+            # Onboarding tugaganmi tekshirish
+            balance_check = await self.db.execute_one(
+                """
+                SELECT COUNT(*) FROM transactions 
+                WHERE user_id = %s AND category IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
+                """,
+                (user_id,)
+            )
+            has_initial_balance = balance_check[0] > 0 if balance_check else False
+            
+            if not has_initial_balance:
+                return [
+                    "⚠️ Ro'yxatdan o'tishingiz kerak!\n\n"
+                    "Tranzaksiyalarni qilish uchun avval ro'yxatdan o'ting.\n"
+                    "/start boshing va onboarding jarayonini tugallang."
+                ]
+            
             # Oy davomidagi tranzaksiyalar sonini tekshirish
             count = await self.get_monthly_transaction_count(user_id)
             
