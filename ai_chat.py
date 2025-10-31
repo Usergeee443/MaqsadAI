@@ -227,58 +227,6 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
             # Fallback
             return {"person": "Noma'lum", "amount": 0, "due_date": None}
 
-
-class AIChatFree:
-    """AI chat klassi - cheklangan versiya (FREE tarif uchun)"""
-    
-    def __init__(self, db=None):
-        # Agar db berilmasa, yangi Database yaratish
-        self.db = db if db else Database()
-        self.openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-        self.system_prompt = """Sen Balans AI ning yordamchisisiz. Free tarif uchunsiz.
-
-MUHIM: Hech qachon formatlash belgilarini ishlatma (#, **, vs). Faqat oddiy, insoniy matn.
-
-Vazifang:
-- Faqat KIRIM/CHIQIM/QARZ aniqlash va yozib qo'yish
-- Faqat kategoriya va summani saqlash (tafsif yozilmaysiz)
-- Qisqa javob (max 2-3 gap)
-
-Cheklovlar:
-- Faqat 250 ta tranzaksiya oyiga
-- Faqat oddiy kategoriyalar
-- Hech qanday tahlil qilmaylik
-
-Uslub:
-- Qisqa va aniq javob
-- Emoji ishlatmang
-- Faqat kategoriya + summa
-- Hech qachon ###, **, kabi belgilar ishlatma
-
-Tillar:
-- Asosiy: O'zbek (lotin)
-- Ingliz/Rus → shu til bilan"""
-    
-    async def get_monthly_transaction_count(self, user_id: int) -> int:
-        """Oy davomida qilingan tranzaksiyalar sonini olish"""
-        try:
-            result = await self.db.execute_one(
-                """
-                SELECT COUNT(*) 
-                FROM transactions 
-                WHERE user_id = %s 
-                AND MONTH(created_at) = MONTH(NOW())
-                AND YEAR(created_at) = YEAR(NOW())
-                """,
-                (user_id,)
-            )
-            if result and isinstance(result, tuple):
-                return result[0]
-            return 0
-        except Exception as e:
-            logger.error(f"Error getting monthly transaction count: {e}")
-            return 0
-
     async def get_user_info(self, user_id: int) -> Dict:
         """Foydalanuvchi ma'lumotlarini olish"""
         try:
@@ -320,75 +268,6 @@ Tillar:
             # Xatolik bo'lsa ham valid qilamiz
             return {"is_valid": True}
     
-    async def _analyze_balance_response(self, text: str) -> Dict:
-        """Balans javobini AI bilan tahlil qilish"""
-        try:
-            response = await self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": """Siz Balans AI onboarding yordamchisisiz. Foydalanuvchi balansi haqida javobni qizigarlilik bilan tahlil qiling.
-
-VAZIFA:
-1. Javobdan balans raqamini ajrating
-2. Qiziqarli javob bering
-
-QOIDALAR:
-- "yo'q", "bo'm bo'sh", "qo'llatda pul yo'q" = 0 so'm
-- "100 mln", "100mln", "100 million" = 100000000 so'm
-- "50 ming" = 50000 so'm
-- Raqamlarni to'g'ri tushunish
-- Qiziqarli va qisqa javob (max 2 gap)
-
-FORMAT:
-{"balance": X, "message": "Qiziqarli javob"}
-
-MISOL:
-Javob: "yo'q hozir"
-{"balance": 0, "message": "😊 Juda yaxshi! Sizga pulni to'g'ri boshqarishni o'rganamiz!"}
-
-Javob: "100 million"
-{"balance": 100000000, "message": "🤩 Ajoyib! Millionerlar ham ishlaydi. 100 mln ni boshlang'ich balans sifatida qo'shdim!"}
-
-Javob: "500 ming"
-{"balance": 500000, "message": "✨ Yaxshi! 500 ming so'm boshlang'ich balans sifatida qo'shildi."}"""
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Foydalanuvchi javobi: {text}"
-                    }
-                ],
-                max_tokens=150,
-                temperature=0.7
-            )
-            
-            result_text = response.choices[0].message.content.strip()
-            
-            # JSON parse
-            import json
-            if '```json' in result_text:
-                result_text = result_text.split('```json')[1].split('```')[0]
-            elif '```' in result_text:
-                result_text = result_text.split('```')[1]
-            
-            result = json.loads(result_text)
-            return result
-            
-        except Exception as e:
-            logger.error(f"AI balans tahlili xatolik: {e}")
-            # Fallback
-            try:
-                import re
-                # Oddiy regex bilan raqamni ajratish
-                numbers = re.findall(r'\d+', text)
-                if numbers:
-                    balance = float(''.join(numbers))
-                    return {"balance": balance, "message": ""}
-            except:
-                pass
-            return {"balance": 0, "message": ""}
-
     async def get_user_financial_context(self, user_id: int) -> Dict:
         """Foydalanuvchining moliyaviy kontekstini olish"""
         try:
