@@ -12,7 +12,7 @@ Telegram boti orqali shaxsiy moliyaviy ma'lumotlaringizni boshqarish va AI yorda
 ## 📱 Tariflar
 
 - **🆓 Bepul**: Asosiy moliyaviy hisobotlar, 10 ta tranzaksiya/oy
-- **⭐ Plus**: 150 text, 50 voice tranzaksiya/oy - 19,990 so'm/oy
+- **⭐ Plus**: 500 text, 250 voice tranzaksiya/oy - 19,990 so'm/oy
 - **💎 Pro**: 1,000 text, 500 voice tranzaksiya/oy - 199,900 so'm/oy
 
 ## 🛠️ O'rnatish

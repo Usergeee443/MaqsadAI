@@ -2510,8 +2510,8 @@ async def profile_handler(message: Message, state: FSMContext):
             profile_text = (
                 f"{display_name} (ID: {user_id})\n\n"
                 f"Tarif: Plus ({expires_str})\n"
-                f"Tranzaksiyalar: {monthly_count}/150\n"
-                f"Ovozli Tranzaksiyalar: {audio_count}/50"
+                f"Tranzaksiyalar: {monthly_count}/500\n"
+                f"Ovozli Tranzaksiyalar: {audio_count}/250"
             )
         except Exception as e:
             logging.error(f"Error getting PLUS stats: {e}")
@@ -3116,8 +3116,8 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
             profile_text = (
                 f"{display_name} (ID: {user_id})\n\n"
                 f"Tarif: Plus ({expires_str})\n"
-                f"Tranzaksiyalar: {monthly_count}/150\n"
-                f"Ovozli Tranzaksiyalar: {audio_count}/50"
+                f"Tranzaksiyalar: {monthly_count}/500\n"
+                f"Ovozli Tranzaksiyalar: {audio_count}/250"
             )
         except Exception as e:
             logging.error(f"Error getting PLUS stats: {e}")
