@@ -12,8 +12,8 @@ Telegram boti orqali shaxsiy moliyaviy ma'lumotlaringizni boshqarish va AI yorda
 ## 📱 Tariflar
 
 - **🆓 Bepul**: Asosiy moliyaviy hisobotlar, 10 ta tranzaksiya/oy
-- **⭐ Pro**: Kengaytirilgan hisobotlar, cheksiz tranzaksiyalar, audio qo'llab-quvvatlash
-- **💎 Max**: Barcha Pro imkoniyatlari + AI yordamchi maslahatlari
+- **⭐ Plus**: 150 text, 50 voice tranzaksiya/oy - 19,990 so'm/oy
+- **💎 Pro**: 1,000 text, 500 voice tranzaksiya/oy - 199,900 so'm/oy
 
 ## 🛠️ O'rnatish
 
@@ -48,6 +48,17 @@ CREATE DATABASE balans_ai;
 python3 run_bot.py
 ```
 
+### Payment Notify Server
+
+Mini ilova uchun alohida Flask server ishga tushiring:
+
+```bash
+python3 payment_notify_server.py
+```
+
+Server 5005-portda ishlaydi va mini ilovadan to'lov ma'lumotlarini qabul qiladi.
+Batafsil: [PAYMENT_NOTIFY_SERVER.md](PAYMENT_NOTIFY_SERVER.md)
+
 ## 📊 Ma'lumotlar bazasi
 
 Bot MySQL ma'lumotlar bazasidan foydalanadi. Avtomatik ravishda quyidagi jadvallar yaratiladi:
@@ -57,8 +68,10 @@ Bot MySQL ma'lumotlar bazasidan foydalanadi. Avtomatik ravishda quyidagi jadvall
 
 ## 🤖 AI funksiyalari
 
-- **GPT-4o** - Moliyaviy ma'lumotlarni tahlil qilish
-- **Whisper** - Audio xabarlarni matnga aylantirish
+- **GPT-4o/4o-mini** - Moliyaviy ma'lumotlarni tahlil qilish (PRO tarif)
+- **GPT-3.5-turbo** - Tezkor va arzon tranzaksiya qayta ishlash (Plus tarif)
+- **Mistral-7B-Instruct** - Arzon AI model (Plus tarif fallback)
+- **Google Cloud Speech** - Audio xabarlarni matnga aylantirish
 - **Ko'p tilli qo'llab-quvvatlash** - Uzbek, Rus, Turk, Qozoq tillari
 
 ## 📝 Foydalanish
