@@ -1066,6 +1066,22 @@ async def start_command(message: types.Message, state: FSMContext):
     # Agar foydalanuvchi onboarding jarayonida bo'lsa, qayerda to'xtagan bo'lsa o'sha yerdan davom etadi
     current_state = await state.get_state()
     
+    # Agar state yo'q bo'lsa (restart dan keyin), bazadan tekshirish
+    if not current_state and user_data:
+        # Qayerda to'xtaganini aniqlash
+        if user_data.get('phone') and not has_initial_balance:
+            # Onboarding yarim qolgan
+            if not user_data.get('name'):
+                current_state = UserStates.waiting_for_name
+            elif not user_data.get('source'):
+                current_state = UserStates.waiting_for_source
+            elif not user_data.get('account_type'):
+                current_state = UserStates.waiting_for_account_type
+            else:
+                current_state = UserStates.onboarding_balance
+            # State ni o'rnatish
+            await state.set_state(current_state)
+    
     # Onboarding holatlarini tekshirish
     if current_state in [UserStates.onboarding_balance, UserStates.onboarding_waiting_for_debt_action, 
                         UserStates.onboarding_debt_waiting_for_person, UserStates.onboarding_debt_waiting_for_amount]:
@@ -1148,60 +1164,8 @@ async def start_command(message: types.Message, state: FSMContext):
             )
         return
     
-    # Agar onboarding yarim qolgan bo'lsa (phone bor, lekin balance yo'q) -> davom ettirish
-    if user_data and user_data.get('phone') and not has_initial_balance and not has_any_transactions:
-        # Qayerda to'xtaganini tekshirish
-        if not user_data.get('name'):
-            # Ism kiritilmagan
-            await message.answer_photo(
-                photo=FSInputFile('what_is_your_name.png'),
-                caption=(
-                    "👋 **Keling tanishib olsak!**\n\n"
-                    "Ismingizni kiriting yoki 'Xojayin' deb chaqirilsin."
-                ),
-                parse_mode="Markdown"
-            )
-            await state.set_state(UserStates.waiting_for_name)
-            return
-        elif not user_data.get('source'):
-            # Source kiritilmagan
-            await message.answer_photo(
-                photo=FSInputFile('where_did_you_hear_us.png'),
-                caption="Bizni qayerda eshitdingiz?",
-                reply_markup=get_source_menu(),
-                parse_mode="Markdown"
-            )
-            await state.set_state(UserStates.waiting_for_source)
-            return
-        elif not user_data.get('account_type'):
-            # Account type tanlanmagan
-            await message.answer_photo(
-                photo=FSInputFile('tariff.png'),
-                caption=(
-                    "Hisob turini tanlang:\n\n"
-                    "👤 Shaxsiy — yagona shaxs uchun\n"
-                    "👨‍👩‍👧‍👦 Oila — oila a'zolari uchun\n"
-                    "🏢 Biznes — kichik biznes uchun"
-                ),
-                reply_markup=get_account_type_menu(),
-                parse_mode="Markdown"
-            )
-            await state.set_state(UserStates.waiting_for_account_type)
-            return
-        else:
-            # Onboarding balans qismida - balans qismiga yo'naltirish
-            await message.answer_photo(
-                photo=FSInputFile('welcome.png'),
-                caption=(
-                    "💰 **1-qadam: Boshlang'ich balans**\n\n"
-                    "Qancha pulingiz bor? (naqd pul + karta)\n\n"
-                    "Masalan: 500000 (agar 500,000 so'm bo'lsa)"
-                ),
-                reply_markup=ReplyKeyboardRemove(),
-                parse_mode='Markdown'
-            )
-            await state.set_state(UserStates.onboarding_balance)
-            return
+    # Yangi foydalanuvchi uchun faqat xush kelibsiz xabari (onboarding boshlanmaydi)
+    # Onboarding faqat telefon raqami yuborilgandan keyin boshlanadi
     
     # Onboarding oqimini to'g'ri tartibda yo'naltirish
     # 1) Telefon yo'q -> telefon so'rash
@@ -1271,8 +1235,6 @@ async def start_command(message: types.Message, state: FSMContext):
         return
 
     # 2.2) Agar onboarding jarayonida bo'lsa -> davom etish
-    current_state = await state.get_state()
-    
     # OnboardingState holatlari uchun
     if current_state == OnboardingState.waiting_for_income.state:
         await message.answer(
@@ -2499,44 +2461,24 @@ async def profile_handler(message: Message, state: FSMContext):
     
     # FREE tarif uchun tranzaksiya sonini qo'shamiz
     if user_tariff == 'FREE':
-        # Boshlang'ich balans bor-yo'qligini tekshirish (onboarding tugaganmi)
         try:
-            balance_check = await db.execute_one(
+            row = await db.execute_one(
                 """
-                SELECT COUNT(*) FROM transactions 
-                WHERE user_id = %s AND category IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
+                SELECT COUNT(*) 
+                FROM transactions 
+                WHERE user_id = %s 
+                AND MONTH(created_at) = MONTH(NOW())
+                AND YEAR(created_at) = YEAR(NOW())
                 """,
                 (user_id,)
             )
-            has_initial_balance = balance_check[0] > 0 if balance_check else False
-            
-            if has_initial_balance:
-                # Onboarding tugagan - tranzaksiyalar sonini hisoblash
-                row = await db.execute_one(
-                    """
-                    SELECT COUNT(*) 
-                    FROM transactions 
-                    WHERE user_id = %s 
-                    AND MONTH(created_at) = MONTH(NOW())
-                    AND YEAR(created_at) = YEAR(NOW())
-                    AND category NOT IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
-                    """,
-                    (user_id,)
-                )
-                monthly_count = row[0] if row else 0
-                remaining = max(0, 250 - monthly_count)
-                profile_text = (
-                    f"{display_name} (ID: {user_id})\n\n"
-                    f"Joriy tarif: Bepul\n"
-                    f"Tranzaksiyalar: {monthly_count}/250"
-                )
-            else:
-                # Onboarding tugamagan - tranzaksiyalar ko'rsatilmaydi
-                profile_text = (
-                    f"{display_name} (ID: {user_id})\n\n"
-                    f"Joriy tarif: Bepul\n"
-                    f"Ro'yxatdan o'tish yakunlanmoqda..."
-                )
+            monthly_count = row[0] if row else 0
+            remaining = max(0, 250 - monthly_count)
+            profile_text = (
+                f"{display_name} (ID: {user_id})\n\n"
+                f"Joriy tarif: Bepul\n"
+                f"Tranzaksiyalar: {monthly_count}/250"
+            )
         except Exception as e:
             logging.error(f"Error getting monthly stats: {e}")
             profile_text = (
@@ -2686,39 +2628,23 @@ async def profile_stats_callback(callback_query: CallbackQuery):
     
     # FREE tarif uchun oylik limit ko'rsatish
     if user_tariff == 'FREE':
-        # Boshlang'ich balans bor-yo'qligini tekshirish (onboarding tugaganmi)
         try:
-            balance_check = await db.execute_one(
+            row = await db.execute_one(
                 """
-                SELECT COUNT(*) FROM transactions 
-                WHERE user_id = %s AND category IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
+                SELECT COUNT(*) 
+                FROM transactions 
+                WHERE user_id = %s 
+                AND MONTH(created_at) = MONTH(NOW())
+                AND YEAR(created_at) = YEAR(NOW())
                 """,
                 (user_id,)
             )
-            has_initial_balance = balance_check[0] > 0 if balance_check else False
-            
-            if has_initial_balance:
-                # Onboarding tugagan - tranzaksiyalar sonini hisoblash
-                row = await db.execute_one(
-                    """
-                    SELECT COUNT(*) 
-                    FROM transactions 
-                    WHERE user_id = %s 
-                    AND MONTH(created_at) = MONTH(NOW())
-                    AND YEAR(created_at) = YEAR(NOW())
-                    AND category NOT IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
-                    """,
-                    (user_id,)
-                )
-                monthly_count = row[0] if row else 0
-                remaining = max(0, 250 - monthly_count)
-                text = f"📊 Statistika (FREE tarif)\n\n"
-                text += f"Bu oy: {monthly_count}/250 tranzaksiya\n"
-                text += f"Qolgan: {remaining} ta\n\n"
-                text += f"Jami tranzaksiyalar: {total:,} ta"
-            else:
-                # Onboarding tugamagan
-                text = f"📊 Statistika\n\nRo'yxatdan o'tish yakunlanmoqda...\n\nJami tranzaksiyalar: {total:,} ta"
+            monthly_count = row[0] if row else 0
+            remaining = max(0, 250 - monthly_count)
+            text = f"📊 Statistika (FREE tarif)\n\n"
+            text += f"Bu oy: {monthly_count}/250 tranzaksiya\n"
+            text += f"Qolgan: {remaining} ta\n\n"
+            text += f"Jami tranzaksiyalar: {total:,} ta"
         except Exception as e:
             logging.error(f"Error getting monthly stats: {e}")
             text = f"📊 Statistika\n\nJami tranzaksiyalar: {total:,} ta"
@@ -3141,44 +3067,24 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
     
     # FREE tarif uchun
     if user_tariff == 'FREE':
-        # Boshlang'ich balans bor-yo'qligini tekshirish (onboarding tugaganmi)
         try:
-            balance_check = await db.execute_one(
+            row = await db.execute_one(
                 """
-                SELECT COUNT(*) FROM transactions 
-                WHERE user_id = %s AND category IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
+                SELECT COUNT(*) 
+                FROM transactions 
+                WHERE user_id = %s 
+                AND MONTH(created_at) = MONTH(NOW())
+                AND YEAR(created_at) = YEAR(NOW())
                 """,
                 (user_id,)
             )
-            has_initial_balance = balance_check[0] > 0 if balance_check else False
-            
-            if has_initial_balance:
-                # Onboarding tugagan - tranzaksiyalar sonini hisoblash
-                row = await db.execute_one(
-                    """
-                    SELECT COUNT(*) 
-                    FROM transactions 
-                    WHERE user_id = %s 
-                    AND MONTH(created_at) = MONTH(NOW())
-                    AND YEAR(created_at) = YEAR(NOW())
-                    AND category NOT IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
-                    """,
-                    (user_id,)
-                )
-                monthly_count = row[0] if row else 0
-                remaining = max(0, 250 - monthly_count)
-                profile_text = (
-                    f"{display_name} (ID: {user_id})\n\n"
-                    f"Joriy tarif: Bepul\n"
-                    f"Tranzaksiyalar: {monthly_count}/250"
-                )
-            else:
-                # Onboarding tugamagan - tranzaksiyalar ko'rsatilmaydi
-                profile_text = (
-                    f"{display_name} (ID: {user_id})\n\n"
-                    f"Joriy tarif: Bepul\n"
-                    f"Ro'yxatdan o'tish yakunlanmoqda..."
-                )
+            monthly_count = row[0] if row else 0
+            remaining = max(0, 250 - monthly_count)
+            profile_text = (
+                f"{display_name} (ID: {user_id})\n\n"
+                f"Joriy tarif: Bepul\n"
+                f"Tranzaksiyalar: {monthly_count}/250"
+            )
         except Exception as e:
             logging.error(f"Error getting monthly stats: {e}")
             profile_text = (
