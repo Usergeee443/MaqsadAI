@@ -233,9 +233,8 @@ class FinancialModule:
             }
             
             # Model - ElevenLabs Speech-to-Text
-            data = {
-                "model_id": "eleven_multilingual_v2",  # Yoki 29+ tilni qo'llab-quvvatlaydigan boshqa model
-            }
+            # data param bo'sh bo'lishi mumkin, yoki model_id files bilan birga jo'natiladi
+            data = {}  # Model_id kerak bo'lsa, files dict ichida bo'lishi kerak
             
             def call_api():
                 response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
