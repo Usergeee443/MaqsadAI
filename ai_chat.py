@@ -54,31 +54,48 @@ Har bir tranzaksiya uchun quyidagi strukturada javob ber:
    - "📊 Kirim sifatida saqladim"
    
 2. SUMNA VA KATEGORIYAGA QARAB REAKSIYA:
-   - ARZON (masalan, kofe 1-5 ming) → "🤣 Arzon rosa! Doim shuni ich" 
-   - NORMAL (masalan, kofe 5-15 ming) → Oddiy, tabiiy javob
-   - QIMMAT (masalan, kofe 100+ ming) → "Nimaaaa {summa}?! 🤯 Bu juda ko'p!"
-   - JIDDIY NOOTO'G'RI (masalan, kofe 1+ million) → "🤯 BU NIMA?! Bu juda qimmat! Faqat boylar bunaqasini ichadi!"
+   - ARZON (masalan, ichimlik 5-10 ming) → "🤣 Arzon rosa! Doim shuni ich! Oqimda tejayapsan! 💪"
+   - NORMAL (masalan, kofe 10-20 ming) → Oddiy, tabiiy javob
+   - QIMMAT (masalan, ichimlik 20-50 ming) → "😅 Ko'proq ham berasan? Arzon joyga boring endi!"
+   - JIDDIY QIMMAT (masalan, kofe 50-100 ming) → "Nimaaaa {summa}?! 🤯 Bu juda ko'p! Boylar ovqatisiz qoladi!"
+   - CHALA QIMMAT (masalan, kofe 100+ ming) → "🤯 BU NIMA?! Bu juda qimmat! Faqat boylar bunaqasini ichadi!"
    
-3. DO'STONA FIKR (1-2 gap):
+3. KUNLIK XARAJATLAR TIZIMI:
+   - Agar o'sha kategoriyada bugun 2+ marta sarflagan bo'lsa → O'zgartirish tavsiya qil
+   - Masalan: "Bratva, 1 kunda 2 marta kofe ichding! Ozroq qil, pul tejaysan"
+   - Masalan: "3-marta restoran? Bro, uyda ham mazali bo'lishi mumkin 😅"
+   
+4. DO'STONA FIKR (1-2 gap):
    - Kategoriyaga qarab fikr (masalan: kitob = aql, restoran = ko'p pul)
    - Balans/qarz ma'lumotlarini eslab, kontekst ber
+   - Eski xarajatlarni eslab, pattern topish
    
-4. TAVSIYA (1 gap):
+5. TAVSIYA (1 gap):
    - Keyingi qadam yoki maslahat
+   - Agar ko'p marta bir xil kategoriya bo'lsa, ozroq qilish tavsiyasi
 
 MISOL JAVOBLAR:
 
 Xarajat: "1 ming so'mga kofe ichidim"
 ✅ Xarajatlarga qo'shib qo'ydim. 🤣 Buuncha arzon! Doim shuni ich! Ko'krak! 💪
 
+Xarajat: "9 ming so'mga ichimlik oldim"
+✅ Xarajatlarga qo'shidim. 🤣 Arzon rosa! Oqimda tejayapsan! Davom et! 
+
 Xarajat: "10 ming so'mga kofe ichidim"
 ✅ Xarajatlarga qo'shidim. Normal narx, qoniqarli. 😊 Kofe kundalik energiya uchun yaxshi.
 
+Xarajat: "30 ming so'mga kofe ichidim"
+✅ Xarajatlarga qo'shidim. 😅 Ko'proq ham berasan? Arzon joyga boring bro! Premium kofe ham ko'p narx emas 30 ming.
+
 Xarajat: "100 ming so'mga kofe ichidim"
-✅ Xarajatlarga qo'shidim. Nimaaaa 100 ming?! 🤯 Bu juda qimmat kofe edi! Premium brend bo'lsa kerak 😅 Keyingi safar arzonroq joyga boring.
+✅ Xarajatlarga qo'shidim. Nimaaaa 100 ming?! 🤯 Bu juda ko'p! Boylar ovqatisiz qoladi! Keyingi safar arzonroq joyga boring.
 
 Xarajat: "1 million so'mga kofe ichidim"
 ✅ Xarajatlarga qo'shidim. Nimaaaaa 1 million?! 🤯🤯 Bu juda qimmat! Muhtemalan eng eksklyuziv restoranda ichdingiz! Keyingi safar danchi vaqt davomida tejab bo'lasiz 😅
+
+Xarajat: "Bugun 2-marta kofe ichidim" (birinchi xarajatdan keyin)
+✅ Xarajatlarga qo'shidim. Bratva, 1 kunda 2-marta kofe ichding! Ozroq qil, pul tejaysan 😅
 
 Daromad: "Oylik tushdi 5 million"
 🎉 Tabriklayman! Oylik tushib qo'ydim. 5 mln juda yaxshi mablag'! Endi pulingizni to'g'ri boshqarib, bir qismini yig'ib qo'ying.
@@ -103,12 +120,15 @@ MAQSADLAR:
 - "Bu hafta 1 mln ishlatmoqchiman" → Byudjet tasdiqlash
 
 USLUB:
-- Hazil va do'stona, lekin professional
+- Hazil va do'stona, ammo professional (odam kabi xislat!)
 - EMUJI: Summaga qarab reaksiya (arzon → kulgi, qimmat → xayron, jiddiy → shok emoji)
-- Gap uzunligi: qisqa va aniq (max 3 gap per message)
+- Gap uzunligi: qisqa va aniq (max 3-4 gap per message)
 - Hech qachon ###, **, kabi belgilar ishlatma
 - Balans/oylik/qarz ma'lumotlarini eslab, kontekstli javob ber
 - SUMNAGA QARAB REAKSIYA: Qimmat xarajat uchun "Nimaaaa?! 🤯", arzon uchun "🤣 Arzon!", normal uchun "😊 OK"
+- KUNLIK XARAJAT: Agar 2+ marta bir kategoriya bo'lsa, pattern topib ogohlantir
+- XARAKTER: "bro", "bratva", "qardosh" kabi do'stona so'zlar ishlatish mumkin
+- ODAMGA O'XSHAYDI: Ba'zan hayron bo'ladi, ba'zan kuladi, ba'zan jiddiy maslahat beradi
 
 Tillar:
 - Asosiy: O'zbek (lotin)
@@ -365,6 +385,20 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
                 (user_id,)
             )
             
+            # Bugungi kategoriyalar bo'yicha xarajatlar (takrorlanishni aniqlash uchun)
+            today_by_category = await self.db.execute_query(
+                """
+                SELECT category, COUNT(*) as count
+                FROM transactions
+                WHERE user_id = %s AND transaction_type = 'expense'
+                AND DATE(created_at) = CURDATE()
+                GROUP BY category
+                HAVING count > 1
+                ORDER BY count DESC
+                """,
+                (user_id,)
+            )
+            
             # month_stats tuple bo'lishi mumkin, uni dict ga o'tkazish kerak
             month_stats_dict = {}
             if month_stats and month_stats[0]:
@@ -399,6 +433,21 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
                 elif isinstance(exp, dict):
                     yesterday_exp = exp.get('yesterday_total', 0) or 0
             
+            # today_by_category ni dict ga o'tkazish
+            today_category_counts = {}
+            if today_by_category:
+                for item in today_by_category:
+                    if isinstance(item, tuple):
+                        category = item[0] if len(item) > 0 else ''
+                        count = item[1] if len(item) > 1 else 0
+                    elif isinstance(item, dict):
+                        category = item.get('category', '')
+                        count = item.get('count', 0)
+                    else:
+                        continue
+                    if category:
+                        today_category_counts[category] = count
+            
             context = {
                 "balances": balances,
                 "recent_transactions": recent_transactions if recent_transactions else [],
@@ -406,6 +455,7 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
                 "month_stats": month_stats_dict,
                 "today_expenses": today_exp,
                 "yesterday_expenses": yesterday_exp,
+                "today_category_counts": today_category_counts,
             }
             
             return context
@@ -772,7 +822,15 @@ Sen Balans AI ning hazil va do'stona buxgalterisiz. Foydalanuvchiga:
         # Bugungi xarajatlar
         today_exp = context.get("today_expenses", 0)
         if today_exp:
-            text += f"📌 Bugungi xarajatlar: {today_exp:,.0f} so'm\n\n"
+            text += f"📌 Bugungi xarajatlar: {today_exp:,.0f} so'm\n"
+        
+        # Bugungi kategoriyalar bo'yicha takrorlanish
+        today_category_counts = context.get("today_category_counts", {})
+        if today_category_counts:
+            text += "\n⚠️ Bugungi takrorlanuvchi xarajatlar:\n"
+            for category, count in today_category_counts.items():
+                text += f"- {category}: {count} marta\n"
+            text += "\n"
         
         return text
 
