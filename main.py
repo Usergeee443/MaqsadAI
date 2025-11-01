@@ -4707,33 +4707,33 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         logging.error(f"AI chat xatolik: {e}")
         await message.answer("Kechirasiz, xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
 
-async def process_google_audio(message: types.Message, state: FSMContext, audio_path: str, user_id: int):
-    """Google Cloud Speech natijalarini alohida qayta ishlash"""
+async def process_audio_with_financial_module(message: types.Message, state: FSMContext, audio_path: str, user_id: int):
+    """Audio faylni financial module orqali qayta ishlash (GOOGLE yoki ELEVENLABS)"""
     try:
-        # Google Cloud Speech-to-Text ni ishga tushirish
-        google_result = await financial_module.process_audio_input(audio_path, user_id)
+        # Financial module audio qayta ishlash (GOOGLE yoki ELEVENLABS)
+        audio_result = await financial_module.process_audio_input(audio_path, user_id)
         
-        # Google natijasini yuborish
-        if google_result['success']:
-            if google_result.get('type') == 'single_confirmation':
+        # Audio natijasini yuborish
+        if audio_result['success']:
+            if audio_result.get('type') == 'single_confirmation':
                 # Bitta tranzaksiya tasdiqlash
                 await state.set_state(UserStates.waiting_for_transaction_confirmation)
-                await state.update_data(transaction_data=google_result['transaction_data'])
+                await state.update_data(transaction_data=audio_result['transaction_data'])
                 
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="💾 Saqlash", callback_data="trans_single")],
                     [InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_cancel_single")]
                 ])
                 
-                await message.answer(google_result['message'], parse_mode='Markdown', reply_markup=keyboard)
+                await message.answer(audio_result['message'], parse_mode='Markdown', reply_markup=keyboard)
                 
-            elif google_result.get('type') == 'multiple_preview':
+            elif audio_result.get('type') == 'multiple_preview':
                 # Ko'p tranzaksiyalar oldindan ko'rinishi
                 await state.set_state(UserStates.waiting_for_transaction_confirmation)
-                await state.update_data(transaction_data=google_result['buttons_data'])
+                await state.update_data(transaction_data=audio_result['buttons_data'])
                 
                 # Tugmalarni yaratish
-                buttons_data = google_result['buttons_data']
+                buttons_data = audio_result['buttons_data']
                 transactions = buttons_data.get('transactions', [])
                 
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[])
@@ -4753,18 +4753,18 @@ async def process_google_audio(message: types.Message, state: FSMContext, audio_
                     InlineKeyboardButton(text="❌ Hammasini bekor qilish", callback_data="trans_cancel_all")
                 ])
                 
-                await message.answer(google_result['message'], parse_mode='Markdown', reply_markup=keyboard)
+                await message.answer(audio_result['message'], parse_mode='Markdown', reply_markup=keyboard)
             
-            elif google_result.get('type') == 'completed':
+            elif audio_result.get('type') == 'completed':
                 # Natijani ko'rsatish
-                await message.answer(google_result['message'], parse_mode='Markdown')
+                await message.answer(audio_result['message'], parse_mode='Markdown')
             
             else:
                 # Oddiy natija
-                await message.answer(google_result['message'], parse_mode='Markdown')
+                await message.answer(audio_result['message'], parse_mode='Markdown')
         else:
             # Xatolik yuz berdi
-            await message.answer(google_result['message'], parse_mode='Markdown')
+            await message.answer(audio_result['message'], parse_mode='Markdown')
     
     except Exception as e:
         logging.error(f"Google background task error: {e}")
@@ -4829,15 +4829,17 @@ async def process_audio_message(message: types.Message, state: FSMContext):
         # Bajarilmoqda xabarini yuborish
         processing_msg = await message.answer("🔄 Bajarilmoqda...", parse_mode='Markdown')
         
-        # Google Cloud Speech-to-Text
-        if ACTIVE_SPEECH_MODELS['GOOGLE']:
-            await process_google_audio(message, state, audio_path, user_id)
-        else:
+        # Faqat bitta model tanlab ishlatish uchun tekshirish
+        if not ACTIVE_SPEECH_MODELS.get('GOOGLE', False) and not ACTIVE_SPEECH_MODELS.get('ELEVENLABS', False):
             await processing_msg.delete()
             await message.answer(
                 "❌ Hozircha speech model yoqilmagan. Admin bilan bog'laning.",
                 parse_mode='Markdown'
             )
+            return
+        
+        # Financial module audio qayta ishlash (GOOGLE yoki ELEVENLABS tanlaydi)
+        await process_audio_with_financial_module(message, state, audio_path, user_id)
         
     except Exception as e:
         logging.error(f"Audio xabarni qayta ishlashda xatolik: {e}")
