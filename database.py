@@ -269,8 +269,9 @@ class Database:
             # Boshlang'ich qiymatlarni qo'shish
             await self.execute_query("""
                 INSERT IGNORE INTO config (key_name, value) VALUES
-                ('active_speech_google', 'true'),
-                ('active_speech_whisper', 'true'),
+                ('active_speech_google', 'false'),
+                ('active_speech_elevenlabs', 'true'),
+                ('active_speech_whisper', 'false'),
                 ('free_trial_plus', 'true'),
                 ('free_trial_max', 'true'),
                 ('free_trial_business', 'true')

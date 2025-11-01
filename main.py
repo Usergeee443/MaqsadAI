@@ -5874,6 +5874,10 @@ async def load_config_from_db():
         if result:
             ACTIVE_SPEECH_MODELS['GOOGLE'] = result[0].lower() == 'true'
         
+        result = await db.execute_one("SELECT value FROM config WHERE key_name = 'active_speech_elevenlabs'")
+        if result:
+            ACTIVE_SPEECH_MODELS['ELEVENLABS'] = result[0].lower() == 'true'
+        
         # Free trials
         result = await db.execute_one("SELECT value FROM config WHERE key_name = 'free_trial_plus'")
         if result:
