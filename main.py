@@ -668,18 +668,36 @@ async def admin_speech_models_callback(callback_query: CallbackQuery):
         return
     
     # Hozirgi holatni ko'rsatish
-    google_status = "✅ Yoqilgan" if ACTIVE_SPEECH_MODELS['GOOGLE'] else "❌ O'chirilgan"
+    google_active = ACTIVE_SPEECH_MODELS.get('GOOGLE', False)
+    elevenlabs_active = ACTIVE_SPEECH_MODELS.get('ELEVENLABS', False)
+    
+    # Faqat bitta tanlangan bo'lishi kerak
+    if google_active and elevenlabs_active:
+        # Agar ikkalasi ham yo'q bo'lsa, birinchisini o'chiramiz
+        ACTIVE_SPEECH_MODELS['GOOGLE'] = False
+        google_active = False
+    elif not google_active and not elevenlabs_active:
+        # Agar ikkalasi ham o'chirilgan bo'lsa, birinchisini yoqamiz
+        ACTIVE_SPEECH_MODELS['ELEVENLABS'] = True
+        elevenlabs_active = True
+    
+    google_status = "✅ Yoqilgan" if google_active else "❌ O'chirilgan"
+    elevenlabs_status = "✅ Yoqilgan" if elevenlabs_active else "❌ O'chirilgan"
     
     text = f"""🎤 **Speech Model Boshqarish**
 
 **Hozirgi holat:**
+• ElevenLabs Speech-to-Text: {elevenlabs_status}
 • Google Cloud Speech-to-Text: {google_status}
 
+**MUHIM:** Faqat 1 ta model tanlab ishlatishingiz mumkin!
+
 **Boshqarish:**
-Quyidagi tugmadan foydalaning:"""
+Quyidagi tugmalardan foydalaning:"""
     
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=f"ElevenLabs: {elevenlabs_status}", callback_data="admin_toggle_elevenlabs")],
             [InlineKeyboardButton(text=f"Google: {google_status}", callback_data="admin_toggle_google")],
             [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin_back")]
         ]
@@ -694,9 +712,46 @@ async def admin_toggle_google_callback(callback_query: CallbackQuery):
         await callback_query.answer()
         return
     
-    # Google ni toggle qilish
-    ACTIVE_SPEECH_MODELS['GOOGLE'] = not ACTIVE_SPEECH_MODELS['GOOGLE']
+    # Faqat bitta model tanlab ishlatish uchun
+    if ACTIVE_SPEECH_MODELS['GOOGLE']:
+        # Agar yo'q bo'lsa, ochiramiz
+        ACTIVE_SPEECH_MODELS['GOOGLE'] = False
+    else:
+        # Agar ochiq bo'lsa, yoqamiz va boshqasini ochiramiz
+        ACTIVE_SPEECH_MODELS['GOOGLE'] = True
+        ACTIVE_SPEECH_MODELS['ELEVENLABS'] = False
+    
     # Bazaga saqlash
+    await db.execute_query(
+        "UPDATE config SET value = %s WHERE key_name = 'active_speech_google'",
+        (str(ACTIVE_SPEECH_MODELS['GOOGLE']).lower(),)
+    )
+    await db.execute_query(
+        "UPDATE config SET value = %s WHERE key_name = 'active_speech_elevenlabs'",
+        (str(ACTIVE_SPEECH_MODELS['ELEVENLABS']).lower(),)
+    )
+    await admin_speech_models_callback(callback_query)
+
+@dp.callback_query(lambda c: c.data == "admin_toggle_elevenlabs")
+async def admin_toggle_elevenlabs_callback(callback_query: CallbackQuery):
+    if callback_query.from_user.id != ADMIN_USER_ID:
+        await callback_query.answer()
+        return
+    
+    # Faqat bitta model tanlab ishlatish uchun
+    if ACTIVE_SPEECH_MODELS['ELEVENLABS']:
+        # Agar yo'q bo'lsa, ochiramiz
+        ACTIVE_SPEECH_MODELS['ELEVENLABS'] = False
+    else:
+        # Agar ochiq bo'lsa, yoqamiz va boshqasini ochiramiz
+        ACTIVE_SPEECH_MODELS['ELEVENLABS'] = True
+        ACTIVE_SPEECH_MODELS['GOOGLE'] = False
+    
+    # Bazaga saqlash
+    await db.execute_query(
+        "UPDATE config SET value = %s WHERE key_name = 'active_speech_elevenlabs'",
+        (str(ACTIVE_SPEECH_MODELS['ELEVENLABS']).lower(),)
+    )
     await db.execute_query(
         "UPDATE config SET value = %s WHERE key_name = 'active_speech_google'",
         (str(ACTIVE_SPEECH_MODELS['GOOGLE']).lower(),)
