@@ -4,6 +4,7 @@ from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 from openai import OpenAI, AsyncOpenAI
 from database import Database
+from financial_module import FinancialModule
 import json
 import asyncio
 
@@ -30,6 +31,7 @@ class AIChat:
         # Agar db berilmasa, yangi Database yaratish
         self.db = db if db else Database()
         self.openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+        self.financial_module = FinancialModule()  # AI orqali tranzaksiya aniqlash uchun
         self.system_prompt = """Sen Balans AI ning shaxsiy buxgalter va do'stisiz. PRO tarifda.
 
 MUHIM 1: Hech qachon formatlash belgilarini ishlatma (#, **, vs). Faqat oddiy, insoniy matn.
@@ -541,166 +543,56 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
         return messages if messages else [response]
     
     async def detect_and_save_transaction(self, message: str, user_id: int) -> Optional[Dict]:
-        """Xabardan tranzaksiyani aniqlash va saqlash"""
+        """Xabardan tranzaksiyani aniqlash va saqlash - AI orqali (PRO tarif)"""
         try:
-            message_lower = message.lower()
+            # AI orqali tranzaksiyani aniqlash
+            ai_result = await self.financial_module._extract_financial_data_with_gpt4(message)
             
-            # Xarajat kalit so'zlar (PRO tarif uchun kengaytirilgan)
-            expense_keywords = ['sarfladim', 'to\'ladim', 'oldim', 'chiqim', 'xarajat', 'yozish', 'oydim', 
-                               'ketdi', 'xarj', 'tuladim', 'ishlatdim', 'berdim', 'yuboraman', 'to\'layman', 
-                               'ketkazdim', 'summa', 'masraf', 'xarakat']
-            # Daromad kalit so'zlar (PRO tarif uchun kengaytirilgan)
-            income_keywords = ['kirdim', 'oldim', 'oylik', 'daromad', 'kirim', 'tushdi', 'pul', 
-                              'tushgan', 'olgan', 'kirgan', 'aylandi', 'qaytdi', 'kelgan', 
-                              'qabul', 'maosh', 'ish haqi', 'avans']
-            # Qarz kalit so'zlar
-            debt_keywords = ['qarz oldim', 'qarz berdim', 'to\'layman', 'qarz', 'berdim', 'oldim']
-            
-            # Tranzaksiya turini aniqlash
-            transaction_type = None
-            category = None
-            
-            # Kategoriyalarni topish (PRO tarif uchun kengaytirilgan)
-            categories_map = {
-                # Oziq-ovqat
-                'oziq': 'food',
-                'ovqat': 'food',
-                'restoran': 'food',
-                'taom': 'food',
-                'korzinka': 'groceries',
-                'supermarket': 'groceries',
-                'do\'kon': 'groceries',
-                'market': 'groceries',
-                'oziq_ovqat': 'groceries',
-                # Transport
-                'transport': 'transport',
-                'taksi': 'transport',
-                'mashina': 'transport',
-                'benzin': 'transport',
-                'yandex': 'transport',
-                'uber': 'transport',
-                # Kofe va gazaklar
-                'kofe': 'coffee',
-                'choy': 'coffee',
-                'latte': 'coffee',
-                'cappuccino': 'coffee',
-                'shirinlik': 'snacks',
-                'suv': 'snacks',
-                'gazak': 'snacks',
-                # Ichimliklar
-                'giyohvand': 'drinks',
-                'ichimlik': 'drinks',
-                'alkogol': 'drinks',
-                'kola': 'drinks',
-                'pepsi': 'drinks',
-                # Kiyim va poyabzal
-                'kiyim': 'clothing',
-                'poyabzal': 'clothing',
-                'oyoq kiyim': 'clothing',
-                # Kommunal xizmatlar
-                'gaz': 'utilities',
-                'elektr': 'utilities',
-                'interney': 'utilities',
-                'internet': 'utilities',
-                'telefon': 'utilities',
-                'kvartira': 'utilities',
-                # Sog'liq
-                'davolanish': 'health',
-                'dori': 'health',
-                'shifokor': 'health',
-                'apteka': 'health',
-                'stomatolog': 'health',
-                # Ta'lim
-                'ta\'lim': 'education',
-                'kitob': 'education',
-                'kurs': 'education',
-                'dars': 'education',
-                'mentor': 'education',
-                # Go'zallik
-                'salon': 'beauty',
-                'barbar': 'beauty',
-                'kilim': 'beauty',
-                'kosmetika': 'beauty',
-                'mani': 'beauty',
-                'pedikyur': 'beauty',
-                # Obunalar
-                'netflix': 'subscriptions',
-                'spotify': 'subscriptions',
-                'youtube': 'subscriptions',
-                'obuna': 'subscriptions',
-                'premium': 'subscriptions',
-                # Xarajat/daromad (umumiy)
-                'xarajat': 'other',
-                'chiqim': 'other',
-                'daromad': 'other',
-                'kirim': 'other',
-            }
-            
-            # Qarz tekshirish
-            is_debt = any(keyword in message_lower for keyword in debt_keywords)
-            if is_debt:
-                if 'qarz berdim' in message_lower or 'berdim' in message_lower:
-                    transaction_type = 'expense'
-                    category = 'qarz_berish'
-                else:
-                    transaction_type = 'income'
-                    category = 'qarz_olish'
-            # Xarajat kalit so'zlar tekshirish (daromaddan OLDIN, chunki "sotib oldim" bor)
-            elif any(keyword in message_lower for keyword in ['sarfladim', 'to\'ladim', 'chetim', 'xarajat', 'yozish', 'oydim', 
-                                                              'ketdi', 'xarj', 'tuladim', 'ishlatdim', 'yuboraman', 'to\'layman', 
-                                                              'ketkazdim', 'summa', 'masraf', 'sotib oldim', 'pul sarfladim', 
-                                                              'pul to\'ladim', 'pul ketdi']):
-                transaction_type = 'expense'
-                # Kategoriyani aniqlash
-                category = 'other'
-                for key, val in categories_map.items():
-                    if key in message_lower:
-                        category = val
-                        break
-            # Maxsus daromad kalit so'zlar (faqat daromad bo'lganda)
-            elif any(keyword in message_lower for keyword in ['oylik', 'maosh', 'ish haqi', 'avans', 'tushdi', 'qaytdi', 'aylandi', 'kirim', 'daromad']):
-                transaction_type = 'income'
-                category = 'other'
-            # Qolgan "oldim" holatlari daromad sifatida (xarajatda yuqoridagi aniq so'zlar ishlatilgan bo'lsa)
-            elif any(keyword in message_lower for keyword in income_keywords):
-                transaction_type = 'income'
-                category = 'other'
-            
-            if not transaction_type:
+            if not ai_result or 'transactions' not in ai_result or not ai_result['transactions']:
                 return None
             
-            # Summani topish (raqamlar)
-            import re
-            # "ming" bilan raqamlarni topish ("20 ming", "50 ming")
-            ming_amounts = re.findall(r'(\d{1,6})\s*ming', message_lower)
-            if ming_amounts:
-                try:
-                    amount = float(ming_amounts[0]) * 1000
-                except:
-                    amount = None
+            # Birinchi tranzaksiyani olish
+            tx = ai_result['transactions'][0]
+            transaction_type = tx.get('type')
+            amount = tx.get('amount')
+            category = tx.get('category', 'other')
             
-            # Agar "ming" yo'q bo'lsa, oddiy raqamlarni topish ("500000", "50 000", "1 000 000")
-            if not ming_amounts:
-                amounts = re.findall(r'(\d{1,3}(?:\s?\d{3})*)', message)
-                if not amounts:
-                    # Oxirgi imkoniyat: har qanday raqam
-                    amounts = re.findall(r'\d{4,}', message)
-                
-                if not amounts:
-                    return None
-                
-                amount_str = amounts[0].replace(' ', '').replace(',', '')
-                try:
-                    amount = float(amount_str)
-                except:
-                    return None
+            # Type mapping (income/expense/debt)
+            type_mapping = {
+                'income': 'income',
+                'expense': 'expense',
+                'debt': 'expense'  # Qarz chiqim sifatida
+            }
+            transaction_type = type_mapping.get(transaction_type, 'expense')
             
-            # Tranzaksiyani saqlash - Database metodidan foydalanish
+            # Category mapping (AI kategoriyalarini bizning kategoriyalarimizga o'tkazish)
+            # Config.py dagi kategoriyalar: income: ['Ish haqi', 'Biznes', 'Investitsiya', 'Boshqa']
+            #                            expense: ['Ovqat', 'Transport', 'Kiyim', 'Uy', 'Sogʻliq', 'Taʼlim', 'Oʻyin-kulgi', 'Boshqa']
+            category_mapping = {
+                'ish haqi': 'Ish haqi',
+                'biznes': 'Biznes',
+                'ovqat': 'Ovqat',
+                'transport': 'Transport',
+                'kiyim': 'Kiyim',
+                'uy': 'Uy',
+                'sog\'liq': 'Sogʻliq',
+                'ta\'lim': 'Taʼlim',
+                'o\'yin-kulgi': 'Oʻyin-kulgi',
+                'entertainment': 'Oʻyin-kulgi',
+                'boshqa': 'Boshqa',
+                'other': 'Boshqa'
+            }
+            category = category_mapping.get(category, 'Boshqa')
+            
+            if not transaction_type or not amount:
+                return None
+            
+            # Tranzaksiyani saqlash
             try:
                 transaction_id = await self.db.add_transaction(
                     user_id=user_id,
                     transaction_type=transaction_type,
-                    amount=amount,
+                    amount=float(amount),
                     category=category,
                     description=message[:100]
                 )
@@ -711,7 +603,7 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
             
             return {
                 "type": transaction_type,
-                "amount": amount,
+                "amount": float(amount),
                 "category": category
             }
             
