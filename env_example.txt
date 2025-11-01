@@ -2,6 +2,7 @@
 BOT_TOKEN=your_bot_token_here
 OPENAI_API_KEY=your_openai_api_key_here
 OPENROUTER_API_KEY=your_openrouter_api_key_here
+ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
 
 # Ma'lumotlar bazasi konfiguratsiyasi
 DB_HOST=localhost
@@ -17,6 +18,10 @@ CLICK_SECRET_KEY=your_click_secret_key
 
 # Telegram Payments provider token (CLICK Terminal Test yoki LIVE)
 TELEGRAM_PAYMENT_PROVIDER_TOKEN=398062629:TEST:999999999_F91D8F69C042267444B74CC0B3C747757EB0E065
+
+# Google Cloud Speech-to-Text (optional)
+GOOGLE_CLOUD_PROJECT=your_google_cloud_project_id
+GOOGLE_APPLICATION_CREDENTIALS=path/to/your/credentials.json
 
 # Boshqa sozlamalar
 DEBUG=False
