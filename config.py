@@ -8,6 +8,7 @@ BOT_NAME = "Balans AI"
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 GOOGLE_CLOUD_PROJECT = os.getenv('GOOGLE_CLOUD_PROJECT')
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
 TELEGRAM_PAYMENT_PROVIDER_TOKEN = os.getenv('TELEGRAM_PAYMENT_PROVIDER_TOKEN')
@@ -80,12 +81,14 @@ PAYMENT_METHODS = {
 
 # Speech-to-Text model sozlamalari
 SPEECH_MODELS = {
-    'GOOGLE': 'Google Cloud Speech-to-Text'
+    'GOOGLE': 'Google Cloud Speech-to-Text',
+    'ELEVENLABS': 'ElevenLabs Speech-to-Text'
 }
 
 # Hozirgi faol modellar (admin tomonidan boshqariladi)
 ACTIVE_SPEECH_MODELS = {
-    'GOOGLE': True  # Google Cloud Speech-to-Text yoqilgan
+    'GOOGLE': True,  # Google Cloud Speech-to-Text yoqilgan
+    'ELEVENLABS': True  # ElevenLabs Speech-to-Text yoqilgan
 }
 
 # 1 haftalik sinov holati (admin tomonidan boshqariladi)

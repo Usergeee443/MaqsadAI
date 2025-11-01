@@ -2,6 +2,7 @@ import re
 import logging
 import json
 import aiofiles
+import requests
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
@@ -12,9 +13,11 @@ import asyncio
 from config import (
     OPENAI_API_KEY,
     OPENROUTER_API_KEY,
+    ELEVENLABS_API_KEY,
     GOOGLE_CLOUD_PROJECT,
     GOOGLE_APPLICATION_CREDENTIALS,
     CATEGORIES,
+    ACTIVE_SPEECH_MODELS,
 )
 from database import db
 from models import Transaction, TransactionType
@@ -91,30 +94,48 @@ class FinancialModule:
         return self.speech_client
     
     async def process_audio_input(self, audio_file_path: str, user_id: int) -> Dict[str, Any]:
-        """Audio faylni qayta ishlash - faqat Google Cloud Speech-to-Text"""
+        """Audio faylni qayta ishlash - Google Cloud va ElevenLabs"""
         try:
             print(f"DEBUG: Processing audio file: {audio_file_path}")
             
-            # Google Cloud Speech-to-Text
-            google_result = None
-            try:
-                client = self._ensure_speech_client()
-                with open(audio_file_path, "rb") as audio_file:
-                    audio_content = audio_file.read()
-                google_text = await self._transcribe_with_google(client, audio_content)
-                print(f"DEBUG: Google Speech transcription: {google_text}")
-                
-                if google_text and google_text.strip():
-                    # Google natijasini darhol qayta ishlaymiz
-                    google_result = await self.process_ai_input_advanced(google_text, user_id)
-                    if google_result['success']:
-                        google_result['message'] += f"\n\n🔊 **Texnologiya:** Google Cloud Speech-to-Text"
-                        # Google natijasini darhol qaytaramiz
-                        return google_result
-            except Exception as google_error:
-                print(f"DEBUG: Google Speech failed: {google_error}")
+            # ElevenLabs Speech-to-Text (birinchidan urinib ko'ramiz)
+            if ACTIVE_SPEECH_MODELS.get('ELEVENLABS', True) and ELEVENLABS_API_KEY:
+                elevenlabs_result = None
+                try:
+                    with open(audio_file_path, "rb") as audio_file:
+                        audio_content = audio_file.read()
+                    elevenlabs_text = await self._transcribe_with_elevenlabs(audio_content)
+                    print(f"DEBUG: ElevenLabs transcription: {elevenlabs_text}")
+                    
+                    if elevenlabs_text and elevenlabs_text.strip():
+                        # ElevenLabs natijasini darhol qayta ishlaymiz
+                        elevenlabs_result = await self.process_ai_input_advanced(elevenlabs_text, user_id)
+                        if elevenlabs_result['success']:
+                            elevenlabs_result['message'] += f"\n\n🔊 **Texnologiya:** ElevenLabs Speech-to-Text"
+                            return elevenlabs_result
+                except Exception as elevenlabs_error:
+                    print(f"DEBUG: ElevenLabs failed: {elevenlabs_error}")
             
-            # Agar Google ishlamasa, xatolik qaytaramiz
+            # Google Cloud Speech-to-Text (fallback)
+            if ACTIVE_SPEECH_MODELS.get('GOOGLE', True):
+                google_result = None
+                try:
+                    client = self._ensure_speech_client()
+                    with open(audio_file_path, "rb") as audio_file:
+                        audio_content = audio_file.read()
+                    google_text = await self._transcribe_with_google(client, audio_content)
+                    print(f"DEBUG: Google Speech transcription: {google_text}")
+                    
+                    if google_text and google_text.strip():
+                        # Google natijasini darhol qayta ishlaymiz
+                        google_result = await self.process_ai_input_advanced(google_text, user_id)
+                        if google_result['success']:
+                            google_result['message'] += f"\n\n🔊 **Texnologiya:** Google Cloud Speech-to-Text"
+                            return google_result
+                except Exception as google_error:
+                    print(f"DEBUG: Google Speech failed: {google_error}")
+            
+            # Agar ikkalasi ham ishlamasa, xatolik qaytaramiz
             return {
                 "success": False,
                 "message": "❌ Audio aniq eshitilmadi. Iltimos, aniqroq gapiring."
@@ -194,6 +215,48 @@ class FinancialModule:
                 )
 
         return None
+    
+    async def _transcribe_with_elevenlabs(self, audio_content: bytes) -> Optional[str]:
+        """ElevenLabs Speech-to-Text orqali transkripti olish"""
+        try:
+            
+            # ElevenLabs Speech-to-Text API endpoint
+            url = "https://api.elevenlabs.io/v1/speech-to-text"
+            
+            headers = {
+                "xi-api-key": ELEVENLABS_API_KEY
+            }
+            
+            # OGG formatni ElevenLabs qo'llab-quvvatlasa, shu formatni yuboramiz
+            files = {
+                "audio": ("audio.ogg", audio_content, "audio/ogg")
+            }
+            
+            # Model - ElevenLabs Speech-to-Text
+            data = {
+                "model_id": "eleven_multilingual_v2",  # Yoki 29+ tilni qo'llab-quvvatlaydigan boshqa model
+            }
+            
+            def call_api():
+                response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
+                return response
+            
+            loop = asyncio.get_event_loop()
+            http_response = await loop.run_in_executor(None, call_api)
+            
+            if http_response.status_code == 200:
+                result = http_response.json()
+                transcript = result.get('text', '').strip()
+                if transcript:
+                    logging.info(f"ElevenLabs Speech muvaffaqiyatli: {transcript}")
+                    return transcript
+            else:
+                logging.warning(f"ElevenLabs API xatolik: {http_response.status_code} - {http_response.text}")
+                return None
+                
+        except Exception as e:
+            logging.error(f"ElevenLabs Speech xatolik: {e}")
+            return None
 
     async def process_ai_input_advanced(self, text: str, user_id: int) -> Dict[str, Any]:
         """AI orqali matnni to'liq tahlil qilish va moliyaviy ma'lumotlarni ajratish"""
