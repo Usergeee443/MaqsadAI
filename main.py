@@ -703,7 +703,11 @@ Quyidagi tugmalardan foydalaning:"""
         ]
     )
     
-    await callback_query.message.edit_caption(caption=text, reply_markup=kb, parse_mode='Markdown')
+    try:
+        await callback_query.message.edit_caption(caption=text, reply_markup=kb, parse_mode='Markdown')
+    except Exception:
+        # Agar xabar bir xil bo'lsa, hech narsa qilmaymiz
+        pass
     await callback_query.answer()
 
 @dp.callback_query(lambda c: c.data == "admin_toggle_google")
@@ -816,7 +820,11 @@ async def admin_free_trial_callback(callback_query: CallbackQuery):
     kb.inline_keyboard.extend(tariff_buttons)
     kb.inline_keyboard.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="admin_back")])
     
-    await callback_query.message.edit_caption(caption=text, reply_markup=kb, parse_mode='Markdown')
+    try:
+        await callback_query.message.edit_caption(caption=text, reply_markup=kb, parse_mode='Markdown')
+    except Exception:
+        # Agar xabar bir xil bo'lsa, hech narsa qilmaymiz
+        pass
     await callback_query.answer()
 
 # 1 haftalik sinov toggle
