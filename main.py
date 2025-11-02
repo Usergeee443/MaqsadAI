@@ -4707,11 +4707,18 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         logging.error(f"AI chat xatolik: {e}")
         await message.answer("Kechirasiz, xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
 
-async def process_audio_with_financial_module(message: types.Message, state: FSMContext, audio_path: str, user_id: int):
+async def process_audio_with_financial_module(message: types.Message, state: FSMContext, audio_path: str, user_id: int, processing_msg=None):
     """Audio faylni financial module orqali qayta ishlash (GOOGLE yoki ELEVENLABS)"""
     try:
         # Financial module audio qayta ishlash (GOOGLE yoki ELEVENLABS)
         audio_result = await financial_module.process_audio_input(audio_path, user_id)
+        
+        # Processing xabarni o'chirish
+        if processing_msg:
+            try:
+                await processing_msg.delete()
+            except:
+                pass
         
         # Audio natijasini yuborish
         if audio_result['success']:
@@ -4839,7 +4846,7 @@ async def process_audio_message(message: types.Message, state: FSMContext):
             return
         
         # Financial module audio qayta ishlash (GOOGLE yoki ELEVENLABS tanlaydi)
-        await process_audio_with_financial_module(message, state, audio_path, user_id)
+        await process_audio_with_financial_module(message, state, audio_path, user_id, processing_msg)
         
     except Exception as e:
         logging.error(f"Audio xabarni qayta ishlashda xatolik: {e}")

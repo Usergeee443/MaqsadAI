@@ -232,9 +232,10 @@ class FinancialModule:
                 "audio": ("audio.ogg", audio_content, "audio/ogg")
             }
             
-            # Model - ElevenLabs Speech-to-Text
-            # data param bo'sh bo'lishi mumkin, yoki model_id files bilan birga jo'natiladi
-            data = {}  # Model_id kerak bo'lsa, files dict ichida bo'lishi kerak
+            # Model - ElevenLabs Scribe v1 (Speech-to-Text model)
+            data = {
+                "model_id": "scribe_v1"
+            }
             
             def call_api():
                 response = requests.post(url, headers=headers, files=files, data=data, timeout=30)
