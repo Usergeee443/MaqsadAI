@@ -116,7 +116,7 @@ class FinancialModule:
                 except Exception as elevenlabs_error:
                     print(f"DEBUG: ElevenLabs failed: {elevenlabs_error}")
             
-            # Google Cloud Speech-to-Text (fallback)
+            # Google Cloud Speech-to-Text (fallback) - agar ElevenLabs ishlamasa
             if ACTIVE_SPEECH_MODELS.get('GOOGLE', True):
                 google_result = None
                 try:
