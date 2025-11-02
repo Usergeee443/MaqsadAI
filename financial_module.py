@@ -228,8 +228,9 @@ class FinancialModule:
             }
             
             # OGG formatni ElevenLabs qo'llab-quvvatlasa, shu formatni yuboramiz
+            # ElevenLabs API `file` parametrini kutadi, `audio` emas
             files = {
-                "audio": ("audio.ogg", audio_content, "audio/ogg")
+                "file": ("audio.ogg", audio_content, "audio/ogg")
             }
             
             # Model - ElevenLabs Scribe v1 (Speech-to-Text model)
