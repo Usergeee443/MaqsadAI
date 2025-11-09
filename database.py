@@ -235,6 +235,25 @@ class Database:
                 )
             """)
             
+            # Plus paket xaridlari jadvali
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS plus_package_purchases (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    package_code VARCHAR(20) NOT NULL,
+                    text_limit INT NOT NULL,
+                    text_used INT DEFAULT 0,
+                    voice_limit INT NOT NULL,
+                    voice_used INT DEFAULT 0,
+                    status ENUM('active','completed') DEFAULT 'active',
+                    purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    INDEX idx_user_status (user_id, status),
+                    INDEX idx_user_purchased (user_id, purchased_at)
+                )
+            """)
+            
             # Debts jadvali - qarzlar uchun
             await self.execute_query("""
                 CREATE TABLE IF NOT EXISTS debts (
@@ -377,6 +396,9 @@ class Database:
         """
         result = await self.execute_one(query, (user_id,))
         if result:
+            tariff = result[7]
+            if tariff in (None, 'FREE'):
+                tariff = 'NONE'
             return {
                 'user_id': result[0],
                 'username': result[1],
@@ -385,7 +407,7 @@ class Database:
                 'phone': result[4],
                 'name': result[5],
                 'source': result[6],
-                'tariff': result[7],
+                'tariff': tariff,
                 'created_at': result[8],
                 'tariff_expires_at': result[9],
                 'is_active': True
@@ -607,6 +629,110 @@ class Database:
             (tariff, user_id)
         )
     
+    # Plus paketlari funksiyalari
+    async def create_plus_package_purchase(self, user_id, package_code, text_limit, voice_limit):
+        """Foydalanuvchi uchun yangi Plus paket xaridini yaratish"""
+        # Avvalgi aktiv paketlarni yopamiz
+        await self.execute_query(
+            """
+            UPDATE plus_package_purchases
+            SET status = 'completed', updated_at = NOW()
+            WHERE user_id = %s AND status = 'active'
+            """,
+            (user_id,)
+        )
+        
+        # Yangi paketni yaratamiz
+        query = """
+        INSERT INTO plus_package_purchases (user_id, package_code, text_limit, voice_limit)
+        VALUES (%s, %s, %s, %s)
+        """
+        return await self.execute_insert(query, (user_id, package_code, text_limit, voice_limit))
+    
+    async def get_active_plus_package(self, user_id):
+        """Foydalanuvchining hozirgi aktiv Plus paketini olish"""
+        query = """
+        SELECT id, package_code, text_limit, text_used, voice_limit, voice_used, status, purchased_at
+        FROM plus_package_purchases
+        WHERE user_id = %s AND status = 'active'
+        ORDER BY purchased_at DESC
+        LIMIT 1
+        """
+        result = await self.execute_one(query, (user_id,))
+        if not result:
+            return None
+        return {
+            'id': result[0],
+            'package_code': result[1],
+            'text_limit': result[2],
+            'text_used': result[3],
+            'voice_limit': result[4],
+            'voice_used': result[5],
+            'status': result[6],
+            'purchased_at': result[7],
+        }
+    
+    async def increment_plus_usage(self, user_id, usage_type: str):
+        """Plus paketi bo'yicha foydalanishni oshirish"""
+        package = await self.get_active_plus_package(user_id)
+        if not package:
+            return False, None
+        
+        if usage_type not in ('text', 'voice'):
+            return False, package
+        
+        if usage_type == 'text':
+            if package['text_used'] >= package['text_limit']:
+                return False, package
+            new_used = package['text_used'] + 1
+            status = 'completed' if (new_used >= package['text_limit'] and package['voice_used'] >= package['voice_limit']) else 'active'
+            await self.execute_query(
+                """
+                UPDATE plus_package_purchases
+                SET text_used = %s, status = %s, updated_at = NOW()
+                WHERE id = %s
+                """,
+                (new_used, status, package['id'])
+            )
+            package['text_used'] = new_used
+            package['status'] = status
+        else:
+            if package['voice_used'] >= package['voice_limit']:
+                return False, package
+            new_used = package['voice_used'] + 1
+            status = 'completed' if (new_used >= package['voice_limit'] and package['text_used'] >= package['text_limit']) else 'active'
+            await self.execute_query(
+                """
+                UPDATE plus_package_purchases
+                SET voice_used = %s, status = %s, updated_at = NOW()
+                WHERE id = %s
+                """,
+                (new_used, status, package['id'])
+            )
+            package['voice_used'] = new_used
+            package['status'] = status
+        
+        return True, package
+    
+    async def get_plus_usage_summary(self, user_id):
+        """Plus paketi bo'yicha foydalanish statistikasini olish"""
+        package = await self.get_active_plus_package(user_id)
+        if not package:
+            return None
+        return {
+            'package_code': package['package_code'],
+            'text_limit': package['text_limit'],
+            'text_used': package['text_used'],
+            'voice_limit': package['voice_limit'],
+            'voice_used': package['voice_used'],
+            'purchased_at': package['purchased_at'],
+        }
+    
+    async def has_active_plus_package(self, user_id):
+        """Foydalanuvchining aktiv Plus paketi bor-yo'qligini tekshirish"""
+        package = await self.get_active_plus_package(user_id)
+        return package is not None
+    
     # User steps funksiyalari
     async def get_user_steps(self, user_id):
         """Foydalanuvchining onboarding bosqichlarini olish"""
@@ -661,13 +787,18 @@ class Database:
     
     async def get_active_tariff(self, user_id):
         """Foydalanuvchining hozirgi aktiv tarifini olish"""
+        # Avvalo Plus paketlarini tekshiramiz
+        package = await self.get_active_plus_package(user_id)
+        if package:
+            return 'PLUS'
+        
         query = """
         SELECT tariff FROM user_subscriptions
         WHERE user_id = %s AND is_active = TRUE AND expires_at > NOW()
         LIMIT 1
         """
         result = await self.execute_one(query, (user_id,))
-        return result[0] if result else "FREE"
+        return result[0] if result else "NONE"
 
 # Global database instance
 db = Database()

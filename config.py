@@ -42,6 +42,28 @@ TARIFFS = {
     'EMPLOYEE': 'Xodim'
 }
 
+# Plus paketlari
+PLUS_PACKAGES = {
+    'PLUS_PACK_SMALL': {
+        'name': "Starter paket",
+        'text_limit': 300,
+        'voice_limit': 100,
+        'price': 9900
+    },
+    'PLUS_PACK_MEDIUM': {
+        'name': "Growth paket",
+        'text_limit': 750,
+        'voice_limit': 250,
+        'price': 19900
+    },
+    'PLUS_PACK_LARGE': {
+        'name': "Pro paket",
+        'text_limit': 1750,
+        'voice_limit': 600,
+        'price': 39900
+    }
+}
+
 # Kategoriyalar
 CATEGORIES = {
     'income': ['Ish haqi', 'Biznes', 'Investitsiya', 'Boshqa'],
@@ -78,6 +100,10 @@ PAYMENT_METHODS = {
     'payme': 'Payme',
     'uzum_pay': 'Uzum Pay'
 }
+
+# Mini-app URL'lari
+PAYMENT_PLUS_WEBAPP_URL = os.getenv('PAYMENT_PLUS_WEBAPP_URL', 'https://balansai.onrender.com/payment-plus')
+PAYMENT_MAX_WEBAPP_URL = os.getenv('PAYMENT_MAX_WEBAPP_URL', 'https://balansai.onrender.com/payment-max')
 
 # Speech-to-Text model sozlamalari
 SPEECH_MODELS = {
