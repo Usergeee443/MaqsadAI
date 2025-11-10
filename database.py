@@ -64,7 +64,7 @@ class Database:
                     phone VARCHAR(20),
                     name VARCHAR(255) DEFAULT 'Xojayin',
                     source VARCHAR(50),
-                    tariff ENUM('FREE', 'PLUS', 'PRO', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_PRO', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_PRO', 'EMPLOYEE') DEFAULT 'FREE',
+                    tariff ENUM('NONE', 'FREE', 'PLUS', 'PRO', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_PRO', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_PRO', 'EMPLOYEE') DEFAULT 'NONE',
                     tariff_expires_at DATETIME NULL,
                     manager_id BIGINT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -72,6 +72,16 @@ class Database:
                     FOREIGN KEY (manager_id) REFERENCES users(user_id) ON DELETE SET NULL
                 )
             """)
+
+            # Ensure existing installations support new ENUM values and default
+            try:
+                await self.execute_query(
+                    "ALTER TABLE users MODIFY COLUMN tariff "
+                    "ENUM('NONE', 'FREE', 'PLUS', 'PRO', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_PRO', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_PRO', 'EMPLOYEE') "
+                    "DEFAULT 'NONE'"
+                )
+            except Exception as e:
+                logging.debug(f"Users tariff enum alter skipped: {e}")
             
             # Transactions jadvali
             await self.execute_query("""
@@ -324,7 +334,11 @@ class Database:
             
             # Tarif enum ni yangilash
             try:
-                await self.execute_query("ALTER TABLE users MODIFY COLUMN tariff ENUM('FREE', 'PLUS', 'PRO', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_PRO', 'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_PRO', 'EMPLOYEE') DEFAULT 'FREE'")
+                await self.execute_query(
+                    "ALTER TABLE users MODIFY COLUMN tariff "
+                    "ENUM('NONE', 'FREE', 'PLUS', 'PRO', 'FAMILY', 'FAMILY_PLUS', 'FAMILY_PRO', "
+                    "'BUSINESS', 'BUSINESS_PLUS', 'BUSINESS_PRO', 'EMPLOYEE') DEFAULT 'NONE'"
+                )
                 logging.info("Tarif enum yangilandi")
             except Exception as e:
                 logging.error(f"Tarif enum yangilashda xatolik: {e}")

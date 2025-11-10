@@ -5,8 +5,9 @@ Faqat moliyaviy funksiyalar
 """
 
 import asyncio
+from typing import Optional, Union
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery, Contact, WebAppInfo, FSInputFile
@@ -510,6 +511,26 @@ def format_plus_usage_display(summary: dict) -> str:
     voice_limit = summary.get('voice_limit', 0)
     voice_used = summary.get('voice_used', 0)
     return f"{text_used}/{text_limit} | {voice_used}/{voice_limit}"
+
+def resolve_plus_package_code(package_code: Optional[str] = None, amount: Optional[Union[int, float, str]] = None) -> Optional[str]:
+    """Mini-ilova yoki Telegram to'lovlaridan paket kodini aniqlash"""
+    if package_code and package_code in PLUS_PACKAGES:
+        return package_code
+    
+    if amount is None:
+        return None
+    
+    try:
+        amount_int = int(float(str(amount)))
+    except (ValueError, TypeError):
+        return None
+    
+    for code, pkg in PLUS_PACKAGES.items():
+        price = int(pkg.get('price', 0))
+        candidates = {price, price * 100, price * 1000}
+        if amount_int in candidates:
+            return code
+    return None
 
 # ==== ADMIN BLOK ==== (UserStates'dan keyin)
 @dp.message(Command("admin"))
@@ -5421,21 +5442,36 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
         
         payload = message.successful_payment.invoice_payload or ""
         if payload.startswith("plus:"):
-            # Payload format: plus:user_id:timestamp:months
+            # Payload format (legacy): plus:user_id:timestamp:extra...
             parts = payload.split(":")
-            months = int(parts[3]) if len(parts) > 3 else 1
-            
-            from datetime import datetime, timedelta
-            expires_at = datetime.now() + timedelta(days=30 * months)
-            await db.add_user_subscription(user_id, "PLUS", expires_at)
-            await db.set_active_tariff(user_id, "PLUS")
+            raw_package_code = parts[4] if len(parts) > 4 else None
 
-            # To'lov yozuvini saqlash
             sp = message.successful_payment
             total_amount = sp.total_amount
             currency = sp.currency
             telegram_charge_id = sp.telegram_payment_charge_id
             provider_charge_id = sp.provider_payment_charge_id
+
+            package_code = resolve_plus_package_code(raw_package_code, total_amount)
+            package_info = PLUS_PACKAGES.get(package_code) if package_code else None
+
+            if package_info:
+                await db.create_plus_package_purchase(
+                    user_id,
+                    package_code,
+                    package_info['text_limit'],
+                    package_info['voice_limit']
+                )
+                await db.set_active_tariff(user_id, "PLUS")
+                package_name = package_info.get('name', package_code)
+                usage_line = f"📦 Paket: {package_name}\n✉️ Matn limit: {package_info['text_limit']}\n🎙 Ovoz limit: {package_info['voice_limit']}"
+            else:
+                # Fallback legacy monthly subscription
+                months = int(parts[3]) if len(parts) > 3 else 1
+                expires_at = datetime.now() + timedelta(days=30 * months)
+                await db.add_user_subscription(user_id, "PLUS", expires_at)
+                await db.set_active_tariff(user_id, "PLUS")
+                usage_line = f"⏰ Muddati: {expires_at.strftime('%d.%m.%Y')}"
 
             await db.execute_insert(
                 """
@@ -5445,7 +5481,6 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
                 (user_id, 'PLUS', total_amount, currency, payload, telegram_charge_id, provider_charge_id)
             )
 
-            # To'lovdan so'ng onboarding holatini tekshiramiz
             try:
                 balance_query = """
                 SELECT COUNT(*) FROM transactions 
@@ -5456,21 +5491,31 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
             except Exception:
                 has_initial_balance = True
 
-            # To'lov muvaffaqiyatli bo'lgach rasmli xabar
             user_name = await get_user_name(user_id)
+            caption_lines = [
+                "🎉 **To'lov muvaffaqiyatli!**",
+                f"Raxmat, {user_name}!",
+                "",
+                "✨ **Plus paket aktivlashtirildi**" if package_info else "✨ **Plus tarif aktivlashtirildi**",
+                "",
+            ]
+            if package_info:
+                caption_lines.append(usage_line)
+            else:
+                caption_lines.extend([
+                    "Endi siz quyidagi imkoniyatlardan foydalanishingiz mumkin:",
+                    "• AI yordamida ovozli va matnli kiritish",
+                    "• Tezkor moliyaviy tahlillar",
+                    "• Shaxsiy byudjetni kuzatish",
+                    "• Cheksiz tranzaksiyalar",
+                    "",
+                    usage_line
+                ])
+            caption_lines.append("\nBoshlash tugmasini bosing yoki /start buyrug'ini yuboring")
+
             await message.answer_photo(
                 photo=FSInputFile('welcome.png'),
-                caption=(
-                    f"🎉 **To'lov muvaffaqiyatli!**\n\n"
-                    f"Raxmat, {user_name}!\n\n"
-                    f"✨ **Plus tarif aktivlashtirildi**\n\n"
-                    f"Endi siz quyidagi imkoniyatlardan foydalanishingiz mumkin:\n"
-                    f"• AI yordamida ovozli va matnli kiritish\n"
-                    f"• Tezkor moliyaviy tahlillar\n"
-                    f"• Shaxsiy byudjetni kuzatish\n"
-                    f"• Cheksiz tranzaksiyalar\n\n"
-                    f"Boshlash tugmasini bosing yoki /start buyrug'ini yuboring"
-                ),
+                caption="\n".join(caption_lines),
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🚀 Boshlash", callback_data="start_onboarding")]
                 ]),
@@ -5480,7 +5525,6 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
             if not has_initial_balance:
                 await state.set_state(UserStates.waiting_for_initial_cash)
             else:
-                # Foydalanuvchining amaldagi tarifiga mos menyuni ko'rsatamiz
                 try:
                     await ensure_tariff_valid(user_id)
                 except Exception:
@@ -5493,7 +5537,7 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
                     )
                 elif current_tariff in ('PLUS', 'PRO', 'MAX'):
                     await message.answer(
-                        "Plus tarif menyusi:",
+                        "Pro tarif menyusi:" if current_tariff == 'PRO' else "Plus paket menyusi:",
                         reply_markup=get_premium_menu()
                     )
                 else:
@@ -5820,16 +5864,31 @@ async def payment_webhook(data: dict):
         tariff = data.get("tariff")
         months = data.get("months", 1)
         amount = data.get("amount")
+        package_code = data.get("package_code")
         payment_method = data.get("payment_method", "test")
         
         logging.info(f"Processing payment for user {user_id}, tariff {tariff}, months {months}")
         
-        # To'lovni tasdiqlash va tarifni aktiv qilish
-        from datetime import datetime, timedelta
-        expires_at = datetime.now() + timedelta(days=30 * months)
+        package_code = resolve_plus_package_code(package_code, amount if tariff == 'PLUS' else None)
         
-        await db.add_user_subscription(user_id, tariff, expires_at)
-        await db.set_active_tariff(user_id, tariff)
+        if tariff == 'PLUS' and package_code:
+            package_info = PLUS_PACKAGES.get(package_code)
+            if not package_info:
+                raise HTTPException(status_code=400, detail="Noma'lum paket kodi")
+            
+            await db.create_plus_package_purchase(
+                user_id,
+                package_code,
+                package_info['text_limit'],
+                package_info['voice_limit']
+            )
+            await db.set_active_tariff(user_id, 'PLUS')
+            expires_at = None
+        else:
+            # Legacy subscription flow
+            expires_at = datetime.now() + timedelta(days=30 * months)
+            await db.add_user_subscription(user_id, tariff, expires_at)
+            await db.set_active_tariff(user_id, tariff)
         
         # To'lov yozuvini saqlash
         await db.execute_insert(
@@ -5845,10 +5904,17 @@ async def payment_webhook(data: dict):
         user_name = user_data.get('name', 'Xojayin') if user_data else 'Xojayin'
         
         tariff_name = TARIFFS.get(tariff, tariff)
-        expires_str = _format_date_uz(expires_at) + " gacha"
+        expires_str = _format_date_uz(expires_at) + " gacha" if expires_at else None
         
         tariff_info = ""
-        if tariff == 'PLUS':
+        if tariff == 'PLUS' and package_code and package_code in PLUS_PACKAGES:
+            pkg = PLUS_PACKAGES[package_code]
+            tariff_info = (
+                f"\n📦 Paket: {pkg.get('name', package_code)}"
+                f"\n✉️ Matn limit: {pkg['text_limit']} ta"
+                f"\n🎙 Ovoz limit: {pkg['voice_limit']} ta"
+            )
+        elif tariff == 'PLUS':
             tariff_info = "\n• Tranzaksiyalar: 500 ta/oy\n• Ovozli Tranzaksiyalar: 250 ta/oy"
         elif tariff == 'PRO':
             tariff_info = "\n• Tranzaksiyalar: 1 000 ta/oy\n• Ovozli Tranzaksiyalar: 500 ta/oy"
@@ -5856,6 +5922,7 @@ async def payment_webhook(data: dict):
         try:
             logging.info(f"Sending payment confirmation message to user {user_id}")
             # Tabrik xabarini rasmli ko'rinishda yuborish
+            expiry_caption = f"⏰ **Muddati:** {expires_str}\n" if expires_str else ""
             await bot.send_photo(
                 chat_id=user_id,
                 photo=FSInputFile('welcome.png'),
@@ -5863,7 +5930,7 @@ async def payment_webhook(data: dict):
                     f"🎉 *Tabriklaymiz, {user_name}!*\n\n"
                     f"✅ *To'lov muvaffaqiyatli amalga oshirildi!*\n\n"
                     f"📦 **Tarif:** {tariff_name}\n"
-                    f"⏰ **Muddati:** {expires_str}\n"
+                    f"{expiry_caption}"
                     f"{tariff_info}\n\n"
                     f"🚀 *Endi sizning botingiz tayyor!*"
                 ),
@@ -5874,13 +5941,14 @@ async def payment_webhook(data: dict):
             logging.error(f"Error sending photo message: {e}")
             # Agar rasm yuborishda xatolik bo'lsa, oddiy matn yuborish
             try:
+                expiry_text = f"⏰ Muddati: {expires_str}\n" if expires_str else ""
                 await bot.send_message(
                     chat_id=user_id,
                     text=(
                         f"🎉 Tabriklaymiz, {user_name}!\n\n"
                         f"✅ To'lov muvaffaqiyatli amalga oshirildi!\n\n"
                         f"📦 Tarif: {tariff_name}\n"
-                        f"⏰ Muddati: {expires_str}\n"
+                        f"{expiry_text}"
                         f"{tariff_info}\n\n"
                         f"🚀 Endi sizning botingiz tayyor!"
                     )
