@@ -66,7 +66,7 @@ def get_tariff_menu():
         inline_keyboard=[
             [InlineKeyboardButton(text="🆓 Bepul", callback_data="tariff_FREE")],
             [InlineKeyboardButton(text="⭐ Pro", callback_data="tariff_PRO")],
-            [InlineKeyboardButton(text="💎 Max", callback_data="tariff_MAX")],
+            [InlineKeyboardButton(text="💎 Pro", callback_data="tariff_PRO")],
             [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_profile")]
         ]
     )
@@ -164,7 +164,7 @@ async def reports_menu(message: types.Message, state: FSMContext):
         message_text += f"📈 *Kirim:* {balance['income']:,.0f} so'm\n"
         message_text += f"📉 *Chiqim:* {balance['expense']:,.0f} so'm\n\n"
         message_text += "📱 *Kengaytirilgan hisobotlar*\n\n"
-        message_text += "Kengaytirilgan hisobotlar va grafiklar uchun Pro yoki Max tarifga o'ting.\n"
+        message_text += "Kengaytirilgan hisobotlar va grafiklar uchun Pro tarifga o'ting.\n"
         message_text += "Tarifni o'zgartirish uchun Profil > Tarif bo'limiga o'ting."
         
         await message.answer(
@@ -362,7 +362,7 @@ async def process_audio_message(message: types.Message, state: FSMContext):
     if user_tariff not in ['PRO', 'MAX']:
         await message.answer(
             "🎵 **Audio qo'llab-quvvatlash**\n\n"
-            "Audio xabarlarni qayta ishlash faqat Pro va Max tariflar uchun mavjud.\n"
+            "Audio xabarlarni qayta ishlash faqat Pro tarif uchun mavjud.\n"
             "Tarifni yangilash uchun Profil > Tarif bo'limiga o'ting.",
             parse_mode='Markdown'
         )

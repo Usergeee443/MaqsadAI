@@ -201,7 +201,7 @@ def build_main_tariff_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="Plus paketlar", callback_data="tariff_PLUS"),
-            InlineKeyboardButton(text="Max", callback_data="tariff_MAX")
+            InlineKeyboardButton(text="Pro", callback_data="tariff_PRO")
         ],
         [
             InlineKeyboardButton(text="Biznes tariflari", callback_data="tariff_BUSINESS_MENU"),
@@ -483,9 +483,9 @@ def get_profile_menu(user_tariff='PLUS'):
     
     if user_tariff == 'PLUS':
         buttons[0].append(InlineKeyboardButton(text="🛒 Paket sotib olish", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL)))
-        buttons.append([InlineKeyboardButton(text="🔥 Max tarifga o'tish", web_app=WebAppInfo(url=PAYMENT_MAX_WEBAPP_URL))])
-    elif user_tariff == 'MAX':
-        buttons[0].append(InlineKeyboardButton(text="🧾 Obunani boshqarish", web_app=WebAppInfo(url=PAYMENT_MAX_WEBAPP_URL)))
+        buttons.append([InlineKeyboardButton(text="🔥 Pro tarifga o'tish", web_app=WebAppInfo(url=PAYMENT_PRO_WEBAPP_URL))])
+    elif user_tariff == 'PRO':
+        buttons[0].append(InlineKeyboardButton(text="🧾 Obunani boshqarish", web_app=WebAppInfo(url=PAYMENT_PRO_WEBAPP_URL)))
     else:
         buttons[0].append(InlineKeyboardButton(text="⚡ Tariflar", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL)))
     
@@ -1228,7 +1228,7 @@ async def start_command(message: types.Message, state: FSMContext):
                 photo=FSInputFile('welcome.png'),
                 caption=(
                     f"👋 Salom, {user_name}!\n\n"
-                    "Balans AI'dan foydalanishni boshlash uchun Plus paketlardan birini yoki Max tarifini tanlang."
+                    "Balans AI'dan foydalanishni boshlash uchun Plus paketlardan birini yoki Pro tarifini tanlang."
                 ),
                 reply_markup=get_plus_purchase_keyboard(),
                 parse_mode="Markdown"
@@ -1437,7 +1437,7 @@ async def start_command(message: types.Message, state: FSMContext):
                     photo=FSInputFile('welcome.png'),
                     caption=(
                         f"👋 Salom, {user_name}!\n\n"
-                        "Balans AI'dan foydalanishni boshlash uchun Plus paketlardan birini yoki Max tarifni tanlang."
+                    "Balans AI'dan foydalanishni boshlash uchun Plus paketlardan birini yoki Pro tarifni tanlang."
                     ),
                     reply_markup=get_plus_purchase_keyboard(),
                     parse_mode="Markdown"
@@ -1471,7 +1471,7 @@ async def start_command(message: types.Message, state: FSMContext):
                 await message.answer(
                     f"👋 Salom, {user_name}!\n\n"
                     "Balans AI ga xush kelibsiz!\n\n"
-                    "Boshlash uchun Plus paket sotib oling yoki Max tarifga o'ting.",
+                    "Boshlash uchun Plus paket sotib oling yoki Pro tarifga o'ting.",
                     reply_markup=get_plus_purchase_keyboard(),
                     parse_mode="Markdown"
                 )
@@ -2187,7 +2187,7 @@ async def cancel_operation(message: types.Message, state: FSMContext):
     )
     if user_tariff in (None, "NONE"):
         await message.answer(
-            "Balans AI'dan foydalanishni davom ettirish uchun Plus paket sotib oling yoki Max tarifga o'ting.",
+            "Balans AI'dan foydalanishni davom ettirish uchun Plus paket sotib oling yoki Pro tarifga o'ting.",
             reply_markup=get_plus_purchase_keyboard(),
             parse_mode="Markdown"
         )
@@ -2593,7 +2593,7 @@ async def profile_handler(message: Message, state: FSMContext):
         profile_text = (
             f"{display_name} (ID: {user_id})\n\n"
             "Tarif: Aktiv emas\n"
-            "Boshlash uchun Plus paket sotib oling yoki Max tarifni tanlang."
+            "Boshlash uchun Plus paket sotib oling yoki Pro tarifni tanlang."
         )
     elif user_tariff == 'PRO':
         # PRO tarif uchun maxsus format
@@ -2696,7 +2696,7 @@ async def profile_stats_callback(callback_query: CallbackQuery):
     if user_tariff in ('NONE', None):
         text = (
             "📊 Statistika\n\n"
-            "Hozircha paket sotib olinmagan. Plus paketlardan birini yoki Max tarifni tanlang, "
+        "Hozircha paket sotib olinmagan. Plus paketlardan birini yoki Pro tarifni tanlang, "
             "shunda AI statistikalarini ko'rish va tranzaksiyalarni avtomatik qayd etish imkoniyati ochiladi."
         )
     else:
@@ -2802,6 +2802,7 @@ async def process_onboarding_balance(message: types.Message, state: FSMContext):
     # 2-qadam: Qarzlar so'rash (rasm + caption)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Qarz berganman", callback_data="onboarding_debt_lent")],
+        [InlineKeyboardButton(text="➖ Qarz olganman", callback_data="onboarding_debt_borrowed")],
         [InlineKeyboardButton(text="❌ Qarzlar yo'q", callback_data="onboarding_no_debts")]
     ])
     _msg = await message.answer_photo(
@@ -2817,6 +2818,126 @@ async def process_onboarding_balance(message: types.Message, state: FSMContext):
     await state.update_data(onboarding_balance_msg_id=_msg.message_id)
     await state.set_state(UserStates.onboarding_waiting_for_debt_action)
 
+async def send_onboarding_completion_message(user_id: int) -> None:
+    """Onboarding yakunlanganda yakuniy xabarni yuborish"""
+    try:
+        await ensure_tariff_valid(user_id)
+    except Exception as _e:
+        logging.debug(f"ensure_tariff_valid skip in onboarding completion: {_e}")
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛒 Plus paket tanlash", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL))],
+        [InlineKeyboardButton(text="🔥 Pro tarifga o'tish", web_app=WebAppInfo(url=PAYMENT_PRO_WEBAPP_URL))]
+    ])
+
+    caption = (
+        "✅ **Sizning buxgalteringiz ishga tayyor!**\n\n"
+        "Davom etish uchun paket yoki tarif tanlang:\n"
+        "• Plus paketlar – matn va ovoz limiti bilan moslashuvchan foydalanish\n"
+        "• Pro tarif – oylik premium imkoniyatlar\n\n"
+        "👇 Quyidagilardan birini tanlang:"
+    )
+
+    try:
+        await bot.send_photo(
+            chat_id=user_id,
+            photo=FSInputFile('tarifflar.png'),
+            caption=caption,
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+    except Exception as photo_error:
+        logging.warning(f"Onboarding completion photo yuborishda xatolik: {photo_error}")
+        try:
+            await bot.send_message(
+                chat_id=user_id,
+                text=caption,
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+        except Exception as text_error:
+            logging.error(f"Onboarding completion xabar yuborilmadi: {text_error}")
+
+
+async def _handle_onboarding_debt_entry(
+    message: types.Message,
+    state: FSMContext,
+    debt_type: str,
+    text: str
+) -> None:
+    """Onboarding davomida qarz ma'lumotini qabul qilish va saqlash"""
+    user_id = message.from_user.id
+    text = text.strip()
+
+    if not text:
+        await message.answer("Iltimos, qarz ma'lumotlarini kiriting.")
+        await state.set_state(UserStates.onboarding_debt_waiting_for_person)
+        return
+
+    # AI yordamida parse qilish
+    try:
+        ai = AIChat(db=db)
+        debt_info = await ai._parse_debt_info(text)
+        person_name = debt_info.get('person', "Noma'lum")
+        amount = debt_info.get('amount', 0) or 0
+        due_date = debt_info.get('due_date')
+    except Exception as e:
+        logging.error(f"AI qarz parse xatolik: {e}")
+        person_name = text.split()[0] if text.split() else "Noma'lum"
+        try:
+            import re
+            numbers = re.findall(r'\d+', text)
+            amount = float(''.join(numbers)) if numbers else 0
+        except Exception:
+            amount = 0
+        due_date = None
+
+    if amount <= 0:
+        await message.answer(
+            "❌ Qarzni aniqlay olmadim. Iltimos, ism va summani birga yozib yuboring.\n"
+            "Masalan: *Akmalga 100000 so'm qarz berdim* yoki *Karimdan 200000 so'm qarz oldim.*",
+            parse_mode="Markdown"
+        )
+        await state.set_state(UserStates.onboarding_debt_waiting_for_person)
+        return
+
+    await db.add_transaction(
+        user_id,
+        'expense' if debt_type == 'lent' else 'income',
+        int(amount),
+        'qarz_berdim' if debt_type == 'lent' else 'qarz_oldim',
+        f"Onboarding: {person_name}ga qarz" + (f" (Qaytish: {due_date})" if due_date else "")
+    )
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    confirmation_text = (
+        f"✅ **{person_name}ga {amount:,.0f} so'm qarz qo'shildi!**\n"
+        f"{'🔁 Qaytarish sanasi: ' + str(due_date) if due_date else ''}\n\n"
+        "Yana qarz qo'shmoqchimisiz yoki davom etamizmi?"
+    )
+
+    keyboard_buttons = [
+        [InlineKeyboardButton(text="➕ Yana qo'shish", callback_data=f"onboarding_debt_{debt_type}")]
+    ]
+    if debt_type == 'borrowed':
+        keyboard_buttons.append([InlineKeyboardButton(text="✅ Tugatish", callback_data="onboarding_complete_final")])
+    else:
+        keyboard_buttons.append([InlineKeyboardButton(text="✅ Keyingi bosqich", callback_data="onboarding_move_to_next")])
+
+    confirmation_message = await message.answer(
+        confirmation_text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_buttons),
+        parse_mode="Markdown"
+    )
+
+    await state.update_data(onboarding_debt_amount_msg_id=confirmation_message.message_id, is_onboarding_debt=True)
+    await state.set_state(UserStates.onboarding_waiting_for_debt_action)
+
+
 @dp.callback_query(lambda c: c.data == "onboarding_no_debts")
 async def onboarding_no_debts(callback_query: CallbackQuery, state: FSMContext):
     """Qarzlar yo'q - onboarding tugatish"""
@@ -2828,34 +2949,38 @@ async def onboarding_no_debts(callback_query: CallbackQuery, state: FSMContext):
     except:
         pass
     
-    # Onboarding tugagach tabrik xabari + menyu bir xabarda
-    try:
-        await ensure_tariff_valid(user_id)
-    except Exception:
-        pass
-    current_tariff = await get_user_tariff(user_id)
-    
-    # Onboarding tugashi - maxsus tugmalar
-    onboarding_complete_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒 Plus paket tanlash", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL))],
-        [InlineKeyboardButton(text="🔥 Max tarifga o'tish", web_app=WebAppInfo(url=PAYMENT_MAX_WEBAPP_URL))]
-    ])
-    
-    await callback_query.message.answer_photo(
-        photo=FSInputFile('tarifflar.png'),
-        caption=(
-            "✅ **Sizning buxgalteringiz ishga tayyor!**\n\n"
-            "Davom etish uchun paket yoki tarif tanlang:\n"
-            "• Plus paketlar: Matn va ovoz limiti bilan moslashuvchan foydalanish\n"
-            "• Max tarif: Oylik premium imkoniyatlar\n\n"
-            "👇 Quyidagilardan birini tanlang:"
-        ),
-        reply_markup=onboarding_complete_keyboard,
-        parse_mode="Markdown"
-    )
-    
+    await send_onboarding_completion_message(user_id)
     await state.clear()
     await callback_query.answer()
+
+# Qarz bosqichida matnli javoblar uchun fallback
+@dp.message(UserStates.onboarding_waiting_for_debt_action)
+async def onboarding_debt_action_text(message: types.Message, state: FSMContext):
+    """Foydalanuvchi tugma o'rniga matn yuborgan holatlarni ko'rib chiqish"""
+    user_id = message.from_user.id
+    text = (message.text or "").strip()
+    
+    if not text:
+        await message.answer("Qarzlar bo'yicha ma'lumot kiriting yoki 'yo'q' deb yozing.")
+        return
+    
+    lower_text = text.lower()
+    no_debt_phrases = {"yo'q", "yoq", "yok", "yoʻq", "yo’q", "yo`q", "0", "yoq emas", "no", "none"}
+    if lower_text in no_debt_phrases or lower_text.startswith("yo'q") or lower_text.startswith("yoq"):
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        await send_onboarding_completion_message(user_id)
+        await state.clear()
+        return
+    
+    borrowed_keywords = ["oldim", "qarz oldim", "olganman", "qarz ol", "olib", "qarzdorman"]
+    debt_type = 'borrowed' if any(keyword in lower_text for keyword in borrowed_keywords) else 'lent'
+    
+    await state.update_data(debt_type=debt_type, is_onboarding_debt=True)
+    await state.set_state(UserStates.onboarding_debt_waiting_for_person)
+    await _handle_onboarding_debt_entry(message, state, debt_type, text)
 
 # Qarz qo'shishdan keyin keyingi bosqichga o'tish
 @dp.callback_query(lambda c: c.data == "onboarding_move_to_next")
@@ -2942,65 +3067,9 @@ async def onboarding_debt_borrowed(callback_query: CallbackQuery, state: FSMCont
 @dp.message(UserStates.onboarding_debt_waiting_for_person)
 async def process_onboarding_debt_person(message: types.Message, state: FSMContext):
     """Onboarding qarz - AI bilan pars qilish"""
-    user_id = message.from_user.id
-    text = message.text.strip()
-    
-    # AI bilan qarz ma'lumotlarini parse qilish
-    try:
-        from ai_chat import AIChat
-        ai = AIChat(db=db)
-        debt_info = await ai._parse_debt_info(text)
-        
-        person_name = debt_info.get('person', 'Noma\'lum')
-        amount = debt_info.get('amount', 0)
-        due_date = debt_info.get('due_date')
-        
-    except Exception as e:
-        logging.error(f"AI qarz parse xatolik: {e}")
-        # Fallback - oddiy parse
-        person_name = text.split()[0] if text.split() else "Noma'lum"
-        try:
-            import re
-            numbers = re.findall(r'\d+', text)
-            amount = float(''.join(numbers)) if numbers else 0
-        except:
-            amount = 0
-        due_date = None
-    
-    # Qarzni saqlash
     data = await state.get_data()
     debt_type = data.get('debt_type', 'lent')
-    
-    if amount > 0:
-        await db.add_transaction(
-            user_id, 
-            'expense' if debt_type == 'lent' else 'income',
-            int(amount),
-            'qarz_berdim' if debt_type == 'lent' else 'qarz_oldim',
-            f"Onboarding: {person_name}ga qarz" + (f" (Qaytish: {due_date})" if due_date else "")
-        )
-        
-        # Eski xabarlarni o'chirish
-        try:
-            await message.delete()
-        except:
-            pass
-        
-        # Yana qo'shish yoki tugatish
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Yana qo'shish", callback_data=f"onboarding_debt_{debt_type}")],
-            [InlineKeyboardButton(text="✅ Tayyor", callback_data="onboarding_move_to_next")]
-        ])
-        
-        await message.answer(
-            f"✅ **{person_name}ga {amount:,.0f} so'm qarz qo'shildi!**\n\n"
-            f"{'Qaytarish sanasi: ' + str(due_date) if due_date else ''}\n\n"
-            "Yana qarz qo'shmoqchimisiz yoki davom etamizmi?",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-    else:
-        await message.answer("❌ Summani tushunmadim. Qaytadan kiriting (masalan: Akmal 100000):")
+    await _handle_onboarding_debt_entry(message, state, debt_type, message.text or "")
 
 # Onboarding yakunlash
 @dp.callback_query(lambda c: c.data == "onboarding_complete_final")
@@ -3014,32 +3083,7 @@ async def onboarding_complete_final(callback_query: CallbackQuery, state: FSMCon
     except:
         pass
     
-    # Onboarding tugagach tabrik xabari + menyu bir xabarda
-    try:
-        await ensure_tariff_valid(user_id)
-    except Exception:
-        pass
-    current_tariff = await get_user_tariff(user_id)
-    
-    # Onboarding tugashi - maxsus tugmalar
-    onboarding_complete_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒 Plus paket tanlash", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL))],
-        [InlineKeyboardButton(text="🔥 Max tarifga o'tish", web_app=WebAppInfo(url=PAYMENT_MAX_WEBAPP_URL))]
-    ])
-    
-    await callback_query.message.answer_photo(
-        photo=FSInputFile('tarifflar.png'),
-        caption=(
-            "✅ **Sizning buxgalteringiz ishga tayyor!**\n\n"
-            "Davom etish uchun paket yoki tarif tanlang:\n"
-            "• Plus paketlar: Matn va ovoz limiti bilan moslashuvchan foydalanish\n"
-            "• Max tarif: Oylik premium imkoniyatlar\n\n"
-            "👇 Quyidagilardan birini tanlang:"
-        ),
-        reply_markup=onboarding_complete_keyboard,
-        parse_mode="Markdown"
-    )
-    
+    await send_onboarding_completion_message(user_id)
     await state.clear()
     await callback_query.answer()
 
@@ -3250,7 +3294,7 @@ async def tariff_info_callback(callback_query: CallbackQuery):
         tariff_text += "• Asosiy moliyaviy funksiyalar\n"
         tariff_text += "• Qarzlar boshqaruvi\n"
         tariff_text += "• Balans ko'rish\n\n"
-        tariff_text += "💡 **Max tarifga o'tish uchun:**\n"
+        tariff_text += "💡 **Pro tarifga o'tish uchun:**\n"
         tariff_text += "• AI yordamida avtomatik qayta ishlash\n"
         tariff_text += "• Kengaytirilgan hisobotlar\n"
         tariff_text += "• Shaxsiy maslahatlar"
@@ -3342,7 +3386,7 @@ async def activate_tariff_callback(callback_query: CallbackQuery):
         if tariff == "BUSINESS":
             await callback_query.message.answer("Business tarif menyusi:", reply_markup=get_business_menu())
         elif tariff in ("PLUS", "PRO", "MAX"):
-            await callback_query.message.answer("Max tarif menyusi:", reply_markup=get_premium_menu())
+        await callback_query.message.answer("Pro tarif menyusi:", reply_markup=get_premium_menu())
         else:
             await callback_query.message.answer(
                 "Balans AI bilan davom etish uchun paket tanlang:",
@@ -4875,10 +4919,10 @@ async def skip_income_setup(callback_query: CallbackQuery):
         parse_mode="Markdown"
     )
     
-    await callback_query.message.answer(
-        "Max tarif menyusi:",
-        reply_markup=get_premium_menu()
-    )
+                await callback_query.message.answer(
+                    "Pro tarif menyusi:",
+                    reply_markup=get_premium_menu()
+                )
     await callback_query.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("income_type_"), UserStates.waiting_for_income_type)
@@ -5146,7 +5190,7 @@ async def back_to_main_menu(callback_query: CallbackQuery):
     """Asosiy menyuga qaytish"""
     await callback_query.message.edit_text(
         "🏠 *Asosiy menyuga qaytildi.*\n\n"
-        "Max tarif menyusi:",
+        "Pro tarif menyusi:",
         parse_mode="Markdown"
     )
     
