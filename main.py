@@ -32,7 +32,7 @@ from config import (
     FREE_TRIAL_ENABLED,
     PLUS_PACKAGES,
     PAYMENT_PLUS_WEBAPP_URL,
-    PAYMENT_MAX_WEBAPP_URL,
+    PAYMENT_PRO_WEBAPP_URL,
 )
 from database import db
 from financial_module import FinancialModule

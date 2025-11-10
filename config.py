@@ -103,7 +103,7 @@ PAYMENT_METHODS = {
 
 # Mini-app URL'lari
 PAYMENT_PLUS_WEBAPP_URL = os.getenv('PAYMENT_PLUS_WEBAPP_URL', 'https://balansai.onrender.com/payment-plus')
-PAYMENT_MAX_WEBAPP_URL = os.getenv('PAYMENT_MAX_WEBAPP_URL', 'https://balansai.onrender.com/payment-max')
+PAYMENT_PRO_WEBAPP_URL = os.getenv('PAYMENT_PRO_WEBAPP_URL', 'https://balansai.onrender.com/payment-pro')
 
 # Speech-to-Text model sozlamalari
 SPEECH_MODELS = {
