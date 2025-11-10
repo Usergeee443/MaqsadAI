@@ -3385,8 +3385,8 @@ async def activate_tariff_callback(callback_query: CallbackQuery):
         # Menyuni yangilash
         if tariff == "BUSINESS":
             await callback_query.message.answer("Business tarif menyusi:", reply_markup=get_business_menu())
-        elif tariff in ("PLUS", "PRO", "MAX"):
-        await callback_query.message.answer("Pro tarif menyusi:", reply_markup=get_premium_menu())
+        elif tariff in ("PLUS", "PRO"):
+            await callback_query.message.answer("Pro tarif menyusi:", reply_markup=get_premium_menu())
         else:
             await callback_query.message.answer(
                 "Balans AI bilan davom etish uchun paket tanlang:",
