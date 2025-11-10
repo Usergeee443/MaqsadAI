@@ -4919,10 +4919,10 @@ async def skip_income_setup(callback_query: CallbackQuery):
         parse_mode="Markdown"
     )
     
-                await callback_query.message.answer(
-                    "Pro tarif menyusi:",
-                    reply_markup=get_premium_menu()
-                )
+    await callback_query.message.answer(
+        "Pro tarif menyusi:",
+        reply_markup=get_premium_menu()
+    )
     await callback_query.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("income_type_"), UserStates.waiting_for_income_type)
