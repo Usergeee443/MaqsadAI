@@ -5462,7 +5462,7 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
                     package_info['text_limit'],
                     package_info['voice_limit']
                 )
-                await db.set_active_tariff(user_id, "PLUS")
+                await db.set_active_tariff(user_id, "PLUS", None)
                 package_name = package_info.get('name', package_code)
                 usage_line = f"📦 Paket: {package_name}\n✉️ Matn limit: {package_info['text_limit']}\n🎙 Ovoz limit: {package_info['voice_limit']}"
             else:
@@ -5470,7 +5470,7 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
                 months = int(parts[3]) if len(parts) > 3 else 1
                 expires_at = datetime.now() + timedelta(days=30 * months)
                 await db.add_user_subscription(user_id, "PLUS", expires_at)
-                await db.set_active_tariff(user_id, "PLUS")
+                await db.set_active_tariff(user_id, "PLUS", expires_at)
                 usage_line = f"⏰ Muddati: {expires_at.strftime('%d.%m.%Y')}"
 
             await db.execute_insert(
@@ -5574,7 +5574,7 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
             from datetime import datetime, timedelta
             expires_at = datetime.now() + timedelta(days=30 * months)
             await db.add_user_subscription(user_id, "BUSINESS", expires_at)
-            await db.set_active_tariff(user_id, "BUSINESS")
+            await db.set_active_tariff(user_id, "BUSINESS", expires_at)
 
             sp = message.successful_payment
             await db.execute_insert(
@@ -5882,13 +5882,13 @@ async def payment_webhook(data: dict):
                 package_info['text_limit'],
                 package_info['voice_limit']
             )
-            await db.set_active_tariff(user_id, 'PLUS')
+            await db.set_active_tariff(user_id, 'PLUS', None)
             expires_at = None
         else:
             # Legacy subscription flow
             expires_at = datetime.now() + timedelta(days=30 * months)
             await db.add_user_subscription(user_id, tariff, expires_at)
-            await db.set_active_tariff(user_id, tariff)
+            await db.set_active_tariff(user_id, tariff, expires_at)
         
         # To'lov yozuvini saqlash
         await db.execute_insert(

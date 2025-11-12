@@ -625,7 +625,7 @@ class Database:
         """
         return await self.execute_query(query, (user_id,))
     
-    async def set_active_tariff(self, user_id, tariff):
+    async def set_active_tariff(self, user_id, tariff, expires_at=None):
         """Foydalanuvchining aktiv tarifini o'rnatish"""
         # Avval barcha tariflarni noaktiv qilamiz
         await self.execute_query(
@@ -637,10 +637,17 @@ class Database:
             "UPDATE user_subscriptions SET is_active = TRUE WHERE user_id = %s AND tariff = %s",
             (user_id, tariff)
         )
+        # Agar expires_at berilmagan bo'lsa va paket emas bo'lsa, subscription jadvalidan olamiz
+        if expires_at is None and tariff not in ('PLUS', 'NONE'):
+            sub = await self.execute_one(
+                "SELECT expires_at FROM user_subscriptions WHERE user_id = %s AND tariff = %s LIMIT 1",
+                (user_id, tariff)
+            )
+            expires_at = sub[0] if (sub and sub[0]) else None
         # Users jadvalidagi tariff ustunini ham yangilaymiz
         await self.execute_query(
-            "UPDATE users SET tariff = %s WHERE user_id = %s",
-            (tariff, user_id)
+            "UPDATE users SET tariff = %s, tariff_expires_at = %s WHERE user_id = %s",
+            (tariff, expires_at, user_id)
         )
     
     # Plus paketlari funksiyalari
