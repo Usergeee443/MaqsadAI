@@ -658,15 +658,15 @@ class Database:
             """
             UPDATE plus_package_purchases
             SET status = 'completed', updated_at = NOW()
-            WHERE user_id = %s AND status = 'active'
+            WHERE user_id = %s AND LOWER(status) = 'active'
             """,
             (user_id,)
         )
         
         # Yangi paketni yaratamiz
         query = """
-        INSERT INTO plus_package_purchases (user_id, package_code, text_limit, voice_limit)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO plus_package_purchases (user_id, package_code, text_limit, voice_limit, text_used, voice_used, status)
+        VALUES (%s, %s, %s, %s, 0, 0, 'active')
         """
         return await self.execute_insert(query, (user_id, package_code, text_limit, voice_limit))
     
@@ -675,14 +675,14 @@ class Database:
         query = """
         SELECT id, package_code, text_limit, text_used, voice_limit, voice_used, status, purchased_at
         FROM plus_package_purchases
-        WHERE user_id = %s AND status = 'active'
+        WHERE user_id = %s
         ORDER BY purchased_at DESC
         LIMIT 1
         """
         result = await self.execute_one(query, (user_id,))
         if not result:
             return None
-        return {
+        package = {
             'id': result[0],
             'package_code': result[1],
             'text_limit': result[2],
@@ -692,6 +692,13 @@ class Database:
             'status': result[6],
             'purchased_at': result[7],
         }
+        status_lower = (package['status'] or '').lower()
+        if status_lower != 'active':
+            remaining_text = package['text_limit'] - package['text_used']
+            remaining_voice = package['voice_limit'] - package['voice_used']
+            if remaining_text > 0 or remaining_voice > 0:
+                package['status'] = 'active'
+        return package
     
     async def increment_plus_usage(self, user_id, usage_type: str):
         """Plus paketi bo'yicha foydalanishni oshirish"""
