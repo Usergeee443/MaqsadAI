@@ -264,6 +264,25 @@ class Database:
                 )
             """)
             
+            # Pro tarifida API xarajatlari tracking jadvali
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS pro_usage_tracking (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    month_year VARCHAR(7) NOT NULL,
+                    text_cost DECIMAL(10,2) DEFAULT 0,
+                    voice_cost DECIMAL(10,2) DEFAULT 0,
+                    total_cost DECIMAL(10,2) DEFAULT 0,
+                    text_count INT DEFAULT 0,
+                    voice_count INT DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    UNIQUE KEY unique_user_month (user_id, month_year),
+                    INDEX idx_user_month (user_id, month_year)
+                )
+            """)
+            
             # Debts jadvali - qarzlar uchun
             await self.execute_query("""
                 CREATE TABLE IF NOT EXISTS debts (
@@ -292,6 +311,29 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
                     FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+                )
+            """)
+            
+            # Reminders jadvali - umumiy eslatmalar uchun (Pro va Plus)
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS reminders (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    reminder_type ENUM('debt_give', 'debt_receive', 'payment', 'other') NOT NULL,
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    reminder_date DATE NOT NULL,
+                    reminder_time TIME DEFAULT '09:00:00',
+                    amount DECIMAL(15,2) NULL,
+                    currency VARCHAR(10) DEFAULT 'UZS',
+                    person_name VARCHAR(255) NULL,
+                    is_completed BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    INDEX idx_user_date (user_id, reminder_date),
+                    INDEX idx_user_completed (user_id, is_completed),
+                    INDEX idx_reminder_date (reminder_date, is_completed)
                 )
             """)
             
@@ -827,6 +869,156 @@ class Database:
         """
         result = await self.execute_one(query, (user_id,))
         return result[0] if result else "NONE"
+    
+    # Reminders funksiyalari
+    async def create_reminder(self, user_id: int, reminder_type: str, title: str, 
+                             reminder_date, description: str = None, amount: float = None,
+                             currency: str = 'UZS', person_name: str = None, reminder_time: str = '09:00:00'):
+        """Yangi eslatma yaratish"""
+        query = """
+        INSERT INTO reminders (user_id, reminder_type, title, description, reminder_date, 
+                              reminder_time, amount, currency, person_name)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        params = (user_id, reminder_type, title, description, reminder_date, 
+                 reminder_time, amount, currency, person_name)
+        return await self.execute_insert(query, params)
+    
+    async def get_today_reminders(self, user_id: int = None):
+        """Bugungi eslatmalarni olish"""
+        if user_id:
+            query = """
+            SELECT * FROM reminders 
+            WHERE reminder_date = CURDATE() AND is_completed = FALSE
+            AND user_id = %s
+            ORDER BY reminder_time
+            """
+            return await self.execute_query(query, (user_id,))
+        else:
+            query = """
+            SELECT * FROM reminders 
+            WHERE reminder_date = CURDATE() AND is_completed = FALSE
+            ORDER BY reminder_time
+            """
+            return await self.execute_query(query)
+    
+    async def get_upcoming_reminders(self, user_id: int, days: int = 7):
+        """Keyingi N kundagi eslatmalarni olish"""
+        query = """
+        SELECT * FROM reminders 
+        WHERE user_id = %s 
+        AND reminder_date >= CURDATE() 
+        AND reminder_date <= DATE_ADD(CURDATE(), INTERVAL %s DAY)
+        AND is_completed = FALSE
+        ORDER BY reminder_date, reminder_time
+        """
+        return await self.execute_query(query, (user_id, days))
+    
+    async def mark_reminder_completed(self, reminder_id: int):
+        """Eslatmani bajarilgan deb belgilash"""
+        query = """
+        UPDATE reminders SET is_completed = TRUE 
+        WHERE id = %s
+        """
+        await self.execute_query(query, (reminder_id,))
+    
+    async def get_user_reminders(self, user_id: int, include_completed: bool = False):
+        """Foydalanuvchining barcha eslatmalarini olish"""
+        if include_completed:
+            query = """
+            SELECT * FROM reminders 
+            WHERE user_id = %s
+            ORDER BY reminder_date DESC, reminder_time DESC
+            """
+        else:
+            query = """
+            SELECT * FROM reminders 
+            WHERE user_id = %s AND is_completed = FALSE
+            ORDER BY reminder_date, reminder_time
+            """
+        return await self.execute_query(query, (user_id,))
+    
+    # Pro tarifi xarajatlari funksiyalari
+    async def get_or_create_pro_usage(self, user_id: int, month_year: str = None):
+        """Pro tarifida foydalanuvchining joriy oydagi xarajatlarini olish yoki yaratish"""
+        if not month_year:
+            from datetime import datetime
+            month_year = datetime.now().strftime('%Y-%m')
+        
+        result = await self.execute_one(
+            """
+            SELECT id, text_cost, voice_cost, total_cost, text_count, voice_count
+            FROM pro_usage_tracking
+            WHERE user_id = %s AND month_year = %s
+            """,
+            (user_id, month_year)
+        )
+        
+        if result:
+            return {
+                'id': result[0],
+                'text_cost': float(result[1]) if result[1] else 0,
+                'voice_cost': float(result[2]) if result[2] else 0,
+                'total_cost': float(result[3]) if result[3] else 0,
+                'text_count': result[4] if result[4] else 0,
+                'voice_count': result[5] if result[5] else 0,
+            }
+        
+        # Yangi yozuv yaratish
+        insert_id = await self.execute_insert(
+            """
+            INSERT INTO pro_usage_tracking (user_id, month_year, text_cost, voice_cost, total_cost, text_count, voice_count)
+            VALUES (%s, %s, 0, 0, 0, 0, 0)
+            """,
+            (user_id, month_year)
+        )
+        
+        return {
+            'id': insert_id,
+            'text_cost': 0,
+            'voice_cost': 0,
+            'total_cost': 0,
+            'text_count': 0,
+            'voice_count': 0,
+        }
+    
+    async def increment_pro_usage(self, user_id: int, usage_type: str, cost: float, month_year: str = None):
+        """Pro tarifida xarajatlarni oshirish"""
+        if not month_year:
+            from datetime import datetime
+            month_year = datetime.now().strftime('%Y-%m')
+        
+        usage = await self.get_or_create_pro_usage(user_id, month_year)
+        
+        if usage_type == 'text':
+            new_text_cost = usage['text_cost'] + cost
+            new_text_count = usage['text_count'] + 1
+            new_total = new_text_cost + usage['voice_cost']
+            
+            await self.execute_query(
+                """
+                UPDATE pro_usage_tracking
+                SET text_cost = %s, text_count = %s, total_cost = %s, updated_at = NOW()
+                WHERE id = %s
+                """,
+                (new_text_cost, new_text_count, new_total, usage['id'])
+            )
+        elif usage_type == 'voice':
+            new_voice_cost = usage['voice_cost'] + cost
+            new_voice_count = usage['voice_count'] + 1
+            new_total = usage['text_cost'] + new_voice_cost
+            
+            await self.execute_query(
+                """
+                UPDATE pro_usage_tracking
+                SET voice_cost = %s, voice_count = %s, total_cost = %s, updated_at = NOW()
+                WHERE id = %s
+                """,
+                (new_voice_cost, new_voice_count, new_total, usage['id'])
+            )
+        
+        # Yangilangan xarajatlarni qaytarish
+        return await self.get_or_create_pro_usage(user_id, month_year)
 
 # Global database instance
 db = Database()

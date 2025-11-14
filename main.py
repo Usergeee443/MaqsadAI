@@ -14,9 +14,6 @@ from aiogram.types import ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButt
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
 
 from config import (
     BOT_TOKEN,
@@ -53,17 +50,6 @@ ai_chat_free = AIChatFree(db=db)
 # Admin panelga ruxsat berilgan ID
 ADMIN_USER_ID = 6429299277
 
-# FastAPI app mini-app uchun
-app = FastAPI(title="Balans AI Mini App API")
-
-# CORS sozlamalari
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Sana formatlash (uzbekcha oy)
 def _format_date_uz(dt_obj) -> str:
@@ -4709,6 +4695,63 @@ async def process_financial_message(message: types.Message, state: FSMContext):
             # PRO/MAX tariflar uchun to'liq AI chat
             ai_messages = await ai_chat.generate_response(user_id, text)
             
+            # Pro userlar uchun emoji reaksiya
+            if user_tariff == 'PRO':
+                # Xabarni tahlil qilish - moliyadan yiroq bo'lsa
+                financial_keywords = ['pul', 'xarajat', 'daromad', 'qarz', 'to\'lov', 'balans', 'hisobot', 
+                                     'tranzaksiya', 'chiqim', 'kirim', 'tejash', 'byudjet', 'oylik', 'haftalik']
+                is_financial = any(keyword in text.lower() for keyword in financial_keywords)
+                
+                if not is_financial and ai_messages:
+                    # Moliyadan yiroq mavzu - emoji reaksiya va qisqa javob
+                    # Kulgu, g'alaba yoki boshqa hissiyotlarga qarab emoji
+                    reaction_emoji = None
+                    
+                    # AI javobini tahlil qilish - qanday reaksiya berish kerak
+                    first_response = ai_messages[0].lower() if ai_messages else ""
+                    
+                    if any(word in first_response for word in ['tabriklayman', 'tabriklay', 'alhamdulillah', 'yaxshi', 'muvaffaqiyat']):
+                        reaction_emoji = "🥳"  # G'alaba/kulgu
+                    elif any(word in first_response for word in ['kulgi', 'qiziq', 'ajoyib', 'zo\'r']):
+                        reaction_emoji = "😂"  # Kulgu
+                    elif any(word in first_response for word in ['yaxshi', 'mazali', 'yoqimli']):
+                        reaction_emoji = "😊"  # Xursandlik
+                    elif any(word in first_response for word in ['hayrat', 'ajoyib', 'qiziq']):
+                        reaction_emoji = "😮"  # Hayrat
+                    
+                    # Emoji reaksiya berish (Telegram Bot API 6.7+)
+                    if reaction_emoji:
+                        try:
+                            # set_message_reaction - yangi API
+                            await bot.set_message_reaction(
+                                chat_id=message.chat.id,
+                                message_id=message.message_id,
+                                reaction=[{"type": "emoji", "emoji": reaction_emoji}]
+                            )
+                        except AttributeError:
+                            # Eski API versiyasi - reaction yo'q
+                            try:
+                                # setMessageReaction - boshqa usul
+                                await bot.request("setMessageReaction", {
+                                    "chat_id": message.chat.id,
+                                    "message_id": message.message_id,
+                                    "reaction": [{"type": "emoji", "emoji": reaction_emoji}]
+                                })
+                            except Exception as e:
+                                logging.debug(f"Reaction API not available: {e}")
+                            # Fallback: emoji reaksiya xabar sifatida yuborilmaydi
+                            pass
+                        except Exception as e:
+                            logging.debug(f"Error adding reaction: {e}")
+                            # Reaction API mavjud emas yoki xatolik
+                            pass
+                    
+                    # AI javobini qisqartirish - faqat birinchi gap yoki moliyaga burish
+                    if ai_messages and len(ai_messages[0]) > 100:
+                        # Qisqa javob yaratish - moliyaga burish
+                        shortened = f"Tabriklayman! 😊 Pulni tejash yoki ko'proq topish bo'yicha ham g'olib bo'ling! 💪"
+                        ai_messages = [shortened]
+            
             # Har bir xabarni 1-3 soniya orasida yuborish
             for msg in ai_messages:
                 await message.answer(msg)  # parse_mode olib tashlandi - emoji ishlatiladi
@@ -4880,8 +4923,42 @@ async def process_audio_message(message: types.Message, state: FSMContext):
             )
             return
         
+        # Pro tarifida limit tekshiruvi
+        month_year = None
+        if user_tariff == 'PRO':
+            from datetime import datetime as dt
+            month_year = dt.now().strftime('%Y-%m')
+            usage = await db.get_or_create_pro_usage(user_id, month_year)
+            
+            if usage['total_cost'] >= 40000:
+                await processing_msg.delete()
+                await message.answer(
+                    f"⚠️ **Xarajat limiti tugadi!**\n\n"
+                    f"Hozirgi oyda API xarajatlari 40,000 so'mdan oshdi.\n"
+                    f"Keyingi oyni kutishingiz kerak. Yoki Plus paketga o'ting.",
+                    parse_mode='Markdown'
+                )
+                return
+        
         # Financial module audio qayta ishlash (GOOGLE yoki ELEVENLABS tanlaydi)
         audio_result = await process_audio_with_financial_module(message, state, audio_path, user_id, processing_msg)
+        
+        # Pro tarifida ovozli xarajatni tracking qilish
+        if user_tariff == 'PRO' and audio_result and audio_result.get('success'):
+            if not month_year:
+                from datetime import datetime as dt
+                month_year = dt.now().strftime('%Y-%m')
+            # Ovozli xabar uchun xarajat (taxminan 20-30 so'm - speech-to-text va AI)
+            estimated_voice_cost = 25.0
+            await db.increment_pro_usage(user_id, 'voice', estimated_voice_cost, month_year)
+            
+            # Limit tekshiruvi keyin
+            updated_usage = await db.get_or_create_pro_usage(user_id, month_year)
+            if updated_usage['total_cost'] >= 40000:
+                await message.answer(
+                    f"⚠️ Xarajat limiti tugadi! Keyingi oyni kutishingiz kerak.",
+                    parse_mode='Markdown'
+                )
         
         if user_tariff == 'PLUS':
             latest_summary = plus_package_summary
@@ -5673,300 +5750,6 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
         logging.error(f"Successful payment processing error: {e}")
         await message.answer("❌ To'lovdan keyin tarifni faollashtirishda xatolik yuz berdi. Admin bilan bog'laning.")
 
-# Mini-app uchun authentication
-def verify_telegram_auth(init_data: str) -> dict:
-    """Telegram Mini App authentication tekshirish"""
-    try:
-        import hashlib
-        import hmac
-        from urllib.parse import parse_qsl
-        
-        if not init_data:
-            return None
-            
-        # init_data ni parse qilish
-        parsed_data = dict(parse_qsl(init_data))
-        
-        # hash ni olish
-        received_hash = parsed_data.pop('hash', '')
-        
-        # Secret key ni olish (bot token dan)
-        secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
-        
-        # Data string yaratish
-        data_check_string = '\n'.join([f"{k}={v}" for k, v in sorted(parsed_data.items())])
-        
-        # Hash hisoblash
-        calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-        
-        # Hash tekshirish
-        if calculated_hash != received_hash:
-            return None
-            
-        return parsed_data
-    except Exception as e:
-        logging.error(f"Telegram auth verification error: {e}")
-        return None
-
-# Mini-app uchun API endpoints
-@app.get("/api/user/{user_id}")
-async def get_user_data(user_id: int, init_data: str = None):
-    """Foydalanuvchi ma'lumotlarini olish mini-app uchun"""
-    try:
-        # Authentication tekshirish (agar init_data berilgan bo'lsa)
-        if init_data:
-            auth_data = verify_telegram_auth(init_data)
-            if not auth_data:
-                raise HTTPException(status_code=401, detail="Authentication failed")
-        
-        # Foydalanuvchi ma'lumotlarini olish
-        user_data = await db.fetch_one("SELECT * FROM users WHERE user_id = %s", (user_id,))
-        if not user_data:
-            raise HTTPException(status_code=404, detail="Foydalanuvchi topilmadi")
-        
-        # Balans ma'lumotlarini olish
-        balance = await db.get_balance(user_id)
-        
-        # So'nggi tranzaksiyalar
-        recent_transactions = await db.fetch_all(
-            "SELECT * FROM transactions WHERE user_id = %s ORDER BY created_at DESC LIMIT 10",
-            (user_id,)
-        )
-        
-        # Tarif ma'lumotlari
-        tariff = user_data.get('tariff', 'NONE')
-        tariff_name = TARIFFS.get(tariff, 'Bepul')
-        
-        return {
-            "success": True,
-            "user": {
-                "user_id": user_id,
-                "name": user_data.get('name', 'Foydalanuvchi'),
-                "tariff": tariff,
-                "tariff_name": tariff_name,
-                "phone": user_data.get('phone', ''),
-                "created_at": user_data.get('created_at').isoformat() if user_data.get('created_at') else None
-            },
-            "balance": balance,
-            "recent_transactions": recent_transactions
-        }
-    except Exception as e:
-        logging.error(f"Mini-app API xatolik: {e}")
-        raise HTTPException(status_code=500, detail="Server xatoligi")
-
-@app.get("/api/transactions/{user_id}")
-async def get_transactions(user_id: int, limit: int = 50, offset: int = 0, init_data: str = None):
-    """Tranzaksiyalar ro'yxatini olish"""
-    try:
-        transactions = await db.fetch_all(
-            "SELECT * FROM transactions WHERE user_id = %s ORDER BY created_at DESC LIMIT %s OFFSET %s",
-            (user_id, limit, offset)
-        )
-        return {
-            "success": True,
-            "transactions": transactions,
-            "limit": limit,
-            "offset": offset
-        }
-    except Exception as e:
-        logging.error(f"Tranzaksiyalar olishda xatolik: {e}")
-        raise HTTPException(status_code=500, detail="Server xatoligi")
-
-@app.get("/api/stats/{user_id}")
-async def get_user_stats(user_id: int, init_data: str = None):
-    """Foydalanuvchi statistikalarini olish"""
-    try:
-        # Oylik statistikalar
-        current_month = datetime.now().strftime('%Y-%m')
-        
-        monthly_income = await db.execute_one(
-            "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s AND transaction_type = 'income' AND DATE_FORMAT(created_at, '%%Y-%%m') = %s",
-            (user_id, current_month)
-        )
-        
-        monthly_expense = await db.execute_one(
-            "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s AND transaction_type = 'expense' AND DATE_FORMAT(created_at, '%%Y-%%m') = %s",
-            (user_id, current_month)
-        )
-        
-        # Tranzaksiyalar soni
-        total_transactions = await db.execute_one(
-            "SELECT COUNT(*) FROM transactions WHERE user_id = %s",
-            (user_id,)
-        )
-        
-        return {
-            "success": True,
-            "stats": {
-                "monthly_income": float(monthly_income[0]) if monthly_income else 0,
-                "monthly_expense": float(monthly_expense[0]) if monthly_expense else 0,
-                "total_transactions": total_transactions[0] if total_transactions else 0,
-                "month": current_month
-            }
-        }
-    except Exception as e:
-        logging.error(f"Statistika olishda xatolik: {e}")
-        raise HTTPException(status_code=500, detail="Server xatoligi")
-
-@app.get("/api/auth")
-async def get_auth_info(init_data: str):
-    """Telegram Mini App authentication ma'lumotlarini olish"""
-    try:
-        auth_data = verify_telegram_auth(init_data)
-        if not auth_data:
-            raise HTTPException(status_code=401, detail="Authentication failed")
-        
-        user_id = int(auth_data.get('user', {}).get('id', 0))
-        if not user_id:
-            raise HTTPException(status_code=400, detail="User ID not found")
-        
-        return {
-            "success": True,
-            "user_id": user_id,
-            "user_data": auth_data.get('user', {})
-        }
-    except Exception as e:
-        logging.error(f"Auth info error: {e}")
-        raise HTTPException(status_code=500, detail="Server xatoligi")
-
-@app.get("/api/tariffs")
-async def get_tariffs():
-    """Tariflar ro'yxatini qaytarish"""
-    try:
-        tariffs = [
-            {"code": "PLUS", "name": "Plus", "monthly_price": 19990},
-            {"code": "PRO", "name": "Pro", "monthly_price": 199900},
-            {"code": "BUSINESS", "name": "Business", "monthly_price": 299900},
-        ]
-        
-        discount_rates = {
-            1: 0,
-            3: 5,
-            6: 10,
-            12: 20
-        }
-        
-        return {
-            "tariffs": tariffs,
-            "discount_rates": discount_rates
-        }
-    except Exception as e:
-        logging.error(f"Get tariffs error: {e}")
-        raise HTTPException(status_code=500, detail="Server xatoligi")
-
-@app.post("/api/payment/webhook")
-async def payment_webhook(data: dict):
-    """Mini ilova dan to'lov ma'lumotlarini qabul qilish"""
-    try:
-        logging.info(f"Payment webhook received: {data}")
-        
-        user_id = data.get("user_id")
-        tariff = data.get("tariff")
-        months = data.get("months", 1)
-        amount = data.get("amount")
-        package_code = data.get("package_code")
-        payment_method = data.get("payment_method", "test")
-        
-        logging.info(f"Processing payment for user {user_id}, tariff {tariff}, months {months}")
-        
-        package_code = resolve_plus_package_code(package_code, amount if tariff == 'PLUS' else None)
-        
-        if tariff == 'PLUS' and package_code:
-            package_info = PLUS_PACKAGES.get(package_code)
-            if not package_info:
-                raise HTTPException(status_code=400, detail="Noma'lum paket kodi")
-            
-            await db.create_plus_package_purchase(
-                user_id,
-                package_code,
-                package_info['text_limit'],
-                package_info['voice_limit']
-            )
-            await db.set_active_tariff(user_id, 'PLUS', None)
-            expires_at = None
-        else:
-            # Legacy subscription flow
-            expires_at = datetime.now() + timedelta(days=30 * months)
-            await db.add_user_subscription(user_id, tariff, expires_at)
-            await db.set_active_tariff(user_id, tariff, expires_at)
-        
-        # To'lov yozuvini saqlash
-        await db.execute_insert(
-            """
-            INSERT INTO payments (user_id, tariff, provider, total_amount, currency, status, paid_at)
-            VALUES (%s, %s, %s, %s, %s, 'paid', NOW())
-            """,
-            (user_id, tariff, payment_method, amount, 'UZS')
-        )
-        
-        # Foydalanuvchiga tabrik xabari yuborish
-        user_data = await db.get_user_data(user_id)
-        user_name = user_data.get('name', 'Xojayin') if user_data else 'Xojayin'
-        
-        tariff_name = TARIFFS.get(tariff, tariff)
-        expires_str = _format_date_uz(expires_at) + " gacha" if expires_at else None
-        
-        tariff_info = ""
-        if tariff == 'PLUS' and package_code and package_code in PLUS_PACKAGES:
-            pkg = PLUS_PACKAGES[package_code]
-            tariff_info = (
-                f"\n📦 Paket: {pkg.get('name', package_code)}"
-                f"\n✉️ Matn limit: {pkg['text_limit']} ta"
-                f"\n🎙 Ovoz limit: {pkg['voice_limit']} ta"
-            )
-        elif tariff == 'PLUS':
-            tariff_info = "\n• Tranzaksiyalar: 500 ta/oy\n• Ovozli Tranzaksiyalar: 250 ta/oy"
-        elif tariff == 'PRO':
-            tariff_info = "\n• Tranzaksiyalar: 1 000 ta/oy\n• Ovozli Tranzaksiyalar: 500 ta/oy"
-        
-        try:
-            logging.info(f"Sending payment confirmation message to user {user_id}")
-            # Tabrik xabarini rasmli ko'rinishda yuborish
-            expiry_caption = f"⏰ **Muddati:** {expires_str}\n" if expires_str else ""
-            await bot.send_photo(
-                chat_id=user_id,
-                photo=FSInputFile('welcome.png'),
-                caption=(
-                    f"🎉 *Tabriklaymiz, {user_name}!*\n\n"
-                    f"✅ *To'lov muvaffaqiyatli amalga oshirildi!*\n\n"
-                    f"📦 **Tarif:** {tariff_name}\n"
-                    f"{expiry_caption}"
-                    f"{tariff_info}\n\n"
-                    f"🚀 *Endi sizning botingiz tayyor!*"
-                ),
-                parse_mode='Markdown'
-            )
-            logging.info(f"Payment confirmation message sent successfully to user {user_id}")
-        except Exception as e:
-            logging.error(f"Error sending photo message: {e}")
-            # Agar rasm yuborishda xatolik bo'lsa, oddiy matn yuborish
-            try:
-                expiry_text = f"⏰ Muddati: {expires_str}\n" if expires_str else ""
-                await bot.send_message(
-                    chat_id=user_id,
-                    text=(
-                        f"🎉 Tabriklaymiz, {user_name}!\n\n"
-                        f"✅ To'lov muvaffaqiyatli amalga oshirildi!\n\n"
-                        f"📦 Tarif: {tariff_name}\n"
-                        f"{expiry_text}"
-                        f"{tariff_info}\n\n"
-                        f"🚀 Endi sizning botingiz tayyor!"
-                    )
-                )
-                logging.info(f"Payment confirmation text message sent to user {user_id}")
-            except Exception as e2:
-                logging.error(f"Error sending text message: {e2}")
-        
-        return {
-            "success": True,
-            "message": "To'lov muvaffaqiyatli amalga oshirildi",
-            "new_tariff": tariff,
-            "expires_at": expires_at.isoformat()
-        }
-    except Exception as e:
-        logging.error(f"Payment webhook error: {e}")
-        raise HTTPException(status_code=500, detail="Server xatoligi")
-
 
 
 async def load_config_from_db():
@@ -6220,18 +6003,219 @@ async def onboarding_debts_handler(message: types.Message, state: FSMContext):
 
 # ==================== USER STEPS FUNCTIONS ====================
 
-@app.on_event("startup")
-async def startup_event():
-    """FastAPI ishga tushganda bot ni ham ishga tushirish"""
+# ==================== BACKGROUND TASKS ====================
+
+async def send_daily_reports():
+    """Kunlik hisobotlarni yuborish - kechki 9 da (faqat Pro)"""
+    while True:
+        try:
+            from datetime import datetime
+            now = datetime.now()
+            
+            # Kechki 21:00 da ishlash
+            target_hour = 21
+            target_minute = 0
+            
+            # Keyingi 21:00 ni hisoblash
+            next_run = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+            if now.hour >= target_hour or (now.hour == target_hour and now.minute >= target_minute):
+                next_run += timedelta(days=1)
+            
+            # Keyingi ishlash vaqtigacha kutish
+            wait_seconds = (next_run - now).total_seconds()
+            await asyncio.sleep(wait_seconds)
+            
+            # Pro userlarni olish
+            pro_users = await db.execute_query("""
+                SELECT DISTINCT user_id FROM users 
+                WHERE tariff = 'PRO' 
+                OR user_id IN (
+                    SELECT user_id FROM user_subscriptions 
+                    WHERE tariff = 'PRO' AND is_active = TRUE AND expires_at > NOW()
+                )
+            """)
+            
+            for user_row in pro_users:
+                try:
+                    user_id = user_row[0] if isinstance(user_row, tuple) else user_row.get('user_id')
+                    if not user_id:
+                        continue
+                    
+                    # Bugungi tranzaksiyalarni tekshirish
+                    today_transactions = await db.execute_query("""
+                        SELECT COUNT(*) FROM transactions 
+                        WHERE user_id = %s AND DATE(created_at) = CURDATE()
+                    """, (user_id,))
+                    
+                    has_transactions = today_transactions[0][0] > 0 if today_transactions else False
+                    
+                    if not has_transactions:
+                        # Tranzaksiya yo'q bo'lsa
+                        await bot.send_message(
+                            user_id,
+                            "📋 Bugun xarajat yoki daromad qo'shmadingiz.\n\n"
+                            "Agar qo'shgan bo'lsangiz, ularni hozir ayting, men yozib qo'yaman 😊"
+                        )
+                    else:
+                        # Bugungi statistikalar
+                        today_stats = await db.execute_query("""
+                            SELECT 
+                                SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) as income,
+                                SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) as expense
+                            FROM transactions 
+                            WHERE user_id = %s AND DATE(created_at) = CURDATE()
+                        """, (user_id,))
+                        
+                        income = float(today_stats[0][0]) if today_stats and today_stats[0][0] else 0
+                        expense = float(today_stats[0][1]) if today_stats and today_stats[0][1] else 0
+                        
+                        # Qarzlar
+                        debts = await db.execute_query("""
+                            SELECT 
+                                SUM(CASE WHEN debt_type = 'lent' THEN amount ELSE 0 END) as lent,
+                                SUM(CASE WHEN debt_type = 'borrowed' THEN amount ELSE 0 END) as borrowed
+                            FROM debts 
+                            WHERE user_id = %s AND status != 'paid'
+                        """, (user_id,))
+                        
+                        lent = float(debts[0][0]) if debts and debts[0][0] else 0
+                        borrowed = float(debts[0][1]) if debts and debts[0][1] else 0
+                        
+                        # Hisobot xabari
+                        report = f"📊 **Bugungi kun oxiri hisoboti:**\n\n"
+                        report += f"💰 Kirim: {income:,.0f} so'm\n"
+                        report += f"💸 Chiqim: {expense:,.0f} so'm\n"
+                        report += f"📈 Qoldiq: {income - expense:,.0f} so'm\n\n"
+                        
+                        if lent > 0 or borrowed > 0:
+                            report += f"💳 Qarzlar:\n"
+                            if lent > 0:
+                                report += f"  • Berilgan: {lent:,.0f} so'm\n"
+                            if borrowed > 0:
+                                report += f"  • Olingan: {borrowed:,.0f} so'm\n"
+                            report += "\n"
+                        
+                        # AI tahlil
+                        try:
+                            context = await ai_chat.get_user_financial_context(user_id)
+                            analysis_prompt = f"Bugungi kun oxiri hisoboti:\nKirim: {income:,.0f}, Chiqim: {expense:,.0f}\nQarzlar: Berilgan {lent:,.0f}, Olingan {borrowed:,.0f}\n\nTahlil qiling va qisqa tavsiya bering (max 2 gap)."
+                            analysis = await ai_chat.generate_response(user_id, analysis_prompt)
+                            if analysis and len(analysis) > 0:
+                                report += f"{analysis[0]}\n"
+                        except Exception as e:
+                            logging.error(f"Error generating daily analysis: {e}")
+                        
+                        await bot.send_message(user_id, report, parse_mode='Markdown')
+                    
+                    # Kichik delay
+                    await asyncio.sleep(0.5)
+                    
+                except Exception as e:
+                    logging.error(f"Error sending daily report to user {user_id}: {e}")
+                    continue
+            
+        except Exception as e:
+            logging.error(f"Error in daily reports task: {e}")
+            await asyncio.sleep(3600)  # 1 soat kutish va qayta urinish
+
+async def send_reminders():
+    """Eslatmalarni yuborish - har kuni 09:00 da"""
+    while True:
+        try:
+            from datetime import datetime, time
+            now = datetime.now()
+            
+            # Kechki 21:00 da eslatmalarni yuborish (bir xil vaqt kunlik hisobotlar bilan)
+            target_hour = 9
+            target_minute = 0
+            
+            # Keyingi 09:00 ni hisoblash
+            next_run = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+            if now.hour >= target_hour or (now.hour == target_hour and now.minute >= target_minute):
+                next_run += timedelta(days=1)
+            
+            # Keyingi ishlash vaqtigacha kutish
+            wait_seconds = (next_run - now).total_seconds()
+            await asyncio.sleep(wait_seconds)
+            
+            # Bugungi eslatmalarni olish
+            reminders = await db.get_today_reminders()
+            
+            for reminder_row in reminders:
+                try:
+                    # Reminder ma'lumotlarini olish
+                    if isinstance(reminder_row, tuple):
+                        reminder_id = reminder_row[0]
+                        user_id = reminder_row[1]
+                        reminder_type = reminder_row[2]
+                        title = reminder_row[3]
+                        description = reminder_row[4]
+                        reminder_date = reminder_row[5]
+                        reminder_time = reminder_row[6]
+                        amount = reminder_row[7]
+                        currency = reminder_row[8]
+                        person_name = reminder_row[9]
+                    else:
+                        reminder_id = reminder_row.get('id')
+                        user_id = reminder_row.get('user_id')
+                        reminder_type = reminder_row.get('reminder_type')
+                        title = reminder_row.get('title')
+                        description = reminder_row.get('description')
+                        reminder_date = reminder_row.get('reminder_date')
+                        reminder_time = reminder_row.get('reminder_time')
+                        amount = reminder_row.get('amount')
+                        currency = reminder_row.get('currency')
+                        person_name = reminder_row.get('person_name')
+                    
+                    # Eslatma xabari
+                    message = f"🔔 **Eslatma:** {title}\n\n"
+                    if description:
+                        message += f"{description}\n\n"
+                    if person_name:
+                        message += f"👤 {person_name}\n"
+                    if amount:
+                        message += f"💰 {amount:,.0f} {currency}\n"
+                    
+                    # Eslatma turiga qarab xabar
+                    type_messages = {
+                        'debt_give': 'Qarz berish kerak',
+                        'debt_receive': 'Qarz olish kerak',
+                        'payment': 'To\'lov qilish kerak',
+                        'other': 'Eslatma'
+                    }
+                    message += f"\n📅 {type_messages.get(reminder_type, 'Eslatma')}"
+                    
+                    await bot.send_message(user_id, message, parse_mode='Markdown')
+                    
+                    # Eslatmani bajarilgan deb belgilash (yo'q, kutib turamiz - foydalanuvchi o'zi belgilashi mumkin)
+                    
+                    await asyncio.sleep(0.5)
+                    
+                except Exception as e:
+                    logging.error(f"Error sending reminder {reminder_id}: {e}")
+                    continue
+                    
+        except Exception as e:
+            logging.error(f"Error in reminders task: {e}")
+            await asyncio.sleep(3600)
+
+async def main():
+    """Asosiy dastur - bot va background tasklarni ishga tushirish"""
     try:
         print("🚀 Bot ishga tushmoqda...")
-        asyncio.create_task(start_bot())
-        print("✅ Bot muvaffaqiyatli ishga tushdi!")
+        # Background tasklarni ishga tushirish
+        asyncio.create_task(send_daily_reports())
+        asyncio.create_task(send_reminders())
+        # Botni ishga tushirish
+        await start_bot()
     except Exception as e:
         print(f"❌ Bot ishga tushishda xatolik: {e}")
         logging.error(f"Bot startup xatolik: {e}")
+    finally:
+        if hasattr(bot, 'session'):
+            await bot.session.close()
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    # FastAPI ni ishga tushirish (bot ham parallel ishlaydi)
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    # Botni ishga tushirish
+    asyncio.run(main())

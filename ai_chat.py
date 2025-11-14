@@ -7,6 +7,11 @@ from database import Database
 from financial_module import FinancialModule
 import json
 import asyncio
+try:
+    from dateutil.parser import parse as parse_date
+except ImportError:
+    # Agar dateutil yo'q bo'lsa, oddiy parse funksiyasi
+    parse_date = lambda x: None
 
 # OpenAI API key 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "your_api_key_here")
@@ -36,7 +41,9 @@ class AIChat:
 
 MUHIM 1: Hech qachon formatlash belgilarini ishlatma (#, **, vs). Faqat oddiy, insoniy matn.
 
-MUHIM 2: Har safar sizga berilgan MOLIYAVIY HOLAT ma'lumotlarini birinchi o'rinda ishlating. Chat tarixidagi eski ma'lumotlar eskirgan bo'lishi mumkin. Faqat Hozirgi vaqtda sizga berilgan ma'lumotlarga ishonish kerak.
+MUHIM 2: Chat tarixidagi BARCHA oldingi xabarlarni eslab qolish va ularga etibor berish KERAK. Har bir oldingi xabarni hisobga olib javob ber. Masalan, agar foydalanuvchi 1 kunda 2-marta muzqaymoq uchun ishlatganini aytsa, siz: "Bratva, 1 kunda 2-marta muzqaymoq! Kuniga 1 marta - bu moliyaviy xolat uchun ham, sog'lik uchun ham yaxshi 😊" deb qisqa yozish kerak.
+
+MUHIM 3: Har safar sizga berilgan MOLIYAVIY HOLAT ma'lumotlarini birinchi o'rinda ishlating. Faqat hozirgi vaqtda sizga berilgan ma'lumotlarga ishonish kerak.
 
 Xaraktering:
 - Hazil va do'stona, ammo professional
@@ -47,32 +54,49 @@ Xaraktering:
 - No'to'g'ri xarajatga jahli chiqadi va tavsiya berasiz
 
 TRANZAKSIYA JAVOB QOIDASI:
-Har bir tranzaksiya uchun quyidagi strukturada javob ber:
+Har bir tranzaksiya uchun quyidagi strukturada javob ber. FAQAT KERAKLI VAQTDA ko'p gap, aks holda qisqa:
 
-1. ASOSIY JAVOB (1-2 gap):
+ODDIY XARAJAT (masalan, doimiy odatiy kundalik xarajat):
+- "✅ Qo'shdim. {qisqa fikr 1 gap}" - Barcha narsa 1 gapda!
+- Tahlil, tafsiya, boshqalar BERILMASIN - faqat qo'shilganini ayt!
+
+QIMMAT YOKI MUAMMOLI XARAJAT (masalan, o'rtachadan ko'proq):
+- "✅ Qo'shdim. {qisqa fikr 1 gap}. {Tahlil 1 gap kerak bo'lsa}" - Max 2 gap!
+- Agar bugun ko'p sarf qilsa: "Bugun ko'p sarf qilyapsiz, ehtiyot bo'ling" deb qisqa ayt!
+
+QAYTA XARAJAT (masalan, 1 kunda 2-marta kofe):
+- "✅ Qo'shdim. {Kuniga 1 marta - moliyaviy va sog'liq uchun yaxshi}" - Qisqa!
+
+1. ASOSIY JAVOB (faqat 1 gap):
    - "✅ Xarajatlarga qo'shib qo'ydim"
    - "📊 Kirim sifatida saqladim"
    
-2. SUMNA VA KATEGORIYAGA QARAB REAKSIYA:
+2. SUMNA VA KATEGORIYAGA QARAB REAKSIYA (faqat kerak bo'lsa, qisqa):
    - ARZON (masalan, ichimlik 5-10 ming) → "🤣 Arzon rosa! Doim shuni ich! Oqimda tejayapsan! 💪"
    - NORMAL (masalan, kofe 10-20 ming) → Oddiy, tabiiy javob
    - QIMMAT (masalan, ichimlik 20-50 ming) → "😅 Ko'proq ham berasan? Arzon joyga boring endi!"
    - JIDDIY QIMMAT (masalan, kofe 50-100 ming) → "Nimaaaa {summa}?! 🤯 Bu juda ko'p! Boylar ovqatisiz qoladi!"
    - CHALA QIMMAT (masalan, kofe 100+ ming) → "🤯 BU NIMA?! Bu juda qimmat! Faqat boylar bunaqasini ichadi!"
    
-3. KUNLIK XARAJATLAR TIZIMI:
-   - Agar o'sha kategoriyada bugun 2+ marta sarflagan bo'lsa → O'zgartirish tavsiya qil
-   - Masalan: "Bratva, 1 kunda 2 marta kofe ichding! Ozroq qil, pul tejaysan"
-   - Masalan: "3-marta restoran? Bro, uyda ham mazali bo'lishi mumkin 😅"
+3. KUNLIK XARAJATLAR TIZIMI (faqat kerak bo'lsa, qisqa):
+   - Agar o'sha kategoriyada bugun 2+ marta sarflagan bo'lsa → QISQA tavsiya
+   - Masalan: "Bratva, 1 kunda 2 marta kofe ichding! Ozroq qil, pul tejaysan 😅" - barchasi 1 gapda!
+   - Masalan: "3-marta restoran? Bro, uyda ham mazali bo'lishi mumkin 😅" - qisqa!
    
-4. DO'STONA FIKR (1-2 gap):
-   - Kategoriyaga qarab fikr (masalan: kitob = aql, restoran = ko'p pul)
+4. DO'STONA FIKR (faqat kerak bo'lsa, max 1 gap):
+   - Kategoriyaga qarab qisqa fikr
    - Balans/qarz ma'lumotlarini eslab, kontekst ber
    - Eski xarajatlarni eslab, pattern topish
    
-5. TAVSIYA (1 gap):
-   - Keyingi qadam yoki maslahat
-   - Agar ko'p marta bir xil kategoriya bo'lsa, ozroq qilish tavsiyasi
+5. TAVSIYA (faqat kerak bo'lsa, max 1 gap):
+   - Keyingi qadam yoki maslahat - faqat kerak bo'lsa!
+   - Agar ko'p marta bir xil kategoriya bo'lsa, ozroq qilish tavsiyasi - qisqa!
+
+JAVOB UZUNLIGI:
+- ODDIY XARAJAT: 1 gap (faqat qo'shilganini ayt!)
+- QIMMAT/MUAMMOLI: Max 2 gap
+- SALOMLASHISH/ODDIY SUHBAT: Max 1 gap, juda qisqa!
+- FAQAT KERAKLI VAQTDA ko'p gap!
 
 MISOL JAVOBLAR:
 
@@ -109,11 +133,61 @@ Balans: "Qancha pulim bor?"
 Qarz: "Qarzlarim qanaqa?"
 📊 Hozirda {berilgan} so'm bergan qarzingiz, {olingan} so'm olingan qarzingiz bor. Qarzlarni nazoratda ushlash muhim.
 
-BOSHQA FUNKSIYALAR:
+TAHLIL VA HISOBOT FUNKSIYALARI:
 
-HISOBOTLAR:
-- "Shu oy kofega qancha ketdi?" → Tahlil va javob
-- "Eng katta xarajatim nima?" → Javob
+Foydalanuvchi tahlil so'rasa, sizga berilgan MOLIYAVIY HOLAT ma'lumotlaridan foydalanib, batafsil tahlil qiling:
+
+1. KUNLIK TAHLIL:
+   - "Bugungi kunimni tahlil qil" → Bugungi xarajatlar, kategoriyalar, o'rtacha bilan solishtirish
+   - "Bugungi xarajatlarim" → Bugungi barcha xarajatlar ro'yxati va tahlil
+   
+2. HAFTALIK TAHLIL:
+   - "Haftani tahlil qil" → Haftalik xarajatlar, daromadlar, o'rtacha, tendentsiyalar
+   - "Bu hafta qancha sarf qildim?" → Haftalik statistikalar
+   
+3. OYLIK TAHLIL:
+   - "Oyni tahlil qil" → Oylik xarajatlar, daromadlar, balans, tendentsiyalar
+   - "Shu oy qancha sarf qildim?" → Oylik statistikalar va tahlil
+   
+4. ENG KO'P XARAJAT/DAROMAD:
+   - "Eng ko'p xarajat" → Eng katta xarajatlar ro'yxati va tahlil
+   - "Eng ko'p daromad" → Eng katta daromadlar ro'yxati
+   - "Eng ko'p sarf qilgan kategoriyam" → Kategoriyalar bo'yicha tahlil
+   
+5. KERAKSIZ XARAJATLAR:
+   - "Keraksiz xarajat" → Takrorlanuvchi, ortiqcha xarajatlar tahlili
+   - "Qaysi xarajatlarimni kamaytirish kerak?" → Optimallashtirish tavsiyalari
+   
+6. OPTIMALLASHTIRISH VA TEJASH:
+   - "Optimallashtirish" → Xarajatlarni kamaytirish tavsiyalari
+   - "Tejash" → Qanday tejash mumkinligi haqida maslahat
+   - "Qanday tejash mumkin?" → Amaliy tavsiyalar
+
+TAHLIL JAVOB QOIDASI:
+- Tahlil so'ralganda, batafsil va tushunarli javob ber (3-5 gap)
+- Statistikalar, raqamlar, tendentsiyalar, tavsiyalar
+- Emoji ishlatish (📊, 📈, 📉, 💡, ⚠️)
+- Do'stona va professional uslub
+- Har bir tahlil uchun amaliy tavsiyalar ber
+
+MISOL TAHLIL JAVOBLARI:
+
+"Bugungi kunimni tahlil qil":
+📊 Bugungi tahlil:
+- Xarajatlar: 150,000 so'm
+- Kategoriyalar: Ovqat (80k), Transport (50k), Boshqa (20k)
+- O'rtacha bilan solishtirganda: Bugun biroz ko'proq sarf qildingiz
+- Eng katta xarajat: Restoran (80k)
+💡 Tavsiya: Ovqat xarajatlarini kamaytirish uchun uyda pishirish yaxshi variant
+
+"Haftani tahlil qil":
+📊 Haftalik tahlil:
+- Jami xarajat: 1,200,000 so'm
+- Jami daromad: 2,000,000 so'm
+- Qoldiq: +800,000 so'm
+- Eng ko'p sarf qilingan kategoriya: Ovqat (500k)
+📈 Tendentsiya: Hafta oxirida xarajatlar ko'paygan
+💡 Tavsiya: Hafta oxirida xarajatlarni nazorat qiling
 
 MAQSADLAR:
 - "Maqsadlarim qanaqa?" → Monitoring
@@ -122,13 +196,19 @@ MAQSADLAR:
 USLUB:
 - Hazil va do'stona, ammo professional (odam kabi xislat!)
 - EMUJI: Summaga qarab reaksiya (arzon → kulgi, qimmat → xayron, jiddiy → shok emoji)
-- Gap uzunligi: qisqa va aniq (max 3-4 gap per message)
+- Gap uzunligi: QISQA va aniq - oddiy xarajat uchun 1 gap, muammoli uchun max 2 gap!
 - Hech qachon ###, **, kabi belgilar ishlatma
 - Balans/oylik/qarz ma'lumotlarini eslab, kontekstli javob ber
+- OLDINGI XABARLARNI ESLA: Chat tarixidagi barcha xabarlarni hisobga ol!
 - SUMNAGA QARAB REAKSIYA: Qimmat xarajat uchun "Nimaaaa?! 🤯", arzon uchun "🤣 Arzon!", normal uchun "😊 OK"
-- KUNLIK XARAJAT: Agar 2+ marta bir kategoriya bo'lsa, pattern topib ogohlantir
+- KUNLIK XARAJAT: Agar 2+ marta bir kategoriya bo'lsa, pattern topib ogohlantir - QISQA!
 - XARAKTER: "bro", "bratva", "qardosh" kabi do'stona so'zlar ishlatish mumkin
 - ODAMGA O'XSHAYDI: Ba'zan hayron bo'ladi, ba'zan kuladi, ba'zan jiddiy maslahat beradi
+
+SALOMLASHISH VA ODDIY SUHBAT:
+- "Qalaysiz?", "Nima yangiliklar?", "Qanday yordam bera olaman?" kabi savollarga:
+- Juda qisqa javob: "Yaxshi, rahmat! 😊 Xarajat/daromad yozing" yoki shunga o'xshash QISQA javob!
+- Oddiy suhbatda API xarajati kam bo'lishi uchun juda qisqa va 1 ta xabar bilan javob ber!
 
 Tillar:
 - Asosiy: O'zbek (lotin)
@@ -388,13 +468,78 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
             # Bugungi kategoriyalar bo'yicha xarajatlar (takrorlanishni aniqlash uchun)
             today_by_category = await self.db.execute_query(
                 """
-                SELECT category, COUNT(*) as count
+                SELECT category, COUNT(*) as count, SUM(amount) as total
                 FROM transactions
                 WHERE user_id = %s AND transaction_type = 'expense'
                 AND DATE(created_at) = CURDATE()
                 GROUP BY category
-                HAVING count > 1
-                ORDER BY count DESC
+                ORDER BY total DESC
+                """,
+                (user_id,)
+            )
+            
+            # Haftalik statistikalar
+            week_stats = await self.db.execute_query(
+                """
+                SELECT 
+                    SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) as total_income,
+                    SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) as total_expense,
+                    COUNT(*) as transaction_count
+                FROM transactions
+                WHERE user_id = %s 
+                AND created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+                """,
+                (user_id,)
+            )
+            
+            # Haftalik kategoriyalar bo'yicha xarajatlar
+            week_by_category = await self.db.execute_query(
+                """
+                SELECT category, SUM(amount) as total, COUNT(*) as count
+                FROM transactions
+                WHERE user_id = %s AND transaction_type = 'expense'
+                AND created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+                GROUP BY category
+                ORDER BY total DESC
+                LIMIT 10
+                """,
+                (user_id,)
+            )
+            
+            # Eng katta xarajatlar (top 5)
+            top_expenses = await self.db.execute_query(
+                """
+                SELECT amount, category, description, created_at
+                FROM transactions
+                WHERE user_id = %s AND transaction_type = 'expense'
+                ORDER BY amount DESC
+                LIMIT 5
+                """,
+                (user_id,)
+            )
+            
+            # Eng katta daromadlar (top 5)
+            top_incomes = await self.db.execute_query(
+                """
+                SELECT amount, category, description, created_at
+                FROM transactions
+                WHERE user_id = %s AND transaction_type = 'income'
+                ORDER BY amount DESC
+                LIMIT 5
+                """,
+                (user_id,)
+            )
+            
+            # Oylik kategoriyalar bo'yicha xarajatlar
+            month_by_category = await self.db.execute_query(
+                """
+                SELECT category, SUM(amount) as total, COUNT(*) as count
+                FROM transactions
+                WHERE user_id = %s AND transaction_type = 'expense'
+                AND MONTH(created_at) = MONTH(CURRENT_DATE)
+                AND YEAR(created_at) = YEAR(CURRENT_DATE)
+                GROUP BY category
+                ORDER BY total DESC
                 """,
                 (user_id,)
             )
@@ -434,28 +579,120 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
                     yesterday_exp = exp.get('yesterday_total', 0) or 0
             
             # today_by_category ni dict ga o'tkazish
-            today_category_counts = {}
+            today_category_data = {}
             if today_by_category:
                 for item in today_by_category:
                     if isinstance(item, tuple):
                         category = item[0] if len(item) > 0 else ''
                         count = item[1] if len(item) > 1 else 0
+                        total = float(item[2]) if len(item) > 2 and item[2] else 0
                     elif isinstance(item, dict):
                         category = item.get('category', '')
                         count = item.get('count', 0)
+                        total = float(item.get('total', 0)) or 0
                     else:
                         continue
                     if category:
-                        today_category_counts[category] = count
+                        today_category_data[category] = {'count': count, 'total': total}
+            
+            # week_stats ni dict ga o'tkazish
+            week_stats_dict = {}
+            if week_stats and week_stats[0]:
+                stat = week_stats[0]
+                if isinstance(stat, tuple):
+                    week_stats_dict = {
+                        'total_income': float(stat[0]) if len(stat) > 0 and stat[0] else 0,
+                        'total_expense': float(stat[1]) if len(stat) > 1 and stat[1] else 0,
+                        'transaction_count': int(stat[2]) if len(stat) > 2 and stat[2] else 0,
+                    }
+                elif isinstance(stat, dict):
+                    week_stats_dict = stat
+            
+            # week_by_category ni list ga o'tkazish
+            week_category_data = []
+            if week_by_category:
+                for item in week_by_category:
+                    if isinstance(item, tuple):
+                        week_category_data.append({
+                            'category': item[0] if len(item) > 0 else '',
+                            'total': float(item[1]) if len(item) > 1 and item[1] else 0,
+                            'count': int(item[2]) if len(item) > 2 and item[2] else 0,
+                        })
+                    elif isinstance(item, dict):
+                        week_category_data.append({
+                            'category': item.get('category', ''),
+                            'total': float(item.get('total', 0)) or 0,
+                            'count': int(item.get('count', 0)) or 0,
+                        })
+            
+            # top_expenses ni list ga o'tkazish
+            top_expenses_list = []
+            if top_expenses:
+                for item in top_expenses:
+                    if isinstance(item, tuple):
+                        top_expenses_list.append({
+                            'amount': float(item[0]) if len(item) > 0 and item[0] else 0,
+                            'category': item[1] if len(item) > 1 else '',
+                            'description': item[2] if len(item) > 2 else '',
+                            'created_at': item[3] if len(item) > 3 else None,
+                        })
+                    elif isinstance(item, dict):
+                        top_expenses_list.append({
+                            'amount': float(item.get('amount', 0)) or 0,
+                            'category': item.get('category', ''),
+                            'description': item.get('description', ''),
+                            'created_at': item.get('created_at'),
+                        })
+            
+            # top_incomes ni list ga o'tkazish
+            top_incomes_list = []
+            if top_incomes:
+                for item in top_incomes:
+                    if isinstance(item, tuple):
+                        top_incomes_list.append({
+                            'amount': float(item[0]) if len(item) > 0 and item[0] else 0,
+                            'category': item[1] if len(item) > 1 else '',
+                            'description': item[2] if len(item) > 2 else '',
+                            'created_at': item[3] if len(item) > 3 else None,
+                        })
+                    elif isinstance(item, dict):
+                        top_incomes_list.append({
+                            'amount': float(item.get('amount', 0)) or 0,
+                            'category': item.get('category', ''),
+                            'description': item.get('description', ''),
+                            'created_at': item.get('created_at'),
+                        })
+            
+            # month_by_category ni list ga o'tkazish
+            month_category_data = []
+            if month_by_category:
+                for item in month_by_category:
+                    if isinstance(item, tuple):
+                        month_category_data.append({
+                            'category': item[0] if len(item) > 0 else '',
+                            'total': float(item[1]) if len(item) > 1 and item[1] else 0,
+                            'count': int(item[2]) if len(item) > 2 and item[2] else 0,
+                        })
+                    elif isinstance(item, dict):
+                        month_category_data.append({
+                            'category': item.get('category', ''),
+                            'total': float(item.get('total', 0)) or 0,
+                            'count': int(item.get('count', 0)) or 0,
+                        })
             
             context = {
                 "balances": balances,
                 "recent_transactions": recent_transactions if recent_transactions else [],
                 "debts": debts if debts else [],
                 "month_stats": month_stats_dict,
+                "week_stats": week_stats_dict,
                 "today_expenses": today_exp,
                 "yesterday_expenses": yesterday_exp,
-                "today_category_counts": today_category_counts,
+                "today_category_data": today_category_data,
+                "week_category_data": week_category_data,
+                "month_category_data": month_category_data,
+                "top_expenses": top_expenses_list,
+                "top_incomes": top_incomes_list,
             }
             
             return context
@@ -464,29 +701,42 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
             logger.error(f"Error getting financial context: {e}")
             return {}
 
-    async def get_chat_history(self, user_id: int, limit: int = 10) -> List[Dict]:
-        """Chat tarixini olish"""
+    async def get_chat_history(self, user_id: int, limit: int = None) -> List[Dict]:
+        """Chat tarixini olish - Pro tarifda barcha xabarlarni"""
         try:
-            history = await self.db.execute_query(
-                """
-                SELECT role, content, created_at
-                FROM ai_chat_history
-                WHERE user_id = %s
-                ORDER BY created_at DESC
-                LIMIT %s
-                """,
-                (user_id, limit)
-            )
+            # Pro tarifda limit yo'q - barcha xabarlar
+            if limit is None:
+                history = await self.db.execute_query(
+                    """
+                    SELECT role, content, created_at
+                    FROM ai_chat_history
+                    WHERE user_id = %s
+                    ORDER BY created_at ASC
+                    """,
+                    (user_id,)
+                )
+            else:
+                history = await self.db.execute_query(
+                    """
+                    SELECT role, content, created_at
+                    FROM ai_chat_history
+                    WHERE user_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (user_id, limit)
+                )
+                if history:
+                    history_list = list(history)
+                    history_list.reverse()
+                    history = history_list
             
             if not history:
                 return []
             
-            history_list = list(history)
-            history_list.reverse()
-            
             return [
                 {"role": h[0], "content": h[1], "created_at": h[2]} 
-                for h in history_list
+                for h in history
             ]
             
         except Exception as e:
@@ -507,8 +757,20 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
             logger.error(f"Error saving to history: {e}")
     
     async def generate_response(self, user_id: int, question: str) -> List[str]:
-        """AI javob generatsiya qilish - ko'p xabarli"""
+        """AI javob generatsiya qilish - Pro tarif uchun optimallashtirilgan"""
         try:
+            # 40,000 so'm limitini tekshirish
+            from datetime import datetime
+            month_year = datetime.now().strftime('%Y-%m')
+            usage = await self.db.get_or_create_pro_usage(user_id, month_year)
+            
+            if usage['total_cost'] >= 40000:
+                return [
+                    f"⚠️ **Xarajat limiti tugadi!**\n\n"
+                    f"Hozirgi oyda API xarajatlari 40,000 so'mdan oshdi.\n"
+                    f"Keyingi oyni kutishingiz kerak. Yoki Plus paketga o'ting."
+                ]
+            
             # Foydalanuvchi ma'lumotlari
             user_info = await self.get_user_info(user_id)
             user_name = user_info.get("name", "Do'st")
@@ -516,11 +778,17 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
             # Tranzaksiya aniqlash va saqlash
             transaction = await self.detect_and_save_transaction(question, user_id)
             
+            # Eslatma aniqlash va saqlash
+            reminder = await self.detect_and_save_reminder(user_id, question)
+            
             # Moliyaviy kontekstni olish
             context = await self.get_user_financial_context(user_id)
             
             # Kontekstni matn shakliga o'tkazish
             context_text = self._format_context(context)
+            
+            # BARCHA chat history ni olish (limit yo'q - barcha xabarlar)
+            chat_history = await self.get_chat_history(user_id, limit=None)
             
             # Messages tayyorlash
             messages = [{"role": "system", "content": self.system_prompt}]
@@ -531,6 +799,13 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
                 "content": f"Foydalanuvchi ismi: {user_name}\n\nFoydalanuvchining joriy moliyaviy holati:\n{context_text}"
             })
             
+            # BARCHA chat history ni qo'shish - AI eski xabarlarni eslab qolishi uchun
+            for hist in chat_history[-50:]:  # Oxirgi 50 ta xabarni qo'shish (token limit uchun)
+                messages.append({
+                    "role": hist["role"],
+                    "content": hist["content"]
+                })
+            
             # Foydalanuvchi savolini qo'shish
             messages.append({"role": "user", "content": question})
             
@@ -539,7 +814,7 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
                 response = openai_client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=messages,
-                    max_tokens=800,
+                    max_tokens=300,  # Qisqa javob uchun kamaytirildi
                     temperature=0.8
                 )
                 return response.choices[0].message.content
@@ -547,8 +822,26 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
             loop = asyncio.get_event_loop()
             ai_response = await loop.run_in_executor(None, call_openai)
             
-            # Ko'p qatorli javobni bo'lish (max 2-3 gap per message)
-            messages_list = self._split_response(ai_response)
+            # API xarajatini hisoblash (taxminan 1 matn xabari = 10-50 so'm)
+            # GPT-4o-mini narxi: input $0.15/1M tokens, output $0.60/1M tokens
+            # 1 token ≈ 4 belgi, 1 xabar ≈ 100 token = $0.00006 ≈ 0.6 so'm
+            # Lekin xavfsiz uchun 10 so'm deb olamiz
+            estimated_cost = 10.0
+            
+            # Xarajatni saqlash
+            await self.db.increment_pro_usage(user_id, 'text', estimated_cost, month_year)
+            
+            # Chat history ga saqlash
+            await self.save_to_history(user_id, "user", question)
+            await self.save_to_history(user_id, "assistant", ai_response)
+            
+            # AI o'zi bir nechta xabar kerakligini tushunsin - smart splitting
+            messages_list = self._split_response_smart(ai_response, question)
+            
+            # Agar eslatma qo'shilgan bo'lsa, xabar qo'shish
+            if reminder:
+                reminder_text = f"✅ Eslatmalarga qo'shdim: {reminder.get('title', 'Eslatma')} - {reminder.get('days_text', 'bugun')} eslataman."
+                messages_list.append(reminder_text)
             
             return messages_list
             
@@ -556,9 +849,9 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
             logger.error(f"Error generating response: {e}")
             return ["Kechirasiz, javob berishda xatolik yuz berdi. Iltimos, qayta urinib ko'ring."]
     
-    def _split_response(self, response: str) -> List[str]:
-        """Javobni ko'p qatorga bo'lish - formatlamashtan tozalash"""
-        # Formatlash belgilarini olib tashlash (###, **, vs)
+    def _split_response_smart(self, response: str, question: str) -> List[str]:
+        """AI javobini smart bo'lish - faqat kerakli vaqtda ko'p xabar"""
+        # Formatlash belgilarini olib tashlash
         cleaned = response
         cleaned = cleaned.replace('### ', '')
         cleaned = cleaned.replace('**', '')
@@ -566,6 +859,27 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
         cleaned = cleaned.replace('Tahlil:', '')
         cleaned = cleaned.replace('Taklif:', '')
         cleaned = cleaned.replace('Tavsiya:', '')
+        cleaned = cleaned.strip()
+        
+        # Agar javob qisqa bo'lsa (100 belgidan kam), bitta xabar
+        if len(cleaned) <= 100:
+            return [cleaned]
+        
+        # Salomlashish yoki oddiy suhbat savoli bo'lsa - 1 xabar
+        greeting_keywords = ['qalaysiz', 'nima yangiliklar', 'qanday yordam', 'salom', 'assalomu alaykum', 'hello', 'hi']
+        if any(keyword in question.lower() for keyword in greeting_keywords):
+            # Qisqa javob
+            sentences = cleaned.split('.')
+            if sentences:
+                first_sentence = sentences[0].strip()
+                if first_sentence:
+                    return [first_sentence + '.']
+            return [cleaned[:100] + '...'] if len(cleaned) > 100 else [cleaned]
+        
+        # Oddiy xarajat (qo'shilganini aytish) - 1 xabar
+        simple_keywords = ['qo\'shdim', 'qo\'shib qo\'ydim', 'saqladim', 'kirim', 'chiqim']
+        if any(keyword in cleaned.lower() for keyword in simple_keywords) and len(cleaned) <= 200:
+            return [cleaned]
         
         # Qatorlarni ajratish (. ! ? dan keyin)
         sentences = []
@@ -573,39 +887,193 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
         
         for char in cleaned:
             current += char
-            if char in '.!?' and len(current.strip()) > 20:
+            if char in '.!?' and len(current.strip()) > 15:
                 sent = current.strip()
-                # Yana bir bor formatlarni tozalash
-                sent = sent.replace('###', '')
-                sent = sent.replace('**', '')
+                sent = sent.replace('###', '').replace('**', '')
                 if sent:
                     sentences.append(sent)
                 current = ""
         
         if current.strip():
             sent = current.strip()
-            sent = sent.replace('###', '')
-            sent = sent.replace('**', '')
+            sent = sent.replace('###', '').replace('**', '')
             if sent:
                 sentences.append(sent)
         
-        # Har 1-2 gap ni bitta xabar qilib qo'shish
+        # Agar 1-2 gap bo'lsa, bitta xabar
+        if len(sentences) <= 2:
+            return [cleaned]
+        
+        # Ko'p gap bo'lsa, mantiqiy bo'lish
         messages = []
         current_msg = []
         
         for sent in sentences:
             current_msg.append(sent)
             
-            # Agar 1-2 gap to'plansa yoki oxirgi gap bo'lsa
-            if len(current_msg) >= 1 or sent == sentences[-1]:
+            # Agar 2 gap to'plansa yoki oxirgi gap bo'lsa
+            if len(current_msg) >= 2 or sent == sentences[-1]:
                 msg = " ".join(current_msg)
-                # Oxirgi tozalash
                 msg = msg.replace('###', '').replace('**', '').strip()
                 if msg:
                     messages.append(msg)
                 current_msg = []
         
-        return messages if messages else [response]
+        return messages if messages else [cleaned]
+    
+    def _split_response(self, response: str) -> List[str]:
+        """Eski metod - backwards compatibility"""
+        return self._split_response_smart(response, "")
+    
+    async def detect_and_save_reminder(self, user_id: int, message: str) -> Optional[Dict]:
+        """Xabardan eslatmani aniqlash va saqlash - AI orqali"""
+        try:
+            from datetime import datetime, timedelta
+            import re
+            
+            # Tarifni tekshirish
+            tariff = await self.db.get_active_tariff(user_id)
+            
+            # Plus va Pro uchun faqat qarz eslatmalari
+            if tariff == 'PLUS':
+                # Plus uchun faqat qarz eslatmalarini qidirish
+                reminder_prompt = f"""Xabardan qarz eslatmasini aniqlash:
+"{message}"
+
+Agar xabarda qarz olish yoki berish haqida eslatma bo'lsa, JSON qaytaring:
+{{"has_reminder": true, "reminder_type": "debt_give" yoki "debt_receive", "person_name": "ism", "amount": N, "currency": "UZS" yoki "$", "date": "2024-01-15", "title": "qisqa sarlavha"}}
+
+Agar eslatma bo'lmasa: {{"has_reminder": false}}
+Faqat JSON qaytaring, hech qanday matn emas."""
+            
+            # Pro uchun barcha eslatmalar
+            elif tariff == 'PRO':
+                reminder_prompt = f"""Xabardan eslatmani aniqlash:
+"{message}"
+
+Agar xabarda eslatma bo'lsa (qarz, to'lov, boshqa), JSON qaytaring:
+{{"has_reminder": true, "reminder_type": "debt_give"|"debt_receive"|"payment"|"other", "person_name": "ism", "amount": N, "currency": "UZS"|"$", "date": "2024-01-15", "title": "qisqa sarlavha", "description": "tavsif"}}
+
+Eslatma turlari:
+- debt_give: Boshqaga qarz berish kerak
+- debt_receive: Boshqadan qarz olish kerak
+- payment: To'lov (kommunal, boshqa)
+- other: Boshqa eslatma
+
+Sana formatlar: "bugun", "ertaga", "5 kundan keyin", "15 yanvar", "2024-01-15"
+
+Agar eslatma bo'lmasa: {{"has_reminder": false}}
+Faqat JSON qaytaring."""
+            else:
+                # Free tarif uchun eslatma yo'q
+                return None
+            
+            def call_openai():
+                try:
+                    response = openai_client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "system", "content": "Sen moliyaviy eslatmalarni aniqlaydigan AI yordamchisisiz. Faqat JSON qaytarasan."},
+                            {"role": "user", "content": reminder_prompt}
+                        ],
+                        max_tokens=150,
+                        temperature=0.0
+                    )
+                    return response.choices[0].message.content
+                except Exception as e:
+                    logger.error(f"Error calling OpenAI for reminder: {e}")
+                    return None
+            
+            loop = asyncio.get_event_loop()
+            ai_response = await loop.run_in_executor(None, call_openai)
+            
+            if not ai_response:
+                return None
+            
+            # JSON ni parse qilish
+            import json
+            if "```json" in ai_response:
+                ai_response = ai_response.split("```json")[1].split("```")[0].strip()
+            elif "```" in ai_response:
+                ai_response = ai_response.split("```")[1].split("```")[0].strip()
+            
+            if "{" in ai_response and "}" in ai_response:
+                start = ai_response.index("{")
+                end = ai_response.rindex("}") + 1
+                ai_response = ai_response[start:end]
+            
+            try:
+                result = json.loads(ai_response)
+                
+                if not result.get('has_reminder'):
+                    return None
+                
+                # Sana aniqlash
+                reminder_date_str = result.get('date', 'bugun')
+                reminder_date = None
+                
+                try:
+                    # Sana formatlarini aniqlash
+                    today = datetime.now().date()
+                    
+                    if reminder_date_str.lower() == 'bugun':
+                        reminder_date = today
+                    elif reminder_date_str.lower() == 'ertaga':
+                        reminder_date = today + timedelta(days=1)
+                    elif 'kun' in reminder_date_str.lower() and 'keyin' in reminder_date_str.lower():
+                        # "5 kundan keyin" formatida
+                        days_match = re.search(r'(\d+)\s*kun', reminder_date_str.lower())
+                        if days_match:
+                            days = int(days_match.group(1))
+                            reminder_date = today + timedelta(days=days)
+                        else:
+                            reminder_date = today
+                    else:
+                        # Boshqa sana formatlari
+                        try:
+                            reminder_date = parse_date(reminder_date_str).date()
+                        except:
+                            reminder_date = today
+                except:
+                    reminder_date = today  # Default: bugun
+                
+                # Eslatmani saqlash
+                reminder_id = await self.db.create_reminder(
+                    user_id=user_id,
+                    reminder_type=result.get('reminder_type', 'other'),
+                    title=result.get('title', 'Eslatma'),
+                    reminder_date=reminder_date,
+                    description=result.get('description', message[:500]),
+                    amount=result.get('amount'),
+                    currency=result.get('currency', 'UZS'),
+                    person_name=result.get('person_name')
+                )
+                
+                # Kuni aniqlash
+                days_diff = (reminder_date - today).days
+                if days_diff == 0:
+                    days_text = "bugun"
+                elif days_diff == 1:
+                    days_text = "ertaga"
+                elif days_diff > 1:
+                    days_text = f"{days_diff} kundan keyin"
+                else:
+                    days_text = "bugun"
+                
+                return {
+                    "id": reminder_id,
+                    "title": result.get('title', 'Eslatma'),
+                    "date": reminder_date,
+                    "days_text": days_text
+                }
+                
+            except Exception as e:
+                logger.error(f"Error parsing reminder JSON: {e}, response: {ai_response}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error detecting reminder: {e}")
+            return None
     
     async def detect_and_save_transaction(self, message: str, user_id: int) -> Optional[Dict]:
         """Xabardan tranzaksiyani aniqlash va saqlash - AI orqali (PRO tarif)"""
@@ -824,12 +1292,69 @@ Sen Balans AI ning hazil va do'stona buxgalterisiz. Foydalanuvchiga:
         if today_exp:
             text += f"📌 Bugungi xarajatlar: {today_exp:,.0f} so'm\n"
         
-        # Bugungi kategoriyalar bo'yicha takrorlanish
-        today_category_counts = context.get("today_category_counts", {})
-        if today_category_counts:
-            text += "\n⚠️ Bugungi takrorlanuvchi xarajatlar:\n"
-            for category, count in today_category_counts.items():
-                text += f"- {category}: {count} marta\n"
+        # Bugungi kategoriyalar bo'yicha xarajatlar
+        today_category_data = context.get("today_category_data", {})
+        if today_category_data:
+            text += "\n📊 Bugungi kategoriyalar bo'yicha:\n"
+            for category, data in today_category_data.items():
+                count = data.get('count', 0) if isinstance(data, dict) else 0
+                total = data.get('total', 0) if isinstance(data, dict) else 0
+                text += f"- {category}: {count} marta, {total:,.0f} so'm\n"
+            text += "\n"
+        
+        # Haftalik statistikalar
+        week_stats = context.get("week_stats", {})
+        if week_stats:
+            wi = week_stats.get('total_income', 0) or 0
+            we = week_stats.get('total_expense', 0) or 0
+            wc = week_stats.get('transaction_count', 0) or 0
+            text += f"📅 Haftalik (7 kun):\n"
+            text += f"- Kirim: {wi:,.0f} so'm\n"
+            text += f"- Chiqim: {we:,.0f} so'm\n"
+            text += f"- Tranzaksiyalar: {wc} ta\n\n"
+        
+        # Haftalik kategoriyalar
+        week_category_data = context.get("week_category_data", [])
+        if week_category_data:
+            text += "📊 Haftalik kategoriyalar (top 5):\n"
+            for cat in week_category_data[:5]:
+                text += f"- {cat.get('category', '')}: {cat.get('total', 0):,.0f} so'm ({cat.get('count', 0)} marta)\n"
+            text += "\n"
+        
+        # Oylik kategoriyalar
+        month_category_data = context.get("month_category_data", [])
+        if month_category_data:
+            text += "📊 Oylik kategoriyalar (top 5):\n"
+            for cat in month_category_data[:5]:
+                text += f"- {cat.get('category', '')}: {cat.get('total', 0):,.0f} so'm ({cat.get('count', 0)} marta)\n"
+            text += "\n"
+        
+        # Eng katta xarajatlar
+        top_expenses = context.get("top_expenses", [])
+        if top_expenses:
+            text += "🔴 Eng katta xarajatlar (top 3):\n"
+            for idx, exp in enumerate(top_expenses[:3], 1):
+                amount = exp.get('amount', 0)
+                category = exp.get('category', '')
+                desc = exp.get('description', '')[:30] if exp.get('description') else ''
+                text += f"{idx}. {amount:,.0f} so'm ({category})"
+                if desc:
+                    text += f" - {desc}"
+                text += "\n"
+            text += "\n"
+        
+        # Eng katta daromadlar
+        top_incomes = context.get("top_incomes", [])
+        if top_incomes:
+            text += "🟢 Eng katta daromadlar (top 3):\n"
+            for idx, inc in enumerate(top_incomes[:3], 1):
+                amount = inc.get('amount', 0)
+                category = inc.get('category', '')
+                desc = inc.get('description', '')[:30] if inc.get('description') else ''
+                text += f"{idx}. {amount:,.0f} so'm ({category})"
+                if desc:
+                    text += f" - {desc}"
+                text += "\n"
             text += "\n"
         
         return text
