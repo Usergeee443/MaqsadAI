@@ -2640,7 +2640,10 @@ async def profile_handler(message: Message, state: FSMContext):
             )
         except Exception as e:
             logging.error(f"Error getting PRO stats: {e}")
-            expires_str = _format_date_uz(user_data['tariff_expires_at']) + " gacha" if user_data.get('tariff_expires_at') else '—'
+            try:
+                expires_str = _format_date_uz(user_data.get('tariff_expires_at')) + " gacha" if user_data and user_data.get('tariff_expires_at') else '—'
+            except:
+                expires_str = '—'
             profile_text = (
                 f"{display_name} (ID: {user_id})\n\n"
                 f"Tarif: Pro ({expires_str})"
@@ -3239,7 +3242,10 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
             )
         except Exception as e:
             logging.error(f"Error getting PRO stats: {e}")
-            expires_str = _format_date_uz(user_data['tariff_expires_at']) + " gacha" if user_data.get('tariff_expires_at') else '—'
+            try:
+                expires_str = _format_date_uz(user_data.get('tariff_expires_at')) + " gacha" if user_data and user_data.get('tariff_expires_at') else '—'
+            except:
+                expires_str = '—'
             profile_text = (
                 f"{display_name} (ID: {user_id})\n\n"
                 f"Tarif: Pro ({expires_str})"

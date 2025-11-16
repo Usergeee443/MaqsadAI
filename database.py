@@ -8,7 +8,11 @@ class Database:
         self.pool = None
         
     async def create_pool(self):
-        """Ma'lumotlar bazasi ulanishini yaratish"""
+        """Ma'lumotlar bazasi ulanishini yaratish.
+        
+        Agar ulanish muvaffaqiyatsiz bo'lsa, xato log qilinadi va istisno qayta ko'tariladi.
+        Shunda bot DB bo'lmasa, ishlashni davom ettirmaydi.
+        """
         try:
             self.pool = await aiomysql.create_pool(
                 host=MYSQL_CONFIG['host'],
@@ -23,6 +27,9 @@ class Database:
             logging.info("Ma'lumotlar bazasi ulanishi muvaffaqiyatli yaratildi")
         except Exception as e:
             logging.error(f"Ma'lumotlar bazasi ulanishida xatolik: {e}")
+            # Pool yaratilmagan bo'lsa, uni None qilib qo'yamiz va xatoni qayta ko'taramiz
+            self.pool = None
+            raise
             
     async def close_pool(self):
         """Ma'lumotlar bazasi ulanishini yopish"""
@@ -32,6 +39,8 @@ class Database:
             
     async def execute_query(self, query, params=None):
         """SQL so'rovni bajarish"""
+        if not self.pool:
+            raise RuntimeError("Database pool mavjud emas. Avval create_pool() chaqirilishi kerak.")
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 await cursor.execute(query, params)
@@ -39,6 +48,8 @@ class Database:
                 
     async def execute_one(self, query, params=None):
         """Bitta natija qaytaruvchi SQL so'rov"""
+        if not self.pool:
+            raise RuntimeError("Database pool mavjud emas. Avval create_pool() chaqirilishi kerak.")
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 await cursor.execute(query, params)
@@ -46,6 +57,8 @@ class Database:
                 
     async def execute_insert(self, query, params=None):
         """Ma'lumot kiritish so'rovi"""
+        if not self.pool:
+            raise RuntimeError("Database pool mavjud emas. Avval create_pool() chaqirilishi kerak.")
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cursor:
                 await cursor.execute(query, params)

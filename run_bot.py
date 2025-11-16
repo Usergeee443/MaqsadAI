@@ -12,24 +12,25 @@ from pathlib import Path
 project_dir = Path(__file__).parent
 sys.path.insert(0, str(project_dir))
 
-from main import app
-import uvicorn
+from main import main as bot_main
+import asyncio
+import logging
 
 if __name__ == "__main__":
     print("🚀 Balans AI Bot ishga tushmoqda...")
     print("📊 Ma'lumotlar bazasi ulanishi tekshirilmoqda...")
     print("🔗 OpenAI API ulanishi tekshirilmoqda...")
     print("🔊 Google Cloud Speech ulanishi tekshirilmoqda...")
-    print("🌐 Mini-app API serveri ishga tushmoqda...")
     print("✅ Barcha tizimlar tayyor!")
-    print("🤖 Bot va API server ishga tushdi. Ctrl+C bilan to'xtating.")
-    print("📱 Mini-app: http://localhost:8001")
+    print("🤖 Bot ishga tushdi. Ctrl+C bilan to'xtating.")
+    
+    logging.basicConfig(level=logging.INFO)
     
     try:
-        # FastAPI ni ishga tushirish (bot ham parallel ishlaydi)
-        uvicorn.run(app, host="0.0.0.0", port=8001)
+        # Botni ishga tushirish
+        asyncio.run(bot_main())
     except KeyboardInterrupt:
-        print("\n⏹️ Bot va API server to'xtatildi.")
+        print("\n⏹️ Bot to'xtatildi.")
     except Exception as e:
         print(f"\n❌ Xatolik: {e}")
         sys.exit(1)

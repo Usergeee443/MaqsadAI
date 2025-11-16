@@ -94,51 +94,56 @@ class FinancialModule:
         return self.speech_client
     
     async def process_audio_input(self, audio_file_path: str, user_id: int) -> Dict[str, Any]:
-        """Audio faylni qayta ishlash - Google Cloud va ElevenLabs"""
+        """Audio faylni qayta ishlash - Google Cloud Speech-to-Text"""
         try:
             print(f"DEBUG: Processing audio file: {audio_file_path}")
             
-            # ElevenLabs Speech-to-Text (birinchidan urinib ko'ramiz)
-            if ACTIVE_SPEECH_MODELS.get('ELEVENLABS', True) and ELEVENLABS_API_KEY:
-                elevenlabs_result = None
-                try:
-                    with open(audio_file_path, "rb") as audio_file:
-                        audio_content = audio_file.read()
-                    elevenlabs_text = await self._transcribe_with_elevenlabs(audio_content)
-                    print(f"DEBUG: ElevenLabs transcription: {elevenlabs_text}")
-                    
-                    if elevenlabs_text and elevenlabs_text.strip():
-                        # ElevenLabs natijasini darhol qayta ishlaymiz
-                        elevenlabs_result = await self.process_ai_input_advanced(elevenlabs_text, user_id)
-                        if elevenlabs_result['success']:
-                            elevenlabs_result['message'] += f"\n\n🔊 **Texnologiya:** ElevenLabs Speech-to-Text"
-                            return elevenlabs_result
-                except Exception as elevenlabs_error:
-                    print(f"DEBUG: ElevenLabs failed: {elevenlabs_error}")
-            
-            # Google Cloud Speech-to-Text (fallback) - agar ElevenLabs ishlamasa
+            # Google Cloud Speech-to-Text (asosiy)
             if ACTIVE_SPEECH_MODELS.get('GOOGLE', True):
                 google_result = None
                 try:
                     client = self._ensure_speech_client()
-                    with open(audio_file_path, "rb") as audio_file:
-                        audio_content = audio_file.read()
-                    google_text = await self._transcribe_with_google(client, audio_content)
-                    print(f"DEBUG: Google Speech transcription: {google_text}")
-                    
-                    if google_text and google_text.strip():
-                        # Google natijasini darhol qayta ishlaymiz
-                        google_result = await self.process_ai_input_advanced(google_text, user_id)
-                        if google_result['success']:
-                            google_result['message'] += f"\n\n🔊 **Texnologiya:** Google Cloud Speech-to-Text"
-                            return google_result
+                    if client:
+                        with open(audio_file_path, "rb") as audio_file:
+                            audio_content = audio_file.read()
+                        google_text = await self._transcribe_with_google(client, audio_content)
+                        print(f"DEBUG: Google Speech transcription: {google_text}")
+                        
+                        if google_text and google_text.strip():
+                            # Google natijasini darhol qayta ishlaymiz
+                            google_result = await self.process_ai_input_advanced(google_text, user_id)
+                            if google_result['success']:
+                                google_result['message'] += f"\n\n🔊 **Texnologiya:** Google Cloud Speech-to-Text"
+                                return google_result
+                    else:
+                        print("DEBUG: Google Speech client olinmadi - kredensiallar yo'q")
+                except RuntimeError as google_error:
+                    # RuntimeError - kredensiallar yo'q, bu normal
+                    logging.debug(f"Google Speech credentials yo'q: {google_error}")
+                    print(f"DEBUG: Google Speech credentials yo'q: {google_error}")
                 except Exception as google_error:
+                    logging.warning(f"Google Speech failed: {google_error}")
                     print(f"DEBUG: Google Speech failed: {google_error}")
             
-            # Agar ikkalasi ham ishlamasa, xatolik qaytaramiz
+            # Whisper API orqali sinab ko'ramiz (fallback) - agar Google ishlamasa
+            try:
+                whisper_text = await self._transcribe_with_whisper(audio_file_path)
+                print(f"DEBUG: Whisper transcription: {whisper_text}")
+                
+                if whisper_text and whisper_text.strip():
+                    whisper_result = await self.process_ai_input_advanced(whisper_text, user_id)
+                    if whisper_result['success']:
+                        whisper_result['message'] += f"\n\n🔊 **Texnologiya:** OpenAI Whisper"
+                        return whisper_result
+            except Exception as whisper_error:
+                logging.warning(f"Whisper transcription failed: {whisper_error}")
+                print(f"DEBUG: Whisper failed: {whisper_error}")
+            
+            # Agar barcha speech-to-text ishlamasa, xatolik qaytaramiz
+            logging.error("Barcha speech-to-text xizmatlari muvaffaqiyatsiz")
             return {
                 "success": False,
-                "message": "❌ Audio aniq eshitilmadi. Iltimos, aniqroq gapiring."
+                "message": "❌ Audio aniq eshitilmadi. Iltimos, aniqroq gapiring yoki matn shaklida yuboring."
             }
 
         except Exception as e:
@@ -215,6 +220,38 @@ class FinancialModule:
                 )
 
         return None
+    
+    async def _transcribe_with_whisper(self, audio_file_path: str) -> Optional[str]:
+        """OpenAI Whisper API orqali transkripti olish"""
+        try:
+            if not OPENAI_API_KEY:
+                logging.warning("OpenAI API key yo'q, Whisper ishlatib bo'lmaydi")
+                return None
+            
+            # OpenAI Whisper API uchun faylni ochish
+            from openai import OpenAI
+            openai_client = OpenAI(api_key=OPENAI_API_KEY)
+            
+            def call_whisper():
+                with open(audio_file_path, "rb") as audio_file:
+                    response = openai_client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file
+                        # language parametrini olib tashladik - Whisper avtomatik aniqlaydi
+                    )
+                    return response.text
+            
+            loop = asyncio.get_event_loop()
+            transcript = await loop.run_in_executor(None, call_whisper)
+            
+            if transcript and transcript.strip():
+                logging.info(f"Whisper transcription muvaffaqiyatli: {transcript}")
+                return transcript.strip()
+                    
+            return None
+        except Exception as e:
+            logging.error(f"Whisper transcription xatolik: {e}")
+            return None
     
     async def _transcribe_with_elevenlabs(self, audio_content: bytes) -> Optional[str]:
         """ElevenLabs Speech-to-Text orqali transkripti olish"""
