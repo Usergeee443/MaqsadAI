@@ -4698,32 +4698,42 @@ async def process_financial_message(message: types.Message, state: FSMContext):
     
     try:
         if user_tariff in ['PRO', 'MAX']:
-            # PRO/MAX tariflar uchun to'liq AI chat
+            # PRO/MAX tariflar uchun HAR QANDAY mavzu uchun AI chat - 100% AI Generate
             ai_messages = await ai_chat.generate_response(user_id, text)
             
-            # Pro userlar uchun emoji reaksiya
-            if user_tariff == 'PRO':
-                # Xabarni tahlil qilish - moliyadan yiroq bo'lsa
+            # Pro userlar uchun emoji reaksiya (moliyadan yiroq mavzular uchun)
+            if user_tariff == 'PRO' and ai_messages:
+                # Xabarni tahlil qilish - moliyadan yiroq bo'lsa emoji reaksiya berish
                 financial_keywords = ['pul', 'xarajat', 'daromad', 'qarz', 'to\'lov', 'balans', 'hisobot', 
-                                     'tranzaksiya', 'chiqim', 'kirim', 'tejash', 'byudjet', 'oylik', 'haftalik']
+                                     'tranzaksiya', 'chiqim', 'kirim', 'tejash', 'byudjet', 'oylik', 'haftalik',
+                                     'tahlil', 'statistika', 'maqsad', 'optimallash', 'qarz',
+                                     'sotib oldim', 'sotib oldi', 'xarid qildim', 'xarid qildi', 'to\'ladim', 'to\'ladi',
+                                     'oldim', 'oldi', 'sotdim', 'sotdi', 'berdim', 'berdi', 'oldi', 'tushdi', 'tushdi',
+                                     'so\'m', 'dollar', 'dollor', 'sum', 'usd', 'uzs', 'ming', 'million', 'mln',
+                                     'narx', 'narxi', 'qiymat', 'qiymati', 'summa', 'summasi']
                 is_financial = any(keyword in text.lower() for keyword in financial_keywords)
                 
-                if not is_financial and ai_messages:
-                    # Moliyadan yiroq mavzu - emoji reaksiya va qisqa javob
-                    # Kulgu, g'alaba yoki boshqa hissiyotlarga qarab emoji
+                if not is_financial:
+                    # Moliyadan yiroq mavzu - emoji reaksiya berish
                     reaction_emoji = None
+                    text_lower = text.lower()
                     
-                    # AI javobini tahlil qilish - qanday reaksiya berish kerak
-                    first_response = ai_messages[0].lower() if ai_messages else ""
-                    
-                    if any(word in first_response for word in ['tabriklayman', 'tabriklay', 'alhamdulillah', 'yaxshi', 'muvaffaqiyat']):
+                    # G'alaba/kulgu so'zlari
+                    if any(word in text_lower for word in ['1-o\'rinni', 'g\'olib', 'yutdim', 'yutdik', 'yutdi', 'yutish', 
+                                                           'muvaffaqiyat', 'tabriklayman', 'tabriklay', 'alhamdulillah']):
                         reaction_emoji = "🥳"  # G'alaba/kulgu
-                    elif any(word in first_response for word in ['kulgi', 'qiziq', 'ajoyib', 'zo\'r']):
+                    # Kulgu so'zlari
+                    elif any(word in text_lower for word in ['kulgi', 'qiziq', 'ajoyib', 'zo\'r', 'a\'lo', 'juda yaxshi']):
                         reaction_emoji = "😂"  # Kulgu
-                    elif any(word in first_response for word in ['yaxshi', 'mazali', 'yoqimli']):
+                    # Xursandlik so'zlari
+                    elif any(word in text_lower for word in ['yaxshi', 'mazali', 'yoqimli', 'qiziqarli', 'mukammal']):
                         reaction_emoji = "😊"  # Xursandlik
-                    elif any(word in first_response for word in ['hayrat', 'ajoyib', 'qiziq']):
+                    # Hayrat so'zlari
+                    elif any(word in text_lower for word in ['hayrat', 'ajoyib', 'qiziq', 'vay', 'qanday']):
                         reaction_emoji = "😮"  # Hayrat
+                    else:
+                        # Default - moliyaga burish
+                        reaction_emoji = "💡"
                     
                     # Emoji reaksiya berish (Telegram Bot API 6.7+)
                     if reaction_emoji:
@@ -4745,20 +4755,12 @@ async def process_financial_message(message: types.Message, state: FSMContext):
                                 })
                             except Exception as e:
                                 logging.debug(f"Reaction API not available: {e}")
-                            # Fallback: emoji reaksiya xabar sifatida yuborilmaydi
                             pass
                         except Exception as e:
                             logging.debug(f"Error adding reaction: {e}")
-                            # Reaction API mavjud emas yoki xatolik
                             pass
-                    
-                    # AI javobini qisqartirish - faqat birinchi gap yoki moliyaga burish
-                    if ai_messages and len(ai_messages[0]) > 100:
-                        # Qisqa javob yaratish - moliyaga burish
-                        shortened = f"Tabriklayman! 😊 Pulni tejash yoki ko'proq topish bo'yicha ham g'olib bo'ling! 💪"
-                        ai_messages = [shortened]
             
-            # Har bir xabarni 1-3 soniya orasida yuborish
+            # Har bir xabarni 1-3 soniya orasida yuborish (HAR QANDAY mavzu uchun AI javobi)
             for msg in ai_messages:
                 await message.answer(msg)  # parse_mode olib tashlandi - emoji ishlatiladi
                 await asyncio.sleep(1.5)
