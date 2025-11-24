@@ -185,31 +185,24 @@ def build_tariff_detail_keyboard(tariff_code: str, back_callback: str) -> Inline
         return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback), InlineKeyboardButton(text="🚀 Aktivlashtirish", callback_data=f"activate_{tariff_code}")]])
 
 def build_main_tariff_keyboard() -> InlineKeyboardMarkup:
+    # Compact keyboard - qatorlar orasidagi joy kamaytirildi
     return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="Plus paketlar", callback_data="tariff_PLUS"),
-            InlineKeyboardButton(text="Pro", callback_data="tariff_PRO")
-        ],
-        [
-            InlineKeyboardButton(text="Biznes tariflari", callback_data="tariff_BUSINESS_MENU"),
-            InlineKeyboardButton(text="Oila tariflari", callback_data="tariff_FAMILY_MENU")
-        ]
+        [InlineKeyboardButton(text="Plus paketlar", callback_data="tariff_PLUS"), InlineKeyboardButton(text="Pro", callback_data="tariff_PRO")],
+        [InlineKeyboardButton(text="Biznes tariflari", callback_data="tariff_BUSINESS_MENU"), InlineKeyboardButton(text="Oila tariflari", callback_data="tariff_FAMILY_MENU")]
     ])
 
 def get_family_tariff_keyboard() -> InlineKeyboardMarkup:
+    # Compact keyboard - qatorlar orasidagi joy kamaytirildi
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Oila", callback_data="tariff_FAMILY")],
-        [InlineKeyboardButton(text="Oila Plus", callback_data="tariff_FAMILY_PLUS")],
-        [InlineKeyboardButton(text="Oila Max", callback_data="tariff_FAMILY_MAX")],
-        [InlineKeyboardButton(text="⬅️ Asosiy tariflar", callback_data="tariff_BACK_MAIN")]
+        [InlineKeyboardButton(text="Oila", callback_data="tariff_FAMILY"), InlineKeyboardButton(text="Oila Plus", callback_data="tariff_FAMILY_PLUS")],
+        [InlineKeyboardButton(text="Oila Max", callback_data="tariff_FAMILY_MAX")]
     ])
 
 def get_business_tariff_keyboard() -> InlineKeyboardMarkup:
+    # Compact keyboard - qatorlar orasidagi joy kamaytirildi
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Biznes", callback_data="tariff_BUSINESS")],
-        [InlineKeyboardButton(text="Biznes Plus (tez orada)", callback_data="tariff_BUSINESS_PLUS_INFO")],
-        [InlineKeyboardButton(text="Biznes Max (tez orada)", callback_data="tariff_BUSINESS_MAX_INFO")],
-        [InlineKeyboardButton(text="⬅️ Asosiy tariflar", callback_data="tariff_BACK_MAIN")]
+        [InlineKeyboardButton(text="Biznes", callback_data="tariff_BUSINESS"), InlineKeyboardButton(text="Biznes Plus", callback_data="tariff_BUSINESS_PLUS_INFO")],
+        [InlineKeyboardButton(text="Biznes Max", callback_data="tariff_BUSINESS_MAX_INFO")]
     ])
 
 def get_family_overview_text() -> str:
@@ -317,7 +310,6 @@ class UserStates(StatesGroup):
     waiting_for_source = State()
     waiting_for_tariff = State()
     waiting_for_amount = State()
-    waiting_for_description = State()
     waiting_for_category = State()
     waiting_for_debt_type = State() # Qarz turi uchun
     waiting_for_debt_person = State() # Qarz olgan odam ismi uchun
@@ -466,15 +458,21 @@ def get_transaction_confirmation_keyboard(buttons_data: dict):
 # Profil menyusi
 def get_profile_menu(user_tariff='PLUS'):
     """Profil menyusini qaytaradi"""
-    buttons = [[InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings")]]
+    # Agar tarif bo'lmasa, faqat "Tarif sotib olish" tugmasi
+    if user_tariff in ('NONE', None):
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🛒 Tarif sotib olish", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL))]
+        ])
     
+    # Plus yoki Pro tarif bo'lsa, "Tarif ma'lumotlari" tugmasi
+    buttons = []
     if user_tariff == 'PLUS':
-        buttons[0].append(InlineKeyboardButton(text="🛒 Paket sotib olish", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL)))
+        buttons.append([InlineKeyboardButton(text="📊 Tarif ma'lumotlari", callback_data="tariff_info")])
+        buttons.append([InlineKeyboardButton(text="🛒 Paket sotib olish", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL))])
         buttons.append([InlineKeyboardButton(text="🔥 Pro tarifga o'tish", web_app=WebAppInfo(url=PAYMENT_PRO_WEBAPP_URL))])
     elif user_tariff == 'PRO':
-        buttons[0].append(InlineKeyboardButton(text="🧾 Obunani boshqarish", web_app=WebAppInfo(url=PAYMENT_PRO_WEBAPP_URL)))
-    else:
-        buttons[0].append(InlineKeyboardButton(text="⚡ Tariflar", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL)))
+        buttons.append([InlineKeyboardButton(text="📊 Tarif ma'lumotlari", callback_data="tariff_info")])
+        buttons.append([InlineKeyboardButton(text="🧾 Obunani boshqarish", web_app=WebAppInfo(url=PAYMENT_PRO_WEBAPP_URL))])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -925,11 +923,14 @@ def get_employee_profile_menu():
 # Sozlamalar menyusi
 def get_settings_menu(user_tariff='NONE'):
     """Sozlamalar menyusini qaytaradi"""
-    return InlineKeyboardMarkup(
+    # Til tanlash - 1 ta tugma (hozirgi til ko'rsatiladi)
+    keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="🌐 Til: O'zbek 🇺🇿", callback_data="settings_language")],
             [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_profile")]
         ]
     )
+    return keyboard
 
 def get_settings_menu_old():
     keyboard = InlineKeyboardMarkup(
@@ -1231,28 +1232,28 @@ async def start_command(message: types.Message, state: FSMContext):
         user_tariff = await get_user_tariff(user_id)
         
         if user_tariff in ('NONE', None):
-            await message.answer_photo(
-                photo=FSInputFile('welcome.png'),
-                caption=(
-                    f"👋 Salom, {user_name}!\n\n"
-                    "Balans AI'dan foydalanishni boshlash uchun Plus paketlardan birini yoki Pro tarifini tanlang."
-                ),
-                reply_markup=get_plus_purchase_keyboard(),
-                parse_mode="Markdown"
+            # Menu bilan xabar yuborish
+            await message.answer(
+                f"👋 Salom, {user_name}!\n\nXabar yuboring...",
+                reply_markup=get_free_menu()
             )
         elif user_tariff == 'BUSINESS':
-            await message.answer_photo(
-                photo=FSInputFile('welcome.png'),
-                caption=f"👋 Salom, {user_name}!\n\nBalans AI Business ga xush kelibsiz!\n\nMatn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
-                reply_markup=get_business_menu(),
-                parse_mode="Markdown"
+            # Business menu
+            await message.answer(
+                f"👋 Salom, {user_name}!\n\nXabar yuboring...",
+                reply_markup=get_business_menu()
+            )
+        elif user_tariff in ('PLUS', 'PRO', 'MAX'):
+            # Premium menu
+            await message.answer(
+                f"👋 Salom, {user_name}!\n\nXabar yuboring...",
+                reply_markup=get_premium_menu()
             )
         else:
-            await message.answer_photo(
-                photo=FSInputFile('welcome.png'),
-                caption=f"👋 Salom, {user_name}!\n\nBalans AI ga xush kelibsiz!\n\nMatn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
-                reply_markup=get_premium_menu(),
-                parse_mode="Markdown"
+            # Default menu
+            await message.answer(
+                f"👋 Salom, {user_name}!\n\nXabar yuboring...",
+                reply_markup=get_free_menu()
             )
         return
     
@@ -1450,26 +1451,16 @@ async def start_command(message: types.Message, state: FSMContext):
                     parse_mode="Markdown"
                 )
             elif user_tariff == "BUSINESS":
-                await message.answer_photo(
-                    photo=FSInputFile('welcome.png'),
-                    caption=(
-                        f"👋 Salom, {user_name}!\n\n"
-                        "Balans AI Business ga xush kelibsiz!\n\n"
-                        "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:"
-                    ),
-                    reply_markup=get_business_menu(),
-                    parse_mode="Markdown"
+                # ChatGPT ga o'xshash qisqa va sodda dizayn
+                await message.answer(
+                    f"👋 Salom, {user_name}!\n\nXabar yuboring...",
+                    reply_markup=ReplyKeyboardRemove()
                 )
             else:
-                await message.answer_photo(
-                    photo=FSInputFile('welcome.png'),
-                    caption=(
-                        f"👋 Salom, {user_name}!\n\n"
-                        "Balans AI ga xush kelibsiz!\n\n"
-                        "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:"
-                    ),
-                    reply_markup=get_premium_menu(),
-                    parse_mode="Markdown"
+                # ChatGPT ga o'xshash qisqa va sodda dizayn
+                await message.answer(
+                    f"👋 Salom, {user_name}!\n\nXabar yuboring...",
+                    reply_markup=ReplyKeyboardRemove()
                 )
         except Exception as e:
             logging.warning(f"Welcome rasm yuborilmadi: {e}")
@@ -1483,20 +1474,16 @@ async def start_command(message: types.Message, state: FSMContext):
                     parse_mode="Markdown"
                 )
             elif user_tariff == "BUSINESS":
+                # ChatGPT ga o'xshash qisqa va sodda dizayn
                 await message.answer(
-                    f"👋 Salom, {user_name}!\n\n"
-                    "Balans AI Business ga xush kelibsiz!\n\n"
-                    "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
-                    reply_markup=get_business_menu(),
-                    parse_mode="Markdown"
+                    f"👋 Salom, {user_name}!\n\nXabar yuboring...",
+                    reply_markup=ReplyKeyboardRemove()
                 )
             else:
+                # ChatGPT ga o'xshash qisqa va sodda dizayn
                 await message.answer(
-                    f"👋 Salom, {user_name}!\n\n"
-                    "Balans AI ga xush kelibsiz!\n\n"
-                    "Matn yoki ovozli xabar yuboring va AI avtomatik qayta ishlaydi:",
-                    reply_markup=get_premium_menu(),
-                    parse_mode="Markdown"
+                    f"👋 Salom, {user_name}!\n\nXabar yuboring...",
+                    reply_markup=ReplyKeyboardRemove()
                 )
     # fallback
     return
@@ -2264,12 +2251,13 @@ async def process_amount(message: types.Message, state: FSMContext):
         await state.update_data(amount=amount)
         
         if transaction_type == "income":
+            # Tavsif funksiyasini olib tashlash - to'g'ridan-to'g'ri kategoriya so'rash
             await message.answer(
-                "📝 *Tavsif kiriting (ixtiyoriy):*",
-                reply_markup=ReplyKeyboardMarkup(keyboard=[], resize_keyboard=True),
+                "📂 *Kategoriyani tanlang:*",
+                reply_markup=get_income_category_menu(),
                 parse_mode="Markdown"
             )
-            await state.set_state(UserStates.waiting_for_description)
+            await state.set_state(UserStates.waiting_for_category)
         else:
             # Kategoriya tanlash
             if transaction_type == "expense":
@@ -2289,29 +2277,7 @@ async def process_amount(message: types.Message, state: FSMContext):
     except ValueError:
         await message.answer("❌ Noto'g'ri summa format! Iltimos, raqam kiriting.")
 
-# Tavsif qabul qilish (faqat kirim uchun)
-@dp.message(UserStates.waiting_for_description)
-async def process_description(message: types.Message, state: FSMContext):
-    """Tavsifni qabul qilish"""
-    description = message.text.strip()
-    await state.update_data(description=description)
-    
-    # Agar bu qarz emas — income oqimi: to'g'ridan-to'g'ri kategoriya
-    data = await state.get_data()
-    if data.get('transaction_type') == 'debt':
-        await message.answer(
-            "📅 Qachon qaytariladi? Sana formatida kiriting (YYYY-MM-DD) yoki 'skip' deb yozing:",
-            reply_markup=get_cancel_keyboard(),
-            parse_mode='Markdown'
-        )
-        await state.set_state(UserStates.waiting_for_debt_due_date)
-    else:
-        await message.answer(
-            "📂 *Kategoriyani tanlang:*",
-            reply_markup=get_income_category_menu(),
-            parse_mode="Markdown"
-        )
-        await state.set_state(UserStates.waiting_for_category)
+# Tavsif funksiyasi olib tashlandi - endi to'g'ridan-to'g'ri kategoriya so'raladi
 
 @dp.message(UserStates.waiting_for_debt_due_date)
 async def process_debt_due_date(message: types.Message, state: FSMContext):
@@ -2430,8 +2396,7 @@ async def process_category(callback_query: CallbackQuery, state: FSMContext):
             f"✅ *{type_name} qo'shildi!*\n\n"
             f"{type_emoji} {amount:,.0f} so'm\n"
             f"{debt_type_text}"
-            f"📂 {category}\n"
-            f"📝 {description if description else 'Tavsif yoq'}\n\n",
+            f"📂 {category}\n",
             parse_mode="Markdown"
         )
         # Qarzdorlik uchun eslatma yozuvi
@@ -2678,8 +2643,26 @@ async def settings_callback(callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
     user_tariff = await get_user_tariff(user_id)
     
-    text = "⚙️ **Sozlamalar**\n\nHozircha sozlamalar mavjud emas."
+    text = "⚙️ **Sozlamalar**\n\nSozlamalarni tanlang:"
     keyboard = get_settings_menu(user_tariff)
+    try:
+        await callback_query.message.edit_caption(caption=text, reply_markup=keyboard, parse_mode='Markdown')
+    except Exception:
+        await callback_query.message.edit_text(text, reply_markup=keyboard, parse_mode='Markdown')
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "settings_language")
+async def settings_language_callback(callback_query: CallbackQuery):
+    """Til tanlash menyusini ko'rsatish"""
+    # Til tanlash - bitta tugma orqali, qulay va sodda
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_uz")],
+        [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang_en")],
+        [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru")],
+        [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="settings")]
+    ])
+    
+    text = "🌐 **Til tanlash**\n\nKerakli tilni tanlang:"
     try:
         await callback_query.message.edit_caption(caption=text, reply_markup=keyboard, parse_mode='Markdown')
     except Exception:
@@ -4679,6 +4662,14 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         
         return
     
+    # Agar tarif bo'lmasa, faqat "Tarif sotib oling" xabari va tugma
+    if user_tariff in ('NONE', None):
+        await message.answer(
+            "❌ Tarif sotib oling\n\nBotdan foydalanish uchun Plus paket yoki Pro tarifni sotib oling.",
+            reply_markup=get_plus_purchase_keyboard()
+        )
+        return
+    
     # Faqat PRO va MAX tariflar uchun
     if user_tariff not in ['PRO', 'MAX']:
         return
@@ -4686,7 +4677,7 @@ async def process_financial_message(message: types.Message, state: FSMContext):
     # State'lar tekshiruvi
     if await state.get_state() in [UserStates.waiting_for_phone, UserStates.waiting_for_name, 
                                    UserStates.waiting_for_source, UserStates.waiting_for_tariff,
-                                   UserStates.waiting_for_amount, UserStates.waiting_for_description, 
+                                   UserStates.waiting_for_amount, 
                                    UserStates.waiting_for_category, UserStates.waiting_for_debt_type,
                                    UserStates.waiting_for_debt_person]:
         return
@@ -4874,7 +4865,7 @@ async def process_audio_message(message: types.Message, state: FSMContext):
     # Agar foydalanuvchi boshqa holatda bo'lsa (onboarding yoki boshqa state'lar)
     if await state.get_state() in [UserStates.waiting_for_phone, UserStates.waiting_for_name, 
                                    UserStates.waiting_for_source, UserStates.waiting_for_tariff,
-                                   UserStates.waiting_for_amount, UserStates.waiting_for_description, 
+                                   UserStates.waiting_for_amount, 
                                    UserStates.waiting_for_category, UserStates.waiting_for_debt_type,
                                    UserStates.waiting_for_debt_person, UserStates.waiting_for_income_type,
                                    UserStates.waiting_for_income_frequency, UserStates.waiting_for_income_amount,
@@ -6127,13 +6118,13 @@ async def send_daily_reports():
             await asyncio.sleep(3600)  # 1 soat kutish va qayta urinish
 
 async def send_reminders():
-    """Eslatmalarni yuborish - har kuni 09:00 da"""
+    """Eslatmalarni yuborish - har kuni 09:00 da (reminders jadvalidan)"""
     while True:
         try:
             from datetime import datetime, time
             now = datetime.now()
             
-            # Kechki 21:00 da eslatmalarni yuborish (bir xil vaqt kunlik hisobotlar bilan)
+            # Ertalab 09:00 da eslatmalarni yuborish
             target_hour = 9
             target_minute = 0
             
@@ -6195,8 +6186,6 @@ async def send_reminders():
                     
                     await bot.send_message(user_id, message, parse_mode='Markdown')
                     
-                    # Eslatmani bajarilgan deb belgilash (yo'q, kutib turamiz - foydalanuvchi o'zi belgilashi mumkin)
-                    
                     await asyncio.sleep(0.5)
                     
                 except Exception as e:
@@ -6207,13 +6196,230 @@ async def send_reminders():
             logging.error(f"Error in reminders task: {e}")
             await asyncio.sleep(3600)
 
+async def send_daily_reminder_9am():
+    """Har kuni 9:00 da barcha userlar uchun tranzaksiya eslatmasi"""
+    while True:
+        try:
+            from datetime import datetime
+            now = datetime.now()
+            
+            # Ertalab 09:00 da ishlash
+            target_hour = 9
+            target_minute = 0
+            
+            # Keyingi 09:00 ni hisoblash
+            next_run = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+            if now.hour >= target_hour or (now.hour == target_hour and now.minute >= target_minute):
+                next_run += timedelta(days=1)
+            
+            # Keyingi ishlash vaqtigacha kutish
+            wait_seconds = (next_run - now).total_seconds()
+            await asyncio.sleep(wait_seconds)
+            
+            # Barcha aktiv userlarni olish (tarif bo'lganlar)
+            active_users = await db.execute_query("""
+                SELECT DISTINCT user_id FROM users 
+                WHERE tariff NOT IN ('NONE', 'FREE', NULL)
+                OR user_id IN (
+                    SELECT user_id FROM user_subscriptions 
+                    WHERE is_active = TRUE AND expires_at > NOW()
+                )
+                OR user_id IN (
+                    SELECT user_id FROM plus_package_purchases 
+                    WHERE status = 'active' 
+                    AND (text_used < text_limit OR voice_used < voice_limit)
+                )
+            """)
+            
+            for user_row in active_users:
+                try:
+                    user_id = user_row[0] if isinstance(user_row, tuple) else user_row.get('user_id')
+                    if not user_id:
+                        continue
+                    
+                    # Bugungi tranzaksiyalarni tekshirish
+                    today_transactions = await db.execute_one("""
+                        SELECT COUNT(*) FROM transactions 
+                        WHERE user_id = %s AND DATE(created_at) = CURDATE()
+                    """, (user_id,))
+                    
+                    has_transactions = today_transactions[0] > 0 if today_transactions else False
+                    
+                    if not has_transactions:
+                        # Tranzaksiya yo'q bo'lsa
+                        await bot.send_message(
+                            user_id,
+                            "📋 Bugun hali tranzaksiya qo'shmadingiz.\n\n"
+                            "Xarajat yoki daromad qo'shing, men yozib qo'yaman 😊"
+                        )
+                    else:
+                        # Tranzaksiya bo'lsa ham eslatma
+                        await bot.send_message(
+                            user_id,
+                            "💡 Esingizdan birortasi chiqib qolmadimi?\n\n"
+                            "Agar qo'shgan bo'lsangiz, ularni hozir ayting, men yozib qo'yaman 😊"
+                        )
+                    
+                    await asyncio.sleep(0.5)
+                    
+                except Exception as e:
+                    logging.error(f"Error sending daily reminder to user {user_id}: {e}")
+                    continue
+                    
+        except Exception as e:
+            logging.error(f"Error in daily reminder task: {e}")
+            await asyncio.sleep(3600)
+
+async def send_daily_analysis_midnight():
+    """Har kuni 00:00 da kun tahlili yuborish"""
+    while True:
+        try:
+            from datetime import datetime
+            now = datetime.now()
+            
+            # 00:00 da ishlash
+            target_hour = 0
+            target_minute = 0
+            
+            # Keyingi 00:00 ni hisoblash
+            next_run = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+            if now.hour >= target_hour or (now.hour == target_hour and now.minute >= target_minute):
+                next_run += timedelta(days=1)
+            
+            # Keyingi ishlash vaqtigacha kutish
+            wait_seconds = (next_run - now).total_seconds()
+            await asyncio.sleep(wait_seconds)
+            
+            # Barcha aktiv userlarni olish
+            active_users = await db.execute_query("""
+                SELECT DISTINCT user_id FROM users 
+                WHERE tariff NOT IN ('NONE', 'FREE', NULL)
+                OR user_id IN (
+                    SELECT user_id FROM user_subscriptions 
+                    WHERE is_active = TRUE AND expires_at > NOW()
+                )
+                OR user_id IN (
+                    SELECT user_id FROM plus_package_purchases 
+                    WHERE status = 'active' 
+                    AND (text_used < text_limit OR voice_used < voice_limit)
+                )
+            """)
+            
+            for user_row in active_users:
+                try:
+                    user_id = user_row[0] if isinstance(user_row, tuple) else user_row.get('user_id')
+                    if not user_id:
+                        continue
+                    
+                    # O'tgan kun (00:00 da ishlaydi, demak o'tgan kun) tranzaksiyalarni olish
+                    now = datetime.now()
+                    yesterday = (now - timedelta(days=1)).date()
+                    
+                    # O'tgan kun statistikasi
+                    yesterday_stats = await db.execute_one("""
+                        SELECT 
+                            COUNT(*) as count,
+                            SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) as income,
+                            SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) as expense,
+                            SUM(CASE WHEN transaction_type = 'debt' THEN amount ELSE 0 END) as debt
+                        FROM transactions 
+                        WHERE user_id = %s AND DATE(created_at) = %s
+                    """, (user_id, yesterday))
+                    
+                    if not yesterday_stats or yesterday_stats[0] == 0:
+                        # Hech nima bo'lmagan bo'lsa, yuborilmaydi
+                        continue
+                    
+                    tx_count = yesterday_stats[0] if yesterday_stats[0] else 0
+                    income = float(yesterday_stats[1]) if yesterday_stats[1] else 0
+                    expense = float(yesterday_stats[2]) if yesterday_stats[2] else 0
+                    debt = float(yesterday_stats[3]) if yesterday_stats[3] else 0
+                    
+                    # Qarzlar (debt_reminders jadvalidan)
+                    debts_info = await db.execute_query("""
+                        SELECT 
+                            SUM(CASE WHEN debt_direction = 'lent' THEN amount ELSE 0 END) as lent,
+                            SUM(CASE WHEN debt_direction = 'borrowed' THEN amount ELSE 0 END) as borrowed
+                        FROM transactions 
+                        WHERE user_id = %s AND transaction_type = 'debt' AND DATE(created_at) = %s
+                    """, (user_id, yesterday))
+                    
+                    lent = float(debts_info[0][0]) if debts_info and debts_info[0][0] else 0
+                    borrowed = float(debts_info[0][1]) if debts_info and debts_info[0][1] else 0
+                    
+                    # Kategoriyalar bo'yicha xarajatlar (keraksiz xarajatlarni aniqlash uchun)
+                    category_expenses = await db.execute_query("""
+                        SELECT category, SUM(amount) as total, COUNT(*) as count
+                        FROM transactions
+                        WHERE user_id = %s AND transaction_type = 'expense' AND DATE(created_at) = %s
+                        GROUP BY category
+                        ORDER BY total DESC
+                    """, (user_id, yesterday))
+                    
+                    # Tahlil xabari
+                    analysis = f"📊 **Kun tahlili** ({yesterday.strftime('%d.%m.%Y')})\n\n"
+                    analysis += f"📈 Tranzaksiyalar: {tx_count} ta\n"
+                    analysis += f"💰 Kirimlar: {income:,.0f} so'm\n"
+                    analysis += f"💸 Chiqimlar: {expense:,.0f} so'm\n"
+                    analysis += f"📊 Qoldiq: {income - expense:,.0f} so'm\n"
+                    
+                    if lent > 0 or borrowed > 0:
+                        analysis += f"\n💳 Qarzlar:\n"
+                        if lent > 0:
+                            analysis += f"  • Berilgan: {lent:,.0f} so'm\n"
+                        if borrowed > 0:
+                            analysis += f"  • Olingan: {borrowed:,.0f} so'm\n"
+                    
+                    # AI tahlil
+                    try:
+                        # Keraksiz xarajatlarni aniqlash
+                        unnecessary_categories = []
+                        if category_expenses:
+                            for cat_row in category_expenses:
+                                cat_name = cat_row[0]
+                                cat_total = float(cat_row[1])
+                                cat_count = int(cat_row[2])
+                                
+                                # Agar bir kategoriyada ko'p marta yoki katta summa bo'lsa
+                                if cat_count >= 3 or cat_total > expense * 0.3:  # 30% dan ko'p
+                                    unnecessary_categories.append(f"{cat_name} ({cat_count} marta, {cat_total:,.0f} so'm)")
+                        
+                        # AI prompt
+                        ai_prompt = f"Kun tahlili:\n"
+                        ai_prompt += f"Tranzaksiyalar: {tx_count} ta\n"
+                        ai_prompt += f"Kirim: {income:,.0f} so'm\n"
+                        ai_prompt += f"Chiqim: {expense:,.0f} so'm\n"
+                        if unnecessary_categories:
+                            ai_prompt += f"Keraksiz xarajatlar: {', '.join(unnecessary_categories)}\n"
+                        ai_prompt += f"\nQisqa tahlil qiling va keraksiz xarajatlar bo'lsa, ularni aytib, tejash tavsiyalari bering (max 3 gap)."
+                        
+                        ai_response = await ai_chat.generate_response(user_id, ai_prompt)
+                        if ai_response and len(ai_response) > 0:
+                            analysis += f"\n🤖 **AI Tahlili:**\n{ai_response[0]}"
+                    except Exception as e:
+                        logging.error(f"Error generating AI analysis for user {user_id}: {e}")
+                    
+                    await bot.send_message(user_id, analysis, parse_mode='Markdown')
+                    
+                    await asyncio.sleep(0.5)
+                    
+                except Exception as e:
+                    logging.error(f"Error sending daily analysis to user {user_id}: {e}")
+                    continue
+                    
+        except Exception as e:
+            logging.error(f"Error in daily analysis task: {e}")
+            await asyncio.sleep(3600)
+
 async def main():
     """Asosiy dastur - bot va background tasklarni ishga tushirish"""
     try:
         print("🚀 Bot ishga tushmoqda...")
         # Background tasklarni ishga tushirish
-        asyncio.create_task(send_daily_reports())
-        asyncio.create_task(send_reminders())
+        asyncio.create_task(send_daily_reports())  # Pro userlar uchun kechki 21:00
+        asyncio.create_task(send_reminders())  # Eslatmalar 09:00
+        asyncio.create_task(send_daily_reminder_9am())  # Har kuni 9:00 da tranzaksiya eslatmasi
+        asyncio.create_task(send_daily_analysis_midnight())  # Har kuni 00:00 da kun tahlili
         # Botni ishga tushirish
         await start_bot()
     except Exception as e:

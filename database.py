@@ -452,6 +452,19 @@ class Database:
                 """)
             except Exception as e:
                 logging.error(f"debt_reminders jadvalini yaratishda xatolik: {e}")
+            
+            # Plus package purchases jadvalidagi noto'g'ri status qiymatlarini tozalash
+            try:
+                # Noto'g'ri status qiymatlarini tozalash
+                await self.execute_query("""
+                    UPDATE plus_package_purchases 
+                    SET status = 'active' 
+                    WHERE status NOT IN ('active', 'completed') 
+                    OR status IS NULL
+                """)
+                logging.info("Plus package purchases status qiymatlari tozalandi")
+            except Exception as e:
+                logging.error(f"Plus package purchases status tozalashda xatolik: {e}")
                 
         except Exception as e:
             logging.error(f"Ustunlar qo'shishda xatolik: {e}")
@@ -741,18 +754,29 @@ class Database:
             'id': result[0],
             'package_code': result[1],
             'text_limit': result[2],
-            'text_used': result[3],
+            'text_used': int(result[3]) if result[3] is not None else 0,  # None bo'lsa 0
             'voice_limit': result[4],
-            'voice_used': result[5],
+            'voice_used': int(result[5]) if result[5] is not None else 0,  # None bo'lsa 0
             'status': result[6],
             'purchased_at': result[7],
         }
-        status_lower = (package['status'] or '').lower()
-        if status_lower != 'active':
+        # Status ni to'g'ri formatlash - faqat 'active' yoki 'completed'
+        status_value = package.get('status')
+        if status_value:
+            status_lower = str(status_value).lower()
+            if status_lower not in ('active', 'completed'):
+                # Agar noto'g'ri qiymat bo'lsa, qoldiqlarga qarab aniqlaymiz
+                remaining_text = package['text_limit'] - package['text_used']
+                remaining_voice = package['voice_limit'] - package['voice_used']
+                package['status'] = 'active' if (remaining_text > 0 or remaining_voice > 0) else 'completed'
+            else:
+                # To'g'ri qiymat bo'lsa, kichik harfga o'tkazamiz
+                package['status'] = status_lower
+        else:
+            # Status None bo'lsa, qoldiqlarga qarab aniqlaymiz
             remaining_text = package['text_limit'] - package['text_used']
             remaining_voice = package['voice_limit'] - package['voice_used']
-            if remaining_text > 0 or remaining_voice > 0:
-                package['status'] = 'active'
+            package['status'] = 'active' if (remaining_text > 0 or remaining_voice > 0) else 'completed'
         return package
     
     async def increment_plus_usage(self, user_id, usage_type: str):
@@ -768,32 +792,116 @@ class Database:
             if package['text_used'] >= package['text_limit']:
                 return False, package
             new_used = package['text_used'] + 1
-            status = 'completed' if (new_used >= package['text_limit'] and package['voice_used'] >= package['voice_limit']) else 'active'
-            await self.execute_query(
-                """
-                UPDATE plus_package_purchases
-                SET text_used = %s, status = %s, updated_at = NOW()
-                WHERE id = %s
-                """,
-                (new_used, status, package['id'])
-            )
-            package['text_used'] = new_used
-            package['status'] = status
+            # Status ni to'g'ri formatlash - faqat 'active' yoki 'completed'
+            if new_used >= package['text_limit'] and package['voice_used'] >= package['voice_limit']:
+                new_status = 'completed'
+            else:
+                new_status = 'active'
+            
+            # Xavfsizlik uchun status ni tekshirish
+            if new_status not in ('active', 'completed'):
+                new_status = 'active'
+            
+            try:
+                # Avval bazadagi status ni to'g'ri formatlash
+                # Status ni to'g'ridan-to'g'ri 'active' yoki 'completed' ga o'rnatish
+                await self.execute_query(
+                    """
+                    UPDATE plus_package_purchases
+                    SET status = CASE 
+                        WHEN status IN ('active', 'ACTIVE', 'Active') THEN 'active'
+                        WHEN status IN ('completed', 'COMPLETED', 'Completed') THEN 'completed'
+                        ELSE 'active'
+                    END
+                    WHERE id = %s
+                    """,
+                    (package['id'],)
+                )
+                
+                # Endi text_used va status ni yangilaymiz
+                await self.execute_query(
+                    """
+                    UPDATE plus_package_purchases
+                    SET text_used = %s, status = %s, updated_at = NOW()
+                    WHERE id = %s
+                    """,
+                    (new_used, new_status, package['id'])
+                )
+                package['text_used'] = new_used
+                package['status'] = new_status
+            except Exception as e:
+                logging.error(f"Error updating plus usage (text): {e}")
+                # Status xatosi bo'lsa, faqat text_used ni yangilaymiz
+                try:
+                    await self.execute_query(
+                        """
+                        UPDATE plus_package_purchases
+                        SET text_used = %s, updated_at = NOW()
+                        WHERE id = %s
+                        """,
+                        (new_used, package['id'])
+                    )
+                    package['text_used'] = new_used
+                except Exception as e2:
+                    logging.error(f"Error updating text_used only: {e2}")
+                    return False, package
         else:
             if package['voice_used'] >= package['voice_limit']:
                 return False, package
             new_used = package['voice_used'] + 1
-            status = 'completed' if (new_used >= package['voice_limit'] and package['text_used'] >= package['text_limit']) else 'active'
-            await self.execute_query(
-                """
-                UPDATE plus_package_purchases
-                SET voice_used = %s, status = %s, updated_at = NOW()
-                WHERE id = %s
-                """,
-                (new_used, status, package['id'])
-            )
-            package['voice_used'] = new_used
-            package['status'] = status
+            # Status ni to'g'ri formatlash - faqat 'active' yoki 'completed'
+            if new_used >= package['voice_limit'] and package['text_used'] >= package['text_limit']:
+                new_status = 'completed'
+            else:
+                new_status = 'active'
+            
+            # Xavfsizlik uchun status ni tekshirish
+            if new_status not in ('active', 'completed'):
+                new_status = 'active'
+            
+            try:
+                # Avval bazadagi status ni to'g'ri formatlash
+                # Status ni to'g'ridan-to'g'ri 'active' yoki 'completed' ga o'rnatish
+                await self.execute_query(
+                    """
+                    UPDATE plus_package_purchases
+                    SET status = CASE 
+                        WHEN status IN ('active', 'ACTIVE', 'Active') THEN 'active'
+                        WHEN status IN ('completed', 'COMPLETED', 'Completed') THEN 'completed'
+                        ELSE 'active'
+                    END
+                    WHERE id = %s
+                    """,
+                    (package['id'],)
+                )
+                
+                # Endi voice_used va status ni yangilaymiz
+                await self.execute_query(
+                    """
+                    UPDATE plus_package_purchases
+                    SET voice_used = %s, status = %s, updated_at = NOW()
+                    WHERE id = %s
+                    """,
+                    (new_used, new_status, package['id'])
+                )
+                package['voice_used'] = new_used
+                package['status'] = new_status
+            except Exception as e:
+                logging.error(f"Error updating plus usage (voice): {e}")
+                # Status xatosi bo'lsa, faqat voice_used ni yangilaymiz
+                try:
+                    await self.execute_query(
+                        """
+                        UPDATE plus_package_purchases
+                        SET voice_used = %s, updated_at = NOW()
+                        WHERE id = %s
+                        """,
+                        (new_used, package['id'])
+                    )
+                    package['voice_used'] = new_used
+                except Exception as e2:
+                    logging.error(f"Error updating voice_used only: {e2}")
+                    return False, package
         
         return True, package
     

@@ -429,14 +429,41 @@ QOIDALAR:
             # System prompt - Mistral uchun optimallashtirilgan
             system_prompt = """Sen tranzaksiya aniqlovchisan. JSON formatda javob ber.
 
-KATEGORIYALAR:
-ish haqi, biznes, ovqat, transport, kiyim, uy, sog'liq, ta'lim, o'yin-kulgi, boshqa
+MUHIM QOIDALAR:
+1. TYPE aniqlash:
+   - "income" = daromad, oylik, ish haqi, maosh, tushdi, oldim (daromad), berdi, qarz olish
+   - "expense" = xarajat, sotib oldim, oldim (xarajat), ketdi, sarf qildim, to'ladim
+   - "debt" = qarz berish, qarz olish (faqat qarz bo'lsa)
 
-MISOLLAR:
-"500 million oylik oldim" → {"transactions":[{"amount":500000000,"type":"income","category":"ish haqi"}],"total_confidence":0.95}
-"100k xarajat" → {"transactions":[{"amount":100000,"type":"expense","category":"boshqa"}],"total_confidence":0.8}
-"50 ming oziq" → {"transactions":[{"amount":50000,"type":"expense","category":"ovqat"}],"total_confidence":0.9}
-"taksi 20k" → {"transactions":[{"amount":20000,"type":"expense","category":"transport"}],"total_confidence":0.95}
+2. KATEGORIYALAR (faqat quyidagilardan birini ishlat):
+   - "ish haqi" = oylik, maosh, ish haqi, daromad (ishdan)
+   - "biznes" = biznes daromadi, savdo, sotish
+   - "ovqat" = ovqat, somsa, non, lavash, shashlik, kebab, pizza, burger, restoran, kafe, oziq-ovqat, taom, yegimlik, ichimlik, kofe, choy, gazak
+   - "transport" = taksi, avtobus, metro, mashina, benzin, yoqilg'i, transport
+   - "kiyim" = kiyim, ko'ylak, shim, poyabzal, oyoq kiyim
+   - "uy" = uy, kvartira, kommunal, elektr, gaz, suv, internet, telefon
+   - "sog'liq" = shifokor, dori, davolanish, sog'liq
+   - "ta'lim" = ta'lim, maktab, universitet, kurs, kitob
+   - "o'yin-kulgi" = kino, teatr, konsert, o'yin, sayr
+   - "boshqa" = boshqa barcha narsalar
+
+3. MISOLLAR (MUHIM - aniq tushunish uchun):
+   "80 ming ga somsa oldim" → {"transactions":[{"amount":80000,"type":"expense","category":"ovqat"}],"total_confidence":0.95}
+   "500 million oylik oldim" → {"transactions":[{"amount":500000000,"type":"income","category":"ish haqi"}],"total_confidence":0.95}
+   "100k xarajat" → {"transactions":[{"amount":100000,"type":"expense","category":"boshqa"}],"total_confidence":0.8}
+   "50 ming oziq" → {"transactions":[{"amount":50000,"type":"expense","category":"ovqat"}],"total_confidence":0.9}
+   "taksi 20k" → {"transactions":[{"amount":20000,"type":"expense","category":"transport"}],"total_confidence":0.95}
+   "non oldim 5 ming" → {"transactions":[{"amount":5000,"type":"expense","category":"ovqat"}],"total_confidence":0.95}
+   "lavash 15 ming" → {"transactions":[{"amount":15000,"type":"expense","category":"ovqat"}],"total_confidence":0.95}
+   "kofe ichdim 10 ming" → {"transactions":[{"amount":10000,"type":"expense","category":"ovqat"}],"total_confidence":0.95}
+   "restoranda ovqat yedim 200k" → {"transactions":[{"amount":200000,"type":"expense","category":"ovqat"}],"total_confidence":0.95}
+   "oylik tushdi 3 million" → {"transactions":[{"amount":3000000,"type":"income","category":"ish haqi"}],"total_confidence":0.95}
+
+4. E'TIBOR BERING:
+   - "oldim" so'zi kontekstga qarab: "somsa oldim" = expense, "oylik oldim" = income
+   - Ovqat so'zlari: somsa, non, lavash, shashlik, pizza, burger, kofe, choy → "ovqat"
+   - Ish haqi so'zlari: oylik, maosh, ish haqi → "ish haqi"
+   - Transport so'zlari: taksi, avtobus, benzin → "transport"
 
 FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"kategoriya"}],"total_confidence":0.9}"""
 
@@ -547,18 +574,115 @@ FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"ka
                 if trans_type not in ['income', 'expense', 'debt']:
                     continue
                 
-                # Category validatsiya
-                category = trans.get('category', 'boshqa')
+                # Category validatsiya va to'g'rilash
+                category = trans.get('category', 'boshqa').lower().strip()
                 valid_categories = [
                     'ovqat', 'transport', 'ish haqi', 'maosh', 'biznes', 'investitsiya',
                     'kiyim', 'uy', 'sog\'liq', 'ta\'lim', 'o\'yin-kulgi', 'boshqa'
                 ]
-                if category not in valid_categories:
-                    category = 'boshqa'
+                
+                # Kategoriya mapping - noto'g'ri kategoriyalarni to'g'rilash
+                category_mapping = {
+                    'ish haqi': 'ish haqi',
+                    'maosh': 'ish haqi',
+                    'oylik': 'ish haqi',
+                    'daromad': 'ish haqi' if trans_type == 'income' else 'boshqa',
+                    'ovqat': 'ovqat',
+                    'oziq': 'ovqat',
+                    'oziq-ovqat': 'ovqat',
+                    'taom': 'ovqat',
+                    'yegimlik': 'ovqat',
+                    'ichimlik': 'ovqat',
+                    'somsa': 'ovqat',
+                    'non': 'ovqat',
+                    'lavash': 'ovqat',
+                    'shashlik': 'ovqat',
+                    'kebab': 'ovqat',
+                    'pizza': 'ovqat',
+                    'burger': 'ovqat',
+                    'restoran': 'ovqat',
+                    'kafe': 'ovqat',
+                    'kofe': 'ovqat',
+                    'choy': 'ovqat',
+                    'gazak': 'ovqat',
+                    'transport': 'transport',
+                    'taksi': 'transport',
+                    'avtobus': 'transport',
+                    'metro': 'transport',
+                    'mashina': 'transport',
+                    'benzin': 'transport',
+                    'yoqilg\'i': 'transport',
+                    'kiyim': 'kiyim',
+                    'uy': 'uy',
+                    'kvartira': 'uy',
+                    'kommunal': 'uy',
+                    'elektr': 'uy',
+                    'gaz': 'uy',
+                    'suv': 'uy',
+                    'internet': 'uy',
+                    'telefon': 'uy',
+                    'sog\'liq': 'sog\'liq',
+                    'shifokor': 'sog\'liq',
+                    'dori': 'sog\'liq',
+                    'davolanish': 'sog\'liq',
+                    'ta\'lim': 'ta\'lim',
+                    'maktab': 'ta\'lim',
+                    'universitet': 'ta\'lim',
+                    'kurs': 'ta\'lim',
+                    'kitob': 'ta\'lim',
+                    'o\'yin-kulgi': 'o\'yin-kulgi',
+                    'kino': 'o\'yin-kulgi',
+                    'teatr': 'o\'yin-kulgi',
+                    'konsert': 'o\'yin-kulgi',
+                    'o\'yin': 'o\'yin-kulgi',
+                    'sayr': 'o\'yin-kulgi',
+                    'biznes': 'biznes',
+                    'savdo': 'biznes',
+                    'investitsiya': 'investitsiya',
+                    'boshqa': 'boshqa'
+                }
+                
+                # Kategoriyani to'g'rilash
+                if category in category_mapping:
+                    category = category_mapping[category]
+                elif category not in valid_categories:
+                    # Agar kategoriya noto'g'ri bo'lsa, original_text dan kategoriyani aniqlashga harakat qilamiz
+                    original_text_lower = original_text.lower()
+                    if any(word in original_text_lower for word in ['somsa', 'non', 'lavash', 'shashlik', 'kebab', 'pizza', 'burger', 'restoran', 'kafe', 'kofe', 'choy', 'gazak', 'oziq', 'taom', 'yegimlik', 'ichimlik']):
+                        category = 'ovqat'
+                    elif any(word in original_text_lower for word in ['taksi', 'avtobus', 'metro', 'mashina', 'benzin', 'yoqilg\'i']):
+                        category = 'transport'
+                    elif any(word in original_text_lower for word in ['oylik', 'maosh', 'ish haqi']) and trans_type == 'income':
+                        category = 'ish haqi'
+                    else:
+                        category = 'boshqa'
                 
                 # "maosh" ni "ish haqi" ga aylantirish
                 if category == 'maosh':
                     category = 'ish haqi'
+                
+                # Type va category mosligini tekshirish va to'g'rilash
+                original_text_lower = original_text.lower()
+                
+                # Agar income bo'lsa va kategoriya ovqat bo'lsa, bu noto'g'ri - expense bo'lishi kerak
+                if trans_type == 'income' and category == 'ovqat':
+                    # Original text dan qarab, agar ovqat so'zi bor bo'lsa, expense bo'lishi kerak
+                    if any(word in original_text_lower for word in ['somsa', 'non', 'lavash', 'shashlik', 'kebab', 'pizza', 'burger', 'restoran', 'kafe', 'kofe', 'choy', 'gazak', 'oziq', 'taom', 'yegimlik', 'ichimlik']):
+                        trans_type = 'expense'
+                        category = 'ovqat'
+                
+                # Agar "oldim" so'zi bor va ovqat so'zi bor bo'lsa, expense bo'lishi kerak
+                if trans_type == 'income' and 'oldim' in original_text_lower:
+                    if any(word in original_text_lower for word in ['somsa', 'non', 'lavash', 'shashlik', 'kebab', 'pizza', 'burger', 'restoran', 'kafe', 'kofe', 'choy', 'gazak', 'oziq', 'taom', 'yegimlik', 'ichimlik']):
+                        trans_type = 'expense'
+                        category = 'ovqat'
+                
+                # Agar "ish haqi" kategoriyasi bo'lsa va type expense bo'lsa, bu noto'g'ri - income bo'lishi kerak
+                if trans_type == 'expense' and category == 'ish haqi':
+                    # Original text dan qarab, agar "oylik", "maosh", "ish haqi" so'zlari bor bo'lsa, income bo'lishi kerak
+                    if any(word in original_text_lower for word in ['oylik', 'maosh', 'ish haqi', 'tushdi', 'oldim']):
+                        trans_type = 'income'
+                        category = 'ish haqi'
                 
                 # Description validatsiya - AI description kiritmaydi, shuning uchun avtomatik qo'shamiz
                 description = trans.get('description', '').strip()
