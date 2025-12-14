@@ -36,6 +36,7 @@ from database import db
 from financial_module import FinancialModule
 from reports_module import ReportsModule
 from ai_chat import AIChat, AIChatFree
+from warehouse_module import WarehouseModule
 
 # Bot va dispatcher
 bot = Bot(token=BOT_TOKEN)
@@ -46,6 +47,7 @@ financial_module = FinancialModule()
 reports_module = ReportsModule()
 ai_chat = AIChat(db=db)
 ai_chat_free = AIChatFree(db=db)
+warehouse_module = WarehouseModule(db=db, ai_chat=ai_chat)
 
 # Admin panelga ruxsat berilgan ID
 ADMIN_USER_ID = 6429299277
@@ -202,7 +204,8 @@ def get_business_tariff_keyboard() -> InlineKeyboardMarkup:
     # Compact keyboard - qatorlar orasidagi joy kamaytirildi
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Biznes", callback_data="tariff_BUSINESS"), InlineKeyboardButton(text="Biznes Plus", callback_data="tariff_BUSINESS_PLUS_INFO")],
-        [InlineKeyboardButton(text="Biznes Max", callback_data="tariff_BUSINESS_MAX_INFO")]
+        [InlineKeyboardButton(text="Biznes Max", callback_data="tariff_BUSINESS_MAX_INFO")],
+        [InlineKeyboardButton(text="🧪 Test rejimida aktiv qilish", callback_data="test_activate_BUSINESS")]
     ])
 
 def get_family_overview_text() -> str:
@@ -281,9 +284,11 @@ def get_tariff_detail_text(tariff_code: str) -> str:
         return (
             "🏢 **Business — 99 990 so'm/oy**\n\n"
             "Funksiyalar:\n"
-            "✔️ Kichik biznes uchun\n"
-            "✔️ 1 boshliq + 1 xodim\n"
-            "✔️ Moliyaviy boshqaruvni avtomatlashtirish"
+            "✔️ Ombor boshqaruvi (Mini CRM)\n"
+            "✔️ Tovarlar, kirim/chiqim, AI tahlil\n"
+            "✔️ Xodimlar boshqaruvi\n"
+            "✔️ Moliyaviy boshqaruvni avtomatlashtirish\n\n"
+            "🧪 **Test rejimi:** Hozircha bepul sinab ko'ring!"
         )
     if tariff_code == "BUSINESS_PLUS":
         return (
@@ -355,6 +360,10 @@ class UserStates(StatesGroup):
     
     # Tur tanlash uchun state
     waiting_for_account_type = State()
+    
+    # Warehouse (Ombor) states
+    waiting_for_product_info = State()
+    waiting_for_warehouse_movement = State()
 
 # Onboarding holatlari (sinovchilar uchun)
 class OnboardingState(StatesGroup):
@@ -388,8 +397,8 @@ def get_premium_menu():
 def get_business_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="➕ Xodim qo'shish"), KeyboardButton(text="💳 Qarzlar")],
-            [KeyboardButton(text="📊 Hisobotlar")],
+            [KeyboardButton(text="📦 Ombor"), KeyboardButton(text="➕ Xodim qo'shish")],
+            [KeyboardButton(text="💳 Qarzlar"), KeyboardButton(text="📊 Hisobotlar")],
             [KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
@@ -1676,48 +1685,68 @@ async def process_account_type(callback_query: CallbackQuery, state: FSMContext)
         return
     
     if account_type == 'BIZNES':
-        # Biznes uchun rasmli xabar
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⚡ Aktivlashtirish", callback_data="activate_biznes")],
-            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_account_type")]
-        ])
+        # Biznes uchun to'g'ridan-to'g'ri Business tarifini aktivlashtirish
+        from datetime import datetime, timedelta
         
-        # Xabarni yangilash
         try:
-            await callback_query.message.edit_caption(
-                caption=(
-                    "🏢 **Biznes Rejimi**\n\n"
-                    "Biznes rejimida kichik va o'rta bizneslarni boshqarishingiz mumkin.\n\n"
-                    "✨ **Imkoniyatlar:**\n"
-                    "• Xodimlar soni va ularning maoshlarini boshqarish\n"
-                    "• Do'kon va filyallarning daromadlarini monitoring qilish\n"
-                    "• Xarajatlar va foydaning tahlili\n"
-                    "• Bir nechta hisobni boshqarish\n"
-                    "• To'liq biznes hisobotlari\n\n"
-                    "⚡ **Tez orada ishga tushadi!**"
-                ),
-                reply_markup=keyboard,
+            # 30 kunlik test muddati
+            expires_at = datetime.now() + timedelta(days=30)
+            
+            # Users jadvalini yangilash - Business tarifini aktivlashtirish
+            await db.execute_query(
+                "UPDATE users SET tariff = %s, tariff_expires_at = %s WHERE user_id = %s",
+                ('BUSINESS', expires_at, user_id)
+            )
+            
+            # User subscriptions jadvaliga qo'shish
+            await db.execute_query(
+                "INSERT INTO user_subscriptions (user_id, tariff, is_active, expires_at) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE tariff = %s, is_active = %s, expires_at = %s",
+                (user_id, 'BUSINESS', True, expires_at, 'BUSINESS', True, expires_at)
+            )
+            
+            # Payments jadvaliga qo'shish (test uchun 0 so'm)
+            await db.execute_query(
+                "INSERT INTO payments (user_id, tariff, provider, total_amount, currency, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, NOW())",
+                (user_id, 'BUSINESS', 'onboarding_test', 0, 'UZS', 'paid')
+            )
+            
+            user_name = await get_user_name(user_id)
+            
+            # Muvaffaqiyatli xabar
+            try:
+                await callback_query.message.delete()
+            except:
+                pass
+            
+            await callback_query.message.answer(
+                f"✅ **Business tarif aktivlashtirildi!**\n\n"
+                f"Salom, {user_name}!\n\n"
+                f"🏢 **Business tarif** — 30 kun bepul sinov\n"
+                f"📅 Tugash sanasi: {expires_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+                f"✨ **Imkoniyatlar:**\n"
+                f"• 📦 Ombor boshqaruvi (Mini CRM)\n"
+                f"• Xodimlar soni va ularning maoshlarini boshqarish\n"
+                f"• Do'kon va filyallarning daromadlarini monitoring qilish\n"
+                f"• Xarajatlar va foydaning tahlili\n"
+                f"• AI yordamida biznes tahlillari\n"
+                f"• To'liq biznes hisobotlari\n\n"
+                f"Endi barcha Business funksiyalaridan foydalanishingiz mumkin!",
                 parse_mode='Markdown'
             )
-        except:
-            await callback_query.message.delete()
-            await callback_query.message.answer_photo(
-                photo=FSInputFile('tarifflar.png'),
-                caption=(
-                    "🏢 **Biznes Rejimi**\n\n"
-                    "Biznes rejimida kichik va o'rta bizneslarni boshqarishingiz mumkin.\n\n"
-                    "✨ **Imkoniyatlar:**\n"
-                    "• Xodimlar soni va ularning maoshlarini boshqarish\n"
-                    "• Do'kon va filyallarning daromadlarini monitoring qilish\n"
-                    "• Xarajatlar va foydaning tahlili\n"
-                    "• Bir nechta hisobni boshqarish\n"
-                    "• To'liq biznes hisobotlari\n\n"
-                    "⚡ **Tez orada ishga tushadi!**"
-                ),
-                reply_markup=keyboard,
-                parse_mode='Markdown'
+            
+            # Business menyusini ko'rsatish
+            await callback_query.message.answer(
+                "🏢 Business tarif menyusi:",
+                reply_markup=get_business_menu()
             )
-        await callback_query.answer()
+            
+            await callback_query.answer("✅ Business tarif aktivlashtirildi!")
+            await state.clear()
+            
+        except Exception as e:
+            logging.error(f"Business tarif aktivlashtirishda xatolik: {e}")
+            await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+        
         return
     
     # Shaxsiy tanlangan - xabarni o'chirish
@@ -3361,6 +3390,62 @@ async def switch_tariff_callback(callback_query: CallbackQuery):
         )
     await callback_query.answer()
 
+@dp.callback_query(lambda c: c.data.startswith("test_activate_"))
+async def test_activate_business_callback(callback_query: CallbackQuery):
+    """Test rejimida Business tarifini aktiv qilish"""
+    user_id = callback_query.from_user.id
+    tariff_code = callback_query.data.split("_")[2]
+    
+    if tariff_code != "BUSINESS":
+        await callback_query.answer("❌ Faqat Business tarif test rejimida mavjud", show_alert=True)
+        return
+    
+    try:
+        from datetime import datetime, timedelta
+        
+        # 1 oylik test muddati
+        expires_at = datetime.now() + timedelta(days=30)
+        
+        # Users jadvalini yangilash
+        await db.execute_query(
+            "UPDATE users SET tariff = %s, tariff_expires_at = %s WHERE user_id = %s",
+            (tariff_code, expires_at, user_id)
+        )
+        
+        # User subscriptions jadvaliga qo'shish
+        await db.execute_query(
+            "INSERT INTO user_subscriptions (user_id, tariff, is_active, expires_at) VALUES (%s, %s, %s, %s)",
+            (user_id, tariff_code, True, expires_at)
+        )
+        
+        # Payments jadvaliga qo'shish (test uchun 0 so'm)
+        await db.execute_query(
+            "INSERT INTO payments (user_id, tariff, provider, total_amount, currency, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, NOW())",
+            (user_id, tariff_code, 'test_mode', 0, 'UZS', 'paid')
+        )
+        
+        tariff_name = TARIFFS.get(tariff_code, tariff_code)
+        
+        await callback_query.message.edit_text(
+            f"✅ **{tariff_name} tarif aktivlashtirildi!**\n\n"
+            f"🧪 **Test rejimi:** 30 kun bepul\n"
+            f"📅 Tugash sanasi: {expires_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+            f"Endi barcha {tariff_name} imkoniyatlaridan foydalanishingiz mumkin!",
+            parse_mode='Markdown'
+        )
+        
+        # Business menyusini ko'rsatish
+        await callback_query.message.answer(
+            "🏢 Business tarif menyusi:",
+            reply_markup=get_business_menu()
+        )
+        
+        await callback_query.answer("✅ Tarif aktivlashtirildi!")
+        
+    except Exception as e:
+        logging.error(f"Test tarif aktivlashtirishda xatolik: {e}")
+        await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+
 @dp.callback_query(lambda c: c.data.startswith("activate_tariff_"))
 async def activate_tariff_callback(callback_query: CallbackQuery):
     """Tanlangan tarifni aktiv qilish"""
@@ -4377,6 +4462,32 @@ async def process_tariff_onboarding_only(callback_query: CallbackQuery, state: F
     await callback_query.answer()
 
 # Xodim qo'shish handler
+@dp.message(lambda message: message.text == "📦 Ombor")
+async def warehouse_menu_handler(message: types.Message, state: FSMContext):
+    """Ombor menyusi"""
+    user_id = message.from_user.id
+    user_tariff = await get_user_tariff(user_id)
+    
+    if user_tariff != "BUSINESS":
+        await message.answer("❌ Bu funksiya faqat Business tarif uchun mavjud.")
+        return
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Tovar qo'shish", callback_data="warehouse_add_product")],
+        [InlineKeyboardButton(text="📋 Tovarlar ro'yxati", callback_data="warehouse_list_products")],
+        [InlineKeyboardButton(text="📥 Kirim", callback_data="warehouse_movement_in"), 
+         InlineKeyboardButton(text="📤 Chiqim", callback_data="warehouse_movement_out")],
+        [InlineKeyboardButton(text="📊 Statistikalar", callback_data="warehouse_statistics")],
+        [InlineKeyboardButton(text="🤖 AI Tahlil", callback_data="warehouse_ai_analysis")]
+    ])
+    
+    await message.answer(
+        "📦 **Ombor boshqaruvi**\n\n"
+        "Quyidagi funksiyalardan foydalaning:",
+        reply_markup=keyboard,
+        parse_mode='Markdown'
+    )
+
 @dp.message(lambda message: message.text == "➕ Xodim qo'shish")
 async def add_employee_handler(message: types.Message, state: FSMContext):
     """Xodim qo'shish"""
@@ -4506,6 +4617,246 @@ async def reject_employee_invite(callback_query: CallbackQuery):
         parse_mode="Markdown"
     )
 
+# Warehouse (Ombor) callback handlerlar
+@dp.callback_query(lambda c: c.data.startswith("warehouse_"))
+async def warehouse_callback_handler(callback_query: CallbackQuery, state: FSMContext):
+    """Ombor callback handlerlari"""
+    user_id = callback_query.from_user.id
+    user_tariff = await get_user_tariff(user_id)
+    
+    if user_tariff != "BUSINESS":
+        await callback_query.answer("❌ Bu funksiya faqat Business tarif uchun mavjud.", show_alert=True)
+        return
+    
+    action = callback_query.data.replace("warehouse_", "")
+    
+    if action == "add_product":
+        await callback_query.message.edit_text(
+            "➕ **Tovar qo'shish**\n\n"
+            "Tovar ma'lumotlarini quyidagi formatda yuboring:\n\n"
+            "**Format:**\n"
+            "Nomi | Kategoriya | Narx | Soni | Min soni | Shtrix kod\n\n"
+            "**Misol:**\n"
+            "Non | Ovqat | 5000 | 100 | 20 | 1234567890\n\n"
+            "Yoki oddiy: \"Non 5000 so'm 100 ta\"",
+            parse_mode='Markdown'
+        )
+        await state.set_state(UserStates.waiting_for_product_info)
+        await callback_query.answer()
+    
+    elif action == "list_products":
+        products_text = await warehouse_module.get_products_list(user_id)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Orqaga", callback_data="warehouse_back")]
+        ])
+        await callback_query.message.edit_text(products_text, reply_markup=keyboard, parse_mode='Markdown')
+        await callback_query.answer()
+    
+    elif action == "movement_in":
+        products = await db.get_warehouse_products(user_id)
+        if not products:
+            await callback_query.answer("❌ Avval tovar qo'shing!", show_alert=True)
+            return
+        
+        keyboard_buttons = []
+        for product in products[:10]:  # Eng ko'p 10 ta
+            keyboard_buttons.append([InlineKeyboardButton(
+                text=f"{product['name']} (qoldiq: {product['quantity']})",
+                callback_data=f"warehouse_select_product_{product['id']}_in"
+            )])
+        keyboard_buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="warehouse_back")])
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        await callback_query.message.edit_text(
+            "📥 **Kirim qo'shish**\n\nTovarni tanlang:",
+            reply_markup=keyboard,
+            parse_mode='Markdown'
+        )
+        await callback_query.answer()
+    
+    elif action == "movement_out":
+        products = await db.get_warehouse_products(user_id)
+        if not products:
+            await callback_query.answer("❌ Avval tovar qo'shing!", show_alert=True)
+            return
+        
+        keyboard_buttons = []
+        for product in products[:10]:  # Eng ko'p 10 ta
+            keyboard_buttons.append([InlineKeyboardButton(
+                text=f"{product['name']} (qoldiq: {product['quantity']})",
+                callback_data=f"warehouse_select_product_{product['id']}_out"
+            )])
+        keyboard_buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="warehouse_back")])
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        await callback_query.message.edit_text(
+            "📤 **Chiqim qo'shish**\n\nTovarni tanlang:",
+            reply_markup=keyboard,
+            parse_mode='Markdown'
+        )
+        await callback_query.answer()
+    
+    elif action == "statistics":
+        stats_text = await warehouse_module.get_warehouse_statistics(user_id)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Orqaga", callback_data="warehouse_back")]
+        ])
+        await callback_query.message.edit_text(stats_text, reply_markup=keyboard, parse_mode='Markdown')
+        await callback_query.answer()
+    
+    elif action == "ai_analysis":
+        await callback_query.message.edit_text("🤖 AI tahlil qilmoqda...")
+        analysis_text = await warehouse_module.ai_warehouse_analysis(user_id)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Orqaga", callback_data="warehouse_back")]
+        ])
+        await callback_query.message.edit_text(analysis_text, reply_markup=keyboard, parse_mode='Markdown')
+        await callback_query.answer()
+    
+    elif action == "back":
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Tovar qo'shish", callback_data="warehouse_add_product")],
+            [InlineKeyboardButton(text="📋 Tovarlar ro'yxati", callback_data="warehouse_list_products")],
+            [InlineKeyboardButton(text="📥 Kirim", callback_data="warehouse_movement_in"), 
+             InlineKeyboardButton(text="📤 Chiqim", callback_data="warehouse_movement_out")],
+            [InlineKeyboardButton(text="📊 Statistikalar", callback_data="warehouse_statistics")],
+            [InlineKeyboardButton(text="🤖 AI Tahlil", callback_data="warehouse_ai_analysis")]
+        ])
+        await callback_query.message.edit_text(
+            "📦 **Ombor boshqaruvi**\n\n"
+            "Quyidagi funksiyalardan foydalaning:",
+            reply_markup=keyboard,
+            parse_mode='Markdown'
+        )
+        await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("warehouse_select_product_"))
+async def warehouse_select_product_handler(callback_query: CallbackQuery, state: FSMContext):
+    """Tovar tanlash va kirim/chiqim qo'shish"""
+    user_id = callback_query.from_user.id
+    parts = callback_query.data.split("_")
+    product_id = int(parts[3])
+    movement_type = parts[4]  # 'in' yoki 'out'
+    
+    product = await db.get_warehouse_product(product_id, user_id)
+    if not product:
+        await callback_query.answer("❌ Tovar topilmadi!", show_alert=True)
+        return
+    
+    await state.update_data(warehouse_product_id=product_id, warehouse_movement_type=movement_type)
+    
+    movement_text = "Kirim" if movement_type == "in" else "Chiqim"
+    await callback_query.message.edit_text(
+        f"📥 **{movement_text} qo'shish**\n\n"
+        f"📦 Tovar: {product['name']}\n"
+        f"📊 Hozirgi qoldiq: {product['quantity']}\n\n"
+        f"Miqdor va narxni yuboring:\n\n"
+        f"**Format:**\n"
+        f"Miqdor | Narx (so'm)\n\n"
+        f"**Misol:**\n"
+        f"50 | 5000\n\n"
+        f"Yoki oddiy: \"50 ta 5000 so'm\"",
+        parse_mode='Markdown'
+    )
+    await state.set_state(UserStates.waiting_for_warehouse_movement)
+    await callback_query.answer()
+
+@dp.message(UserStates.waiting_for_product_info)
+async def process_product_info(message: types.Message, state: FSMContext):
+    """Tovar ma'lumotlarini qabul qilish"""
+    user_id = message.from_user.id
+    text = message.text.strip()
+    
+    # Oddiy format: "Non 5000 so'm 100 ta"
+    # Yoki: "Non | Ovqat | 5000 | 100 | 20 | 1234567890"
+    
+    try:
+        # AI orqali tovar ma'lumotlarini ajratish
+        # Oddiy parsing
+        parts = text.split("|")
+        if len(parts) >= 4:
+            name = parts[0].strip()
+            category = parts[1].strip() if len(parts) > 1 else None
+            price = float(parts[2].strip().replace("so'm", "").replace(" ", ""))
+            quantity = int(parts[3].strip().replace("ta", "").replace(" ", ""))
+            min_quantity = int(parts[4].strip()) if len(parts) > 4 and parts[4].strip() else 0
+            barcode = parts[5].strip() if len(parts) > 5 and parts[5].strip() else None
+        else:
+            # Oddiy format parsing
+            import re
+            name_match = re.search(r'^([^0-9]+)', text)
+            name = name_match.group(1).strip() if name_match else text.split()[0]
+            
+            price_match = re.search(r'(\d+)\s*so\'?m', text, re.IGNORECASE)
+            price = float(price_match.group(1)) if price_match else 0
+            
+            quantity_match = re.search(r'(\d+)\s*ta', text, re.IGNORECASE)
+            quantity = int(quantity_match.group(1)) if quantity_match else 0
+            
+            category = None
+            min_quantity = 0
+            barcode = None
+        
+        result = await warehouse_module.add_product(
+            user_id, name, category, barcode, price, quantity, min_quantity
+        )
+        
+        await message.answer(result['message'], parse_mode='Markdown')
+        await state.clear()
+        
+    except Exception as e:
+        logging.error(f"Tovar qo'shishda xatolik: {e}")
+        await message.answer(f"❌ Xatolik: {str(e)}\n\nIltimos, to'g'ri formatda yuboring.")
+
+@dp.message(UserStates.waiting_for_warehouse_movement)
+async def process_warehouse_movement(message: types.Message, state: FSMContext):
+    """Kirim/chiqim ma'lumotlarini qabul qilish"""
+    user_id = message.from_user.id
+    text = message.text.strip()
+    data = await state.get_data()
+    product_id = data.get('warehouse_product_id')
+    movement_type = data.get('warehouse_movement_type')
+    
+    if not product_id or not movement_type:
+        await message.answer("❌ Xatolik yuz berdi. Qayta urinib ko'ring.")
+        await state.clear()
+        return
+    
+    try:
+        # Format: "50 | 5000" yoki "50 ta 5000 so'm"
+        import re
+        parts = text.split("|")
+        if len(parts) >= 2:
+            quantity = int(parts[0].strip().replace("ta", "").replace(" ", ""))
+            unit_price = float(parts[1].strip().replace("so'm", "").replace(" ", ""))
+        else:
+            quantity_match = re.search(r'(\d+)\s*ta', text, re.IGNORECASE)
+            quantity = int(quantity_match.group(1)) if quantity_match else 0
+            
+            price_match = re.search(r'(\d+)\s*so\'?m', text, re.IGNORECASE)
+            unit_price = float(price_match.group(1)) if price_match else None
+        
+        if quantity <= 0:
+            await message.answer("❌ Miqdor 0 dan katta bo'lishi kerak!")
+            return
+        
+        result = await warehouse_module.add_movement(
+            user_id, product_id, movement_type, quantity, unit_price
+        )
+        
+        await message.answer(result['message'], parse_mode='Markdown')
+        
+        # Kam qolgan tovarlar haqida bildirishnoma
+        alert = await warehouse_module.get_low_stock_alert(user_id)
+        if alert:
+            await message.answer(alert, parse_mode='Markdown')
+        
+        await state.clear()
+        
+    except Exception as e:
+        logging.error(f"Kirim/chiqim qo'shishda xatolik: {e}")
+        await message.answer(f"❌ Xatolik: {str(e)}\n\nIltimos, to'g'ri formatda yuboring.")
+
 @dp.callback_query(lambda c: c.data == "leave_team")
 async def leave_team_callback(callback_query: CallbackQuery):
     """Jamoadan chiqish"""
@@ -4615,7 +4966,28 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         
         # PLUS uchun financial_module orqali qayta ishlaymiz
         text = message.text
-        result = await financial_module.process_ai_input_advanced(text, user_id)
+        
+        # 1. Tranzaksiya va eslatma parallel tekshiriladi (ikkalasi ham bir vaqtda)
+        import asyncio
+        
+        # Parallel ishlash uchun task'lar yaratamiz
+        transaction_task = asyncio.create_task(financial_module.process_ai_input_advanced(text, user_id))
+        reminder_task = asyncio.create_task(ai_chat.detect_and_save_reminder(user_id, text))
+        
+        # Ikkalasini ham kutamiz
+        result, reminder_result = await asyncio.gather(transaction_task, reminder_task, return_exceptions=True)
+        
+        # Exception handling
+        if isinstance(result, Exception):
+            logging.error(f"Tranzaksiya aniqlashda xatolik: {result}")
+            result = {'success': False}
+        if isinstance(reminder_result, Exception):
+            logging.error(f"Eslatma aniqlashda xatolik: {reminder_result}")
+            reminder_result = None
+        
+        # Debug logging
+        logging.info(f"Transaction result: {result}")
+        logging.info(f"Reminder result: {reminder_result}")
         
         # Processing xabarni o'chirish
         try:
@@ -4623,42 +4995,73 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         except:
             pass
         
+        # 3. Natijalarni qayta ishlash
+        has_transaction = result.get('success') and 'transaction_data' in result and result['transaction_data'].get('transactions')
+        # Eslatma aniqlanganmi tekshirish - 'id' yoki 'message' bor bo'lsa, eslatma aniqlangan
+        has_reminder = reminder_result is not None and (reminder_result.get('id') or reminder_result.get('message'))
+        
+        # Usage ni faqat tranzaksiya yoki eslatma aniqlangan bo'lsa kamaytiramiz
         latest_summary = package_summary
-        if result.get('success'):
+        if has_transaction or has_reminder:
             incremented, updated_package = await db.increment_plus_usage(user_id, 'text')
             if incremented and updated_package:
                 latest_summary = updated_package
+        
         usage_note = f"\n\n📦 Paket qoldiq: {format_plus_usage_display(latest_summary)} (text/voice)"
         
-        if result.get('success'):
-            # Agar tranzaksiya tasdiqlangan bo'lsa, tugmalar bilan yuborish
-            if 'transaction_data' in result:
-                # State ga transaction_data ni saqlash
-                await state.update_data(transaction_data=result['transaction_data'])
-                
-                transaction_type = result.get('type', '')
-                buttons = financial_module.generate_transaction_buttons({
-                    'transactions': result['transaction_data'].get('transactions', []),
-                    'type': transaction_type
-                })
-                
-                response_message = (result.get('message') or '') + usage_note
-                if buttons:
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text=btn['text'], callback_data=btn['callback_data'])] 
-                        for row in buttons for btn in row
-                    ])
-                    # Javob va tugmalar bir xabarda
-                    await message.answer(response_message, parse_mode='Markdown', reply_markup=keyboard)
-                else:
-                    await message.answer(response_message, parse_mode='Markdown')
+        if has_transaction and has_reminder:
+            # Ikkalasi ham bo'lsa - tranzaksiya va eslatma
+            transaction_type = result.get('type', '')
+            buttons = financial_module.generate_transaction_buttons({
+                'transactions': result['transaction_data'].get('transactions', []),
+                'type': transaction_type
+            })
+            
+            reminder_msg = reminder_result.get('message', '')
+            response_message = f"{result.get('message', '')}\n\n{reminder_msg}" + usage_note
+            
+            if buttons:
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=btn['text'], callback_data=btn['callback_data'])] 
+                    for row in buttons for btn in row
+                ])
+                await message.answer(response_message, parse_mode='Markdown', reply_markup=keyboard)
             else:
-                response_message = (result.get('message') or '') + usage_note
                 await message.answer(response_message, parse_mode='Markdown')
+        elif has_transaction:
+            # Faqat tranzaksiya
+            transaction_type = result.get('type', '')
+            buttons = financial_module.generate_transaction_buttons({
+                'transactions': result['transaction_data'].get('transactions', []),
+                'type': transaction_type
+            })
+            
+            response_message = (result.get('message') or '') + usage_note
+            if buttons:
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=btn['text'], callback_data=btn['callback_data'])] 
+                    for row in buttons for btn in row
+                ])
+                await message.answer(response_message, parse_mode='Markdown', reply_markup=keyboard)
+            else:
+                await message.answer(response_message, parse_mode='Markdown')
+        elif has_reminder:
+            # Faqat eslatma
+            reminder_msg = reminder_result.get('message', '')
+            response_message = reminder_msg + usage_note
+            await message.answer(response_message, parse_mode='Markdown')
         else:
-            # Xatolik xabari
-            error_message = result.get('message', '❌ Xatolik yuz berdi.')
-            await message.answer(error_message + usage_note, parse_mode='Markdown')
+            # Hech narsa aniqlanmadi - aniq xabar
+            await message.answer(
+                "❌ **Eslatma ham, tranzaksiya ham aniqlanmadi.**\n\n"
+                "Iltimos, quyidagilardan birini aniq ko'rsating:\n"
+                "• 💰 **Moliyaviy ma'lumot** (kirim/chiqim/qarz)\n"
+                "• 📅 **Eslatma** (uchrashuv, tadbir, vazifa)\n\n"
+                "Masalan:\n"
+                "• \"100 000 so'mga non oldim\" - tranzaksiya\n"
+                "• \"Ertaga 12:00 da meeting bor\" - eslatma" + usage_note,
+                parse_mode='Markdown'
+            )
         
         return
     
@@ -4689,7 +5092,52 @@ async def process_financial_message(message: types.Message, state: FSMContext):
     
     try:
         if user_tariff in ['PRO', 'MAX']:
+            # 1. Avval tranzaksiyani aniqlashga harakat qilamiz (financial_module orqali)
+            financial_result = await financial_module.process_ai_input_advanced(text, user_id)
+            has_transaction = financial_result.get('success') and 'transaction_data' in financial_result
+            
+            # 2. Eslatmani aniqlashga harakat qilamiz (ai_chat.generate_response ichida ham chaqiriladi, lekin bu yerda ham tekshiramiz)
+            reminder_result = None
+            if not has_transaction:
+                # Eslatma aniqlash uchun AI chat dan foydalanamiz
+                reminder_result = await ai_chat.detect_and_save_reminder(user_id, text)
+            
+            has_reminder = reminder_result is not None
+            
+            # 3. Agar tranzaksiya yoki eslatma aniqlangan bo'lsa, ularni ko'rsatamiz
+            if has_transaction:
+                # Tranzaksiya aniqlangan
+                transaction_type = financial_result.get('type', '')
+                buttons = financial_module.generate_transaction_buttons({
+                    'transactions': financial_result['transaction_data'].get('transactions', []),
+                    'type': transaction_type
+                })
+                
+                await state.update_data(transaction_data=financial_result['transaction_data'])
+                
+                response_message = financial_result.get('message', '')
+                if has_reminder:
+                    reminder_msg = reminder_result.get('message', '')
+                    response_message += f"\n\n{reminder_msg}"
+                
+                if buttons:
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text=btn['text'], callback_data=btn['callback_data'])] 
+                        for row in buttons for btn in row
+                    ])
+                    await message.answer(response_message, parse_mode='Markdown', reply_markup=keyboard)
+                else:
+                    await message.answer(response_message, parse_mode='Markdown')
+                return
+            elif has_reminder:
+                # Faqat eslatma aniqlangan
+                reminder_msg = reminder_result.get('message', '')
+                await message.answer(reminder_msg, parse_mode='Markdown')
+                return
+            
+            # 4. Agar hech narsa aniqlanmagan bo'lsa, AI chat javob beradi
             # PRO/MAX tariflar uchun HAR QANDAY mavzu uchun AI chat - 100% AI Generate
+            # (ai_chat.generate_response ichida detect_and_save_reminder ham chaqiriladi)
             ai_messages = await ai_chat.generate_response(user_id, text)
             
             # Pro userlar uchun emoji reaksiya (moliyadan yiroq mavzular uchun)
@@ -6118,29 +6566,20 @@ async def send_daily_reports():
             await asyncio.sleep(3600)  # 1 soat kutish va qayta urinish
 
 async def send_reminders():
-    """Eslatmalarni yuborish - har kuni 09:00 da (reminders jadvalidan)"""
+    """DONA AI Eslatmalar tizimi - har minutda tekshirish
+    
+    2 ta bildirishnoma yuboriladi:
+    1. Tadbirdan 30 minut oldin
+    2. Tadbir vaqtida
+    """
     while True:
         try:
-            from datetime import datetime, time
-            now = datetime.now()
+            from datetime import datetime, time as dt_time
             
-            # Ertalab 09:00 da eslatmalarni yuborish
-            target_hour = 9
-            target_minute = 0
+            # 30 minut oldin bildirishnomalar
+            reminders_30min = await db.get_reminders_for_30min_notification()
             
-            # Keyingi 09:00 ni hisoblash
-            next_run = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
-            if now.hour >= target_hour or (now.hour == target_hour and now.minute >= target_minute):
-                next_run += timedelta(days=1)
-            
-            # Keyingi ishlash vaqtigacha kutish
-            wait_seconds = (next_run - now).total_seconds()
-            await asyncio.sleep(wait_seconds)
-            
-            # Bugungi eslatmalarni olish
-            reminders = await db.get_today_reminders()
-            
-            for reminder_row in reminders:
+            for reminder_row in reminders_30min:
                 try:
                     # Reminder ma'lumotlarini olish
                     if isinstance(reminder_row, tuple):
@@ -6154,6 +6593,8 @@ async def send_reminders():
                         amount = reminder_row[7]
                         currency = reminder_row[8]
                         person_name = reminder_row[9]
+                        location = reminder_row[10] if len(reminder_row) > 10 else None
+                        user_name = reminder_row[-1] if len(reminder_row) > 15 else None
                     else:
                         reminder_id = reminder_row.get('id')
                         user_id = reminder_row.get('user_id')
@@ -6165,36 +6606,134 @@ async def send_reminders():
                         amount = reminder_row.get('amount')
                         currency = reminder_row.get('currency')
                         person_name = reminder_row.get('person_name')
+                        location = reminder_row.get('location')
+                        user_name = reminder_row.get('user_name')
                     
-                    # Eslatma xabari
-                    message = f"🔔 **Eslatma:** {title}\n\n"
-                    if description:
-                        message += f"{description}\n\n"
+                    # Vaqtni formatlash
+                    time_str = str(reminder_time)[:5] if reminder_time else "09:00"
+                    
+                    # 30 minut oldin eslatma xabari
+                    message = f"⏰ **30 daqiqa qoldi!**\n\n"
+                    message += f"📌 {title}\n"
                     if person_name:
-                        message += f"👤 {person_name}\n"
-                    if amount:
-                        message += f"💰 {amount:,.0f} {currency}\n"
-                    
-                    # Eslatma turiga qarab xabar
-                    type_messages = {
-                        'debt_give': 'Qarz berish kerak',
-                        'debt_receive': 'Qarz olish kerak',
-                        'payment': 'To\'lov qilish kerak',
-                        'other': 'Eslatma'
-                    }
-                    message += f"\n📅 {type_messages.get(reminder_type, 'Eslatma')}"
+                        message += f"👤 {person_name} bilan\n"
+                    if location:
+                        message += f"📍 {location}\n"
+                    message += f"🕐 Soat {time_str} da\n"
+                    if description:
+                        message += f"\n📝 {description[:200]}\n"
+                    if amount and float(amount) > 0:
+                        message += f"\n💰 {float(amount):,.0f} {currency or 'UZS'}\n"
                     
                     await bot.send_message(user_id, message, parse_mode='Markdown')
                     
-                    await asyncio.sleep(0.5)
+                    # Bildirishnoma yuborilganini belgilash
+                    await db.mark_notification_30min_sent(reminder_id)
+                    
+                    await asyncio.sleep(0.3)
                     
                 except Exception as e:
-                    logging.error(f"Error sending reminder {reminder_id}: {e}")
+                    logging.error(f"Error sending 30min reminder {reminder_id}: {e}")
                     continue
+            
+            # Aniq vaqtda bildirishnomalar
+            reminders_exact = await db.get_reminders_for_exact_notification()
+            
+            for reminder_row in reminders_exact:
+                try:
+                    # Reminder ma'lumotlarini olish
+                    if isinstance(reminder_row, tuple):
+                        reminder_id = reminder_row[0]
+                        user_id = reminder_row[1]
+                        reminder_type = reminder_row[2]
+                        title = reminder_row[3]
+                        description = reminder_row[4]
+                        reminder_date = reminder_row[5]
+                        reminder_time = reminder_row[6]
+                        amount = reminder_row[7]
+                        currency = reminder_row[8]
+                        person_name = reminder_row[9]
+                        location = reminder_row[10] if len(reminder_row) > 10 else None
+                        is_recurring = reminder_row[11] if len(reminder_row) > 11 else False
+                        recurrence_pattern = reminder_row[12] if len(reminder_row) > 12 else None
+                    else:
+                        reminder_id = reminder_row.get('id')
+                        user_id = reminder_row.get('user_id')
+                        reminder_type = reminder_row.get('reminder_type')
+                        title = reminder_row.get('title')
+                        description = reminder_row.get('description')
+                        reminder_date = reminder_row.get('reminder_date')
+                        reminder_time = reminder_row.get('reminder_time')
+                        amount = reminder_row.get('amount')
+                        currency = reminder_row.get('currency')
+                        person_name = reminder_row.get('person_name')
+                        location = reminder_row.get('location')
+                        is_recurring = reminder_row.get('is_recurring', False)
+                        recurrence_pattern = reminder_row.get('recurrence_pattern')
+                    
+                    # Eslatma turiga qarab emoji
+                    type_emojis = {
+                        'meeting': '🤝',
+                        'event': '🎉',
+                        'task': '📋',
+                        'debt_give': '💸',
+                        'debt_receive': '💰',
+                        'payment': '💳',
+                        'other': '🔔'
+                    }
+                    emoji = type_emojis.get(reminder_type, '🔔')
+                    
+                    # Eslatma turiga qarab xabar
+                    type_messages = {
+                        'meeting': 'Uchrashuv vaqti keldi',
+                        'event': 'Tadbir vaqti keldi',
+                        'task': 'Vazifa vaqti keldi',
+                        'debt_give': 'Qarz berish vaqti',
+                        'debt_receive': 'Qarz olish vaqti',
+                        'payment': 'To\'lov vaqti',
+                        'other': 'Eslatma vaqti'
+                    }
+                    
+                    # Aniq vaqtda eslatma xabari
+                    message = f"{emoji} **{type_messages.get(reminder_type, 'Eslatma vaqti')}!**\n\n"
+                    message += f"📌 {title}\n"
+                    if person_name:
+                        message += f"👤 {person_name} bilan\n"
+                    if location:
+                        message += f"📍 {location}\n"
+                    if description:
+                        message += f"\n📝 {description[:200]}\n"
+                    if amount and float(amount) > 0:
+                        message += f"\n💰 {float(amount):,.0f} {currency or 'UZS'}\n"
+                    
+                    # Takrorlanadigan eslatma uchun
+                    if is_recurring:
+                        message += "\n🔄 Takrorlanadigan eslatma"
+                    
+                    await bot.send_message(user_id, message, parse_mode='Markdown')
+                    
+                    # Bildirishnoma yuborilganini belgilash
+                    await db.mark_notification_exact_sent(reminder_id)
+                    
+                    # Agar takrorlanadigan eslatma bo'lsa, keyingi eslatmani yaratish
+                    if is_recurring:
+                        try:
+                            await db.create_next_recurring_reminder(reminder_id)
+                        except Exception as e:
+                            logging.error(f"Error creating next recurring reminder: {e}")
+                    
+                    await asyncio.sleep(0.3)
+                    
+                except Exception as e:
+                    logging.error(f"Error sending exact reminder {reminder_id}: {e}")
+                    continue
+            
+            # Har minutda tekshirish
+            await asyncio.sleep(60)
                     
         except Exception as e:
             logging.error(f"Error in reminders task: {e}")
-            await asyncio.sleep(3600)
+            await asyncio.sleep(60)
 
 async def send_daily_reminder_9am():
     """Har kuni 9:00 da barcha userlar uchun tranzaksiya eslatmasi"""
@@ -6415,13 +6954,29 @@ async def main():
     """Asosiy dastur - bot va background tasklarni ishga tushirish"""
     try:
         print("🚀 Bot ishga tushmoqda...")
-        # Background tasklarni ishga tushirish
+        
+        # Avval database pool yaratish
+        print("📊 Ma'lumotlar bazasini ulash...")
+        await db.create_pool()
+        print("✅ Ma'lumotlar bazasi ulandi!")
+        
+        print("📋 Jadvallarni yaratish...")
+        await db.create_tables()
+        print("✅ Jadvallar yaratildi!")
+        
+        print("⚙️ Sozlamalarni yuklash...")
+        await load_config_from_db()
+        print("✅ Sozlamalar bazadan yuklandi!")
+        
+        # Database pool yaratilgandan keyin background tasklarni ishga tushirish
         asyncio.create_task(send_daily_reports())  # Pro userlar uchun kechki 21:00
         asyncio.create_task(send_reminders())  # Eslatmalar 09:00
         asyncio.create_task(send_daily_reminder_9am())  # Har kuni 9:00 da tranzaksiya eslatmasi
         asyncio.create_task(send_daily_analysis_midnight())  # Har kuni 00:00 da kun tahlili
-        # Botni ishga tushirish
-        await start_bot()
+        
+        # Botni ishga tushirish (blocking)
+        print("🤖 Bot polling ni boshlash...")
+        await dp.start_polling(bot)
     except Exception as e:
         print(f"❌ Bot ishga tushishda xatolik: {e}")
         logging.error(f"Bot startup xatolik: {e}")

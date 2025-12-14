@@ -926,7 +926,13 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
         return self._split_response_smart(response, "")
     
     async def detect_and_save_reminder(self, user_id: int, message: str) -> Optional[Dict]:
-        """Xabardan eslatmani aniqlash va saqlash - AI orqali"""
+        """Xabardan eslatmani aniqlash va saqlash - AI orqali (DONA AI)
+        
+        Misol xabarlar:
+        - "Ertaga soat 11:00 do'stim bilan Hamkor bankka boramiz"
+        - "Har dushanba 19:00 darsim bor"
+        - "28-dekabr mijoz bilan uchrashuv"
+        """
         try:
             from datetime import datetime, timedelta
             import re
@@ -934,58 +940,94 @@ JSON: {"person": "Do'st", "amount": 500000, "due_date": null}"""
             # Tarifni tekshirish
             tariff = await self.db.get_active_tariff(user_id)
             
-            # Plus va Pro uchun faqat qarz eslatmalari
-            if tariff == 'PLUS':
-                # Plus uchun faqat qarz eslatmalarini qidirish
-                reminder_prompt = f"""Xabardan qarz eslatmasini aniqlash:
-"{message}"
-
-Agar xabarda qarz olish yoki berish haqida eslatma bo'lsa, JSON qaytaring:
-{{"has_reminder": true, "reminder_type": "debt_give" yoki "debt_receive", "person_name": "ism", "amount": N, "currency": "UZS" yoki "$", "date": "2024-01-15", "title": "qisqa sarlavha"}}
-
-Agar eslatma bo'lmasa: {{"has_reminder": false}}
-Faqat JSON qaytaring, hech qanday matn emas."""
-            
-            # Pro uchun barcha eslatmalar
-            elif tariff == 'PRO':
-                reminder_prompt = f"""Xabardan eslatmani aniqlash:
-"{message}"
-
-Agar xabarda eslatma bo'lsa (qarz, to'lov, boshqa), JSON qaytaring:
-{{"has_reminder": true, "reminder_type": "debt_give"|"debt_receive"|"payment"|"other", "person_name": "ism", "amount": N, "currency": "UZS"|"$", "date": "2024-01-15", "title": "qisqa sarlavha", "description": "tavsif"}}
-
-Eslatma turlari:
-- debt_give: Boshqaga qarz berish kerak
-- debt_receive: Boshqadan qarz olish kerak
-- payment: To'lov (kommunal, boshqa)
-- other: Boshqa eslatma
-
-Sana formatlar: "bugun", "ertaga", "5 kundan keyin", "15 yanvar", "2024-01-15"
-
-Agar eslatma bo'lmasa: {{"has_reminder": false}}
-Faqat JSON qaytaring."""
-            else:
+            # Plus va Pro uchun eslatmalar
+            if tariff not in ('PLUS', 'PRO'):
                 # Free tarif uchun eslatma yo'q
                 return None
             
-            def call_openai():
-                try:
-                    response = openai_client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[
-                            {"role": "system", "content": "Sen moliyaviy eslatmalarni aniqlaydigan AI yordamchisisiz. Faqat JSON qaytarasan."},
-                            {"role": "user", "content": reminder_prompt}
-                        ],
-                        max_tokens=150,
-                        temperature=0.0
-                    )
-                    return response.choices[0].message.content
-                except Exception as e:
-                    logger.error(f"Error calling OpenAI for reminder: {e}")
-                    return None
+            # DONA AI eslatma prompt - sana, vaqt, joy, shaxs, vazifani ajratish
+            today = datetime.now()
+            current_date = today.strftime('%Y-%m-%d')
+            current_time = today.strftime('%H:%M')
+            weekday_names = ['dushanba', 'seshanba', 'chorshanba', 'payshanba', 'juma', 'shanba', 'yakshanba']
+            current_weekday = weekday_names[today.weekday()]
             
-            loop = asyncio.get_event_loop()
-            ai_response = await loop.run_in_executor(None, call_openai)
+            # Sana hisoblash
+            tomorrow = (today + timedelta(days=1))
+            tomorrow_str = tomorrow.strftime('%Y-%m-%d')
+            
+            reminder_prompt = f"""Xabardan eslatma bor-yo'qligini aniqlab, agar bor bo'lsa JSON qaytaring.
+
+XABAR: "{message}"
+
+BUGUNGI SANGA: {current_date} ({current_weekday})
+HOZIRGI VAQT: {current_time}
+
+MUHIM QOIDA: Agar xabarda vaqt (08:00, 12:00, soat 8) VA/YOKI sana (ertaga, bugun, keyin) VA/YOKI joy (Makrab, bank, do'kon) bo'lsa VA "borish", "ketish", "meeting", "uchrashuv", "dars" kabi so'zlar bo'lsa, bu ES LATMA!
+
+MISOL XABARLAR VA JAVOBI:
+
+1. "Ertaga 12:00 da meeting bor" 
+→ {{"has_reminder": true, "reminder_type": "meeting", "title": "Meeting", "date": "{tomorrow_str}", "time": "12:00", "location": null, "person_name": null}}
+
+2. "Ertaga 08:00 Makrabga borishim kerak eslatasan"
+→ {{"has_reminder": true, "reminder_type": "task", "title": "Makrabga borish", "date": "{tomorrow_str}", "time": "08:00", "location": "Makrab", "person_name": null}}
+
+3. "100 000 so'mga non oldim"
+→ {{"has_reminder": false}}
+
+AGAR ES LATMA BOR BO'LSA, QUYIDAGI JSON QAYTARING:
+{{
+  "has_reminder": true,
+  "reminder_type": "meeting|event|task|debt_give|debt_receive|payment|other",
+  "title": "qisqa sarlavha (max 50 belgi)",
+  "description": "batafsil tavsif",
+  "date": "YYYY-MM-DD",
+  "time": "HH:MM",
+  "person_name": "shaxs ismi yoki null",
+  "location": "joy nomi yoki null",
+  "amount": 0,
+  "currency": "UZS",
+  "is_recurring": false,
+  "recurrence_pattern": null,
+  "recurrence_day": null
+}}
+
+SANA QOIDALARI:
+- "ertaga" → {tomorrow_str}
+- "bugun" → {current_date}
+- Sana format: YYYY-MM-DD
+
+VAQT QOIDALARI:
+- "12:00 da" → "12:00"
+- "08:00" → "08:00"
+- "soat 8" → "08:00"
+
+AGAR ES LATMA BO'LMASA: {{"has_reminder": false}}
+
+FAQAT JSON QAYTARING, HECH QANDAY IZOH YOZMA."""
+            
+            # AsyncOpenAI dan to'g'ri foydalanish
+            try:
+                if not self.openai_client:
+                    logger.warning("OpenAI client yo'q, eslatma aniqlash mumkin emas")
+                    return None
+                
+                response = await self.openai_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "Sen DONA AI - eslatmalarni aniqlash yordamchisisiz. Xabardan sana, vaqt, joy, shaxs va vazifani aniqlab, JSON formatida qaytarasan. Faqat JSON qaytarasan. Agar xabarda 'ertaga', 'bugun', 'borishim', 'ketishim', 'meeting', vaqt yoki joy bo'lsa, bu ES LATMA."},
+                        {"role": "user", "content": reminder_prompt}
+                    ],
+                    max_tokens=400,
+                    temperature=0.1
+                )
+                ai_response = response.choices[0].message.content
+                logger.info(f"Reminder AI response: {ai_response}")
+            except Exception as e:
+                logger.warning(f"Error calling OpenAI for reminder: {e}")
+                # Xatolik bo'lsa ham None qaytaramiz, lekin xatolikni log qilamiz
+                ai_response = None
             
             if not ai_response:
                 return None
@@ -1005,66 +1047,117 @@ Faqat JSON qaytaring."""
             try:
                 result = json.loads(ai_response)
                 
+                logger.info(f"Parsed reminder result: {result}")
+                
                 if not result.get('has_reminder'):
+                    logger.info(f"Reminder not detected - has_reminder is False: {result}")
                     return None
                 
                 # Sana aniqlash
-                reminder_date_str = result.get('date', 'bugun')
+                reminder_date_str = result.get('date', current_date)
                 reminder_date = None
                 
                 try:
                     # Sana formatlarini aniqlash
-                    today = datetime.now().date()
+                    today_date = today.date()
                     
                     if reminder_date_str.lower() == 'bugun':
-                        reminder_date = today
+                        reminder_date = today_date
                     elif reminder_date_str.lower() == 'ertaga':
-                        reminder_date = today + timedelta(days=1)
+                        reminder_date = today_date + timedelta(days=1)
                     elif 'kun' in reminder_date_str.lower() and 'keyin' in reminder_date_str.lower():
                         # "5 kundan keyin" formatida
                         days_match = re.search(r'(\d+)\s*kun', reminder_date_str.lower())
                         if days_match:
                             days = int(days_match.group(1))
-                            reminder_date = today + timedelta(days=days)
+                            reminder_date = today_date + timedelta(days=days)
                         else:
-                            reminder_date = today
+                            reminder_date = today_date
                     else:
-                        # Boshqa sana formatlari
+                        # YYYY-MM-DD formatida
                         try:
-                            reminder_date = parse_date(reminder_date_str).date()
+                            reminder_date = datetime.strptime(reminder_date_str, '%Y-%m-%d').date()
                         except:
-                            reminder_date = today
+                            # Agar parse qilishda xatolik bo'lsa, default bugun
+                            reminder_date = today_date
                 except:
-                    reminder_date = today  # Default: bugun
+                    reminder_date = today.date()  # Default: bugun
+                
+                # Vaqt aniqlash
+                reminder_time_str = result.get('time', '09:00')
+                if not reminder_time_str:
+                    reminder_time_str = '09:00'
                 
                 # Eslatmani saqlash
                 reminder_id = await self.db.create_reminder(
                     user_id=user_id,
                     reminder_type=result.get('reminder_type', 'other'),
-                    title=result.get('title', 'Eslatma'),
+                    title=result.get('title', 'Eslatma')[:255],
                     reminder_date=reminder_date,
                     description=result.get('description', message[:500]),
                     amount=result.get('amount'),
                     currency=result.get('currency', 'UZS'),
-                    person_name=result.get('person_name')
+                    person_name=result.get('person_name'),
+                    reminder_time=reminder_time_str,
+                    location=result.get('location'),
+                    is_recurring=result.get('is_recurring', False),
+                    recurrence_pattern=result.get('recurrence_pattern'),
+                    recurrence_day=result.get('recurrence_day')
                 )
                 
                 # Kuni aniqlash
-                days_diff = (reminder_date - today).days
+                days_diff = (reminder_date - today.date()).days
                 if days_diff == 0:
-                    days_text = "bugun"
+                    days_text = f"bugun soat {reminder_time_str}"
                 elif days_diff == 1:
-                    days_text = "ertaga"
+                    days_text = f"ertaga soat {reminder_time_str}"
                 elif days_diff > 1:
-                    days_text = f"{days_diff} kundan keyin"
+                    days_text = f"{days_diff} kundan keyin ({reminder_date.strftime('%d.%m')}) soat {reminder_time_str}"
                 else:
-                    days_text = "bugun"
+                    days_text = f"bugun soat {reminder_time_str}"
+                
+                # Takrorlanadigan eslatma uchun
+                if result.get('is_recurring'):
+                    pattern = result.get('recurrence_pattern')
+                    if pattern == 'daily':
+                        days_text += " (har kuni)"
+                    elif pattern == 'weekly':
+                        day_num = result.get('recurrence_day', 0)
+                        day_name = weekday_names[day_num] if 0 <= day_num <= 6 else ''
+                        days_text += f" (har {day_name})"
+                    elif pattern == 'monthly':
+                        day_num = result.get('recurrence_day', 1)
+                        days_text += f" (har oyning {day_num}-ida)"
+                
+                # Xabar matni
+                title = result.get('title', 'Eslatma')
+                person = result.get('person_name', '')
+                location = result.get('location', '')
+                amount = result.get('amount', 0)
+                
+                message_parts = [f"✅ Eslatma qo'shildi!"]
+                message_parts.append(f"📌 {title}")
+                if person:
+                    message_parts.append(f"👤 {person}")
+                if location:
+                    message_parts.append(f"📍 {location}")
+                if amount and amount > 0:
+                    currency = result.get('currency', 'UZS')
+                    message_parts.append(f"💰 {amount:,.0f} {currency}")
+                message_parts.append(f"⏰ {days_text}")
+                
+                message_text = "\n".join(message_parts)
                 
                 return {
                     "id": reminder_id,
-                    "title": result.get('title', 'Eslatma'),
+                    "title": title,
                     "date": reminder_date,
-                    "days_text": days_text
+                    "time": reminder_time_str,
+                    "days_text": days_text,
+                    "location": location,
+                    "person_name": person,
+                    "is_recurring": result.get('is_recurring', False),
+                    "message": message_text
                 }
                 
             except Exception as e:

@@ -332,7 +332,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS reminders (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     user_id BIGINT NOT NULL,
-                    reminder_type ENUM('debt_give', 'debt_receive', 'payment', 'other') NOT NULL,
+                    reminder_type ENUM('debt_give', 'debt_receive', 'payment', 'meeting', 'event', 'task', 'other') NOT NULL,
                     title VARCHAR(255) NOT NULL,
                     description TEXT,
                     reminder_date DATE NOT NULL,
@@ -340,13 +340,107 @@ class Database:
                     amount DECIMAL(15,2) NULL,
                     currency VARCHAR(10) DEFAULT 'UZS',
                     person_name VARCHAR(255) NULL,
+                    location VARCHAR(255) NULL,
+                    is_recurring BOOLEAN DEFAULT FALSE,
+                    recurrence_pattern ENUM('daily', 'weekly', 'monthly', 'yearly') NULL,
+                    recurrence_day INT NULL,
+                    notification_30min_sent BOOLEAN DEFAULT FALSE,
+                    notification_exact_sent BOOLEAN DEFAULT FALSE,
                     is_completed BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
                     INDEX idx_user_date (user_id, reminder_date),
                     INDEX idx_user_completed (user_id, is_completed),
-                    INDEX idx_reminder_date (reminder_date, is_completed)
+                    INDEX idx_reminder_date (reminder_date, is_completed),
+                    INDEX idx_notification (reminder_date, reminder_time, notification_30min_sent, notification_exact_sent)
+                )
+            """)
+            
+            # Reminders jadvaliga yangi ustunlar qo'shish (agar mavjud bo'lmasa)
+            reminder_columns = [
+                ("location", "VARCHAR(255) NULL"),
+                ("is_recurring", "BOOLEAN DEFAULT FALSE"),
+                ("recurrence_pattern", "ENUM('daily', 'weekly', 'monthly', 'yearly') NULL"),
+                ("recurrence_day", "INT NULL"),
+                ("notification_30min_sent", "BOOLEAN DEFAULT FALSE"),
+                ("notification_exact_sent", "BOOLEAN DEFAULT FALSE")
+            ]
+            for col_name, col_def in reminder_columns:
+                try:
+                    await self.execute_query(f"ALTER TABLE reminders ADD COLUMN {col_name} {col_def}")
+                except Exception:
+                    pass  # Ustun allaqachon mavjud
+            
+            # reminder_type ni yangilash (yangi qiymatlar qo'shish)
+            try:
+                await self.execute_query("""
+                    ALTER TABLE reminders MODIFY COLUMN reminder_type 
+                    ENUM('debt_give', 'debt_receive', 'payment', 'meeting', 'event', 'task', 'other') NOT NULL
+                """)
+            except Exception:
+                pass
+            
+            # Warehouse (Ombor) jadvallari - Biznes tarif uchun
+            # Tovarlar jadvali
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS warehouse_products (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    category VARCHAR(100),
+                    barcode VARCHAR(100),
+                    price DECIMAL(15, 2) DEFAULT 0,
+                    quantity INT DEFAULT 0,
+                    min_quantity INT DEFAULT 0,
+                    image_url VARCHAR(500),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    INDEX idx_user (user_id),
+                    INDEX idx_category (category),
+                    INDEX idx_barcode (barcode)
+                )
+            """)
+            
+            # Ombor harakatlari (kirim/chiqim) jadvali
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS warehouse_movements (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    product_id INT NOT NULL,
+                    movement_type ENUM('in', 'out') NOT NULL,
+                    quantity INT NOT NULL,
+                    unit_price DECIMAL(15, 2),
+                    total_cost DECIMAL(15, 2),
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    FOREIGN KEY (product_id) REFERENCES warehouse_products(id) ON DELETE CASCADE,
+                    INDEX idx_user (user_id),
+                    INDEX idx_product (product_id),
+                    INDEX idx_type (movement_type),
+                    INDEX idx_date (created_at)
+                )
+            """)
+            
+            # Ombor xarajatlari jadvali
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS warehouse_expenses (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    product_id INT,
+                    movement_id INT,
+                    expense_type ENUM('purchase', 'storage', 'transport', 'other') NOT NULL,
+                    amount DECIMAL(15, 2) NOT NULL,
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    FOREIGN KEY (product_id) REFERENCES warehouse_products(id) ON DELETE SET NULL,
+                    FOREIGN KEY (movement_id) REFERENCES warehouse_movements(id) ON DELETE SET NULL,
+                    INDEX idx_user (user_id),
+                    INDEX idx_product (product_id),
+                    INDEX idx_type (expense_type)
                 )
             """)
             
@@ -803,48 +897,50 @@ class Database:
                 new_status = 'active'
             
             try:
-                # Avval bazadagi status ni to'g'ri formatlash
-                # Status ni to'g'ridan-to'g'ri 'active' yoki 'completed' ga o'rnatish
+                # Avval bazadagi status ni to'g'ri formatlash - faqat text_used ni yangilash
+                # Status ni keyinroq alohida yangilaymiz
                 await self.execute_query(
                     """
                     UPDATE plus_package_purchases
-                    SET status = CASE 
-                        WHEN status IN ('active', 'ACTIVE', 'Active') THEN 'active'
-                        WHEN status IN ('completed', 'COMPLETED', 'Completed') THEN 'completed'
-                        ELSE 'active'
-                    END
+                    SET text_used = %s, updated_at = NOW()
                     WHERE id = %s
                     """,
-                    (package['id'],)
+                    (new_used, package['id'])
                 )
                 
-                # Endi text_used va status ni yangilaymiz
-                await self.execute_query(
-                    """
-                    UPDATE plus_package_purchases
-                    SET text_used = %s, status = %s, updated_at = NOW()
-                    WHERE id = %s
-                    """,
-                    (new_used, new_status, package['id'])
-                )
-                package['text_used'] = new_used
-                package['status'] = new_status
-            except Exception as e:
-                logging.error(f"Error updating plus usage (text): {e}")
-                # Status xatosi bo'lsa, faqat text_used ni yangilaymiz
+                # Status ni alohida yangilash - faqat to'g'ri qiymat bilan
                 try:
                     await self.execute_query(
                         """
                         UPDATE plus_package_purchases
-                        SET text_used = %s, updated_at = NOW()
+                        SET status = %s
                         WHERE id = %s
                         """,
-                        (new_used, package['id'])
+                        (new_status, package['id'])
                     )
-                    package['text_used'] = new_used
-                except Exception as e2:
-                    logging.error(f"Error updating text_used only: {e2}")
-                    return False, package
+                except Exception as status_error:
+                    # Agar status yangilashda xatolik bo'lsa, bazadagi status ni to'g'ri formatlash
+                    logging.warning(f"Status yangilashda xatolik, bazadagi status ni to'g'rilaymiz: {status_error}")
+                    try:
+                        await self.execute_query(
+                            """
+                            UPDATE plus_package_purchases
+                            SET status = CASE 
+                                WHEN text_used >= text_limit AND voice_used >= voice_limit THEN 'completed'
+                                ELSE 'active'
+                            END
+                            WHERE id = %s
+                            """,
+                            (package['id'],)
+                        )
+                    except Exception as e3:
+                        logging.error(f"Status to'g'rilashda xatolik: {e3}")
+                
+                package['text_used'] = new_used
+                package['status'] = new_status
+            except Exception as e:
+                logging.error(f"Error updating plus usage (text): {e}")
+                return False, package
         else:
             if package['voice_used'] >= package['voice_limit']:
                 return False, package
@@ -860,48 +956,49 @@ class Database:
                 new_status = 'active'
             
             try:
-                # Avval bazadagi status ni to'g'ri formatlash
-                # Status ni to'g'ridan-to'g'ri 'active' yoki 'completed' ga o'rnatish
+                # Avval voice_used ni yangilash
                 await self.execute_query(
                     """
                     UPDATE plus_package_purchases
-                    SET status = CASE 
-                        WHEN status IN ('active', 'ACTIVE', 'Active') THEN 'active'
-                        WHEN status IN ('completed', 'COMPLETED', 'Completed') THEN 'completed'
-                        ELSE 'active'
-                    END
+                    SET voice_used = %s, updated_at = NOW()
                     WHERE id = %s
                     """,
-                    (package['id'],)
+                    (new_used, package['id'])
                 )
                 
-                # Endi voice_used va status ni yangilaymiz
-                await self.execute_query(
-                    """
-                    UPDATE plus_package_purchases
-                    SET voice_used = %s, status = %s, updated_at = NOW()
-                    WHERE id = %s
-                    """,
-                    (new_used, new_status, package['id'])
-                )
-                package['voice_used'] = new_used
-                package['status'] = new_status
-            except Exception as e:
-                logging.error(f"Error updating plus usage (voice): {e}")
-                # Status xatosi bo'lsa, faqat voice_used ni yangilaymiz
+                # Status ni alohida yangilash - faqat to'g'ri qiymat bilan
                 try:
                     await self.execute_query(
                         """
                         UPDATE plus_package_purchases
-                        SET voice_used = %s, updated_at = NOW()
+                        SET status = %s
                         WHERE id = %s
                         """,
-                        (new_used, package['id'])
+                        (new_status, package['id'])
                     )
-                    package['voice_used'] = new_used
-                except Exception as e2:
-                    logging.error(f"Error updating voice_used only: {e2}")
-                    return False, package
+                except Exception as status_error:
+                    # Agar status yangilashda xatolik bo'lsa, bazadagi status ni to'g'ri formatlash
+                    logging.warning(f"Status yangilashda xatolik, bazadagi status ni to'g'rilaymiz: {status_error}")
+                    try:
+                        await self.execute_query(
+                            """
+                            UPDATE plus_package_purchases
+                            SET status = CASE 
+                                WHEN text_used >= text_limit AND voice_used >= voice_limit THEN 'completed'
+                                ELSE 'active'
+                            END
+                            WHERE id = %s
+                            """,
+                            (package['id'],)
+                        )
+                    except Exception as e3:
+                        logging.error(f"Status to'g'rilashda xatolik: {e3}")
+                
+                package['voice_used'] = new_used
+                package['status'] = new_status
+            except Exception as e:
+                logging.error(f"Error updating plus usage (voice): {e}")
+                return False, package
         
         return True, package
     
@@ -994,15 +1091,19 @@ class Database:
     # Reminders funksiyalari
     async def create_reminder(self, user_id: int, reminder_type: str, title: str, 
                              reminder_date, description: str = None, amount: float = None,
-                             currency: str = 'UZS', person_name: str = None, reminder_time: str = '09:00:00'):
+                             currency: str = 'UZS', person_name: str = None, reminder_time: str = '09:00:00',
+                             location: str = None, is_recurring: bool = False, 
+                             recurrence_pattern: str = None, recurrence_day: int = None):
         """Yangi eslatma yaratish"""
         query = """
         INSERT INTO reminders (user_id, reminder_type, title, description, reminder_date, 
-                              reminder_time, amount, currency, person_name)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                              reminder_time, amount, currency, person_name, location,
+                              is_recurring, recurrence_pattern, recurrence_day)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         params = (user_id, reminder_type, title, description, reminder_date, 
-                 reminder_time, amount, currency, person_name)
+                 reminder_time, amount, currency, person_name, location,
+                 is_recurring, recurrence_pattern, recurrence_day)
         return await self.execute_insert(query, params)
     
     async def get_today_reminders(self, user_id: int = None):
@@ -1058,6 +1159,110 @@ class Database:
             ORDER BY reminder_date, reminder_time
             """
         return await self.execute_query(query, (user_id,))
+    
+    async def get_reminders_for_30min_notification(self):
+        """30 minut ichida bo'ladigan eslatmalarni olish (bildirishnoma yuborilmagan)"""
+        query = """
+        SELECT r.*, u.first_name, u.name as user_name
+        FROM reminders r
+        JOIN users u ON r.user_id = u.user_id
+        WHERE r.is_completed = FALSE 
+        AND r.notification_30min_sent = FALSE
+        AND r.reminder_date = CURDATE()
+        AND TIMESTAMPDIFF(MINUTE, NOW(), CONCAT(r.reminder_date, ' ', r.reminder_time)) BETWEEN 0 AND 30
+        ORDER BY r.reminder_time ASC
+        """
+        return await self.execute_query(query)
+    
+    async def get_reminders_for_exact_notification(self):
+        """Aniq vaqtda bo'ladigan eslatmalarni olish (bildirishnoma yuborilmagan)"""
+        query = """
+        SELECT r.*, u.first_name, u.name as user_name
+        FROM reminders r
+        JOIN users u ON r.user_id = u.user_id
+        WHERE r.is_completed = FALSE 
+        AND r.notification_exact_sent = FALSE
+        AND r.reminder_date = CURDATE()
+        AND TIMESTAMPDIFF(MINUTE, NOW(), CONCAT(r.reminder_date, ' ', r.reminder_time)) BETWEEN -5 AND 5
+        ORDER BY r.reminder_time ASC
+        """
+        return await self.execute_query(query)
+    
+    async def mark_notification_30min_sent(self, reminder_id: int):
+        """30 minut oldin bildirishnoma yuborilganini belgilash"""
+        query = """
+        UPDATE reminders SET notification_30min_sent = TRUE 
+        WHERE id = %s
+        """
+        await self.execute_query(query, (reminder_id,))
+    
+    async def mark_notification_exact_sent(self, reminder_id: int):
+        """Aniq vaqtda bildirishnoma yuborilganini belgilash"""
+        query = """
+        UPDATE reminders SET notification_exact_sent = TRUE 
+        WHERE id = %s
+        """
+        await self.execute_query(query, (reminder_id,))
+    
+    async def create_next_recurring_reminder(self, reminder_id: int):
+        """Takrorlanadigan eslatma uchun keyingi eslatmani yaratish"""
+        # Eslatmani olish
+        reminder = await self.execute_one(
+            "SELECT * FROM reminders WHERE id = %s", (reminder_id,)
+        )
+        if not reminder or not reminder[13]:  # is_recurring index
+            return None
+        
+        # Tuple indekslari:
+        # 0: id, 1: user_id, 2: reminder_type, 3: title, 4: description
+        # 5: reminder_date, 6: reminder_time, 7: amount, 8: currency, 9: person_name
+        # 10: location, 11: is_recurring, 12: recurrence_pattern, 13: recurrence_day
+        
+        from datetime import timedelta
+        current_date = reminder[5]  # reminder_date
+        pattern = reminder[12]  # recurrence_pattern
+        recurrence_day = reminder[13]  # recurrence_day
+        
+        if pattern == 'daily':
+            next_date = current_date + timedelta(days=1)
+        elif pattern == 'weekly':
+            next_date = current_date + timedelta(weeks=1)
+        elif pattern == 'monthly':
+            # Keyingi oyning shu kuniga
+            month = current_date.month + 1
+            year = current_date.year
+            if month > 12:
+                month = 1
+                year += 1
+            day = min(current_date.day, 28)  # Fevral uchun
+            next_date = current_date.replace(year=year, month=month, day=day)
+        elif pattern == 'yearly':
+            next_date = current_date.replace(year=current_date.year + 1)
+        else:
+            return None
+        
+        # Yangi eslatma yaratish
+        query = """
+        INSERT INTO reminders (user_id, reminder_type, title, description, reminder_date, 
+                              reminder_time, amount, currency, person_name, location,
+                              is_recurring, recurrence_pattern, recurrence_day)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        return await self.execute_insert(query, (
+            reminder[1],   # user_id
+            reminder[2],   # reminder_type
+            reminder[3],   # title
+            reminder[4],   # description
+            next_date,     # reminder_date
+            reminder[6],   # reminder_time
+            reminder[7],   # amount
+            reminder[8],   # currency
+            reminder[9],   # person_name
+            reminder[10],  # location
+            True,          # is_recurring
+            pattern,       # recurrence_pattern
+            recurrence_day # recurrence_day
+        ))
     
     # Pro tarifi xarajatlari funksiyalari
     async def get_or_create_pro_usage(self, user_id: int, month_year: str = None):
@@ -1140,6 +1345,290 @@ class Database:
         
         # Yangilangan xarajatlarni qaytarish
         return await self.get_or_create_pro_usage(user_id, month_year)
+    
+    # Warehouse (Ombor) funksiyalari - Biznes tarif uchun
+    async def add_warehouse_product(self, user_id: int, name: str, category: str = None, 
+                                     barcode: str = None, price: float = 0, 
+                                     quantity: int = 0, min_quantity: int = 0, 
+                                     image_url: str = None) -> int:
+        """Omborga yangi tovar qo'shish"""
+        query = """
+        INSERT INTO warehouse_products (user_id, name, category, barcode, price, quantity, min_quantity, image_url)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        return await self.execute_insert(query, (user_id, name, category, barcode, price, quantity, min_quantity, image_url))
+    
+    async def get_warehouse_products(self, user_id: int, category: str = None) -> list:
+        """Foydalanuvchining barcha tovarlarini olish"""
+        if category:
+            query = """
+            SELECT id, name, category, barcode, price, quantity, min_quantity, image_url, created_at
+            FROM warehouse_products
+            WHERE user_id = %s AND category = %s
+            ORDER BY name
+            """
+            results = await self.execute_query(query, (user_id, category))
+        else:
+            query = """
+            SELECT id, name, category, barcode, price, quantity, min_quantity, image_url, created_at
+            FROM warehouse_products
+            WHERE user_id = %s
+            ORDER BY name
+            """
+            results = await self.execute_query(query, (user_id,))
+        
+        products = []
+        for result in results:
+            products.append({
+                'id': result[0],
+                'name': result[1],
+                'category': result[2],
+                'barcode': result[3],
+                'price': float(result[4]) if result[4] else 0,
+                'quantity': result[5] or 0,
+                'min_quantity': result[6] or 0,
+                'image_url': result[7],
+                'created_at': result[8]
+            })
+        return products
+    
+    async def get_warehouse_product(self, product_id: int, user_id: int = None) -> dict:
+        """Bitta tovarni olish"""
+        if user_id:
+            query = """
+            SELECT id, user_id, name, category, barcode, price, quantity, min_quantity, image_url, created_at
+            FROM warehouse_products
+            WHERE id = %s AND user_id = %s
+            """
+            result = await self.execute_one(query, (product_id, user_id))
+        else:
+            query = """
+            SELECT id, user_id, name, category, barcode, price, quantity, min_quantity, image_url, created_at
+            FROM warehouse_products
+            WHERE id = %s
+            """
+            result = await self.execute_one(query, (product_id,))
+        
+        if not result:
+            return None
+        
+        return {
+            'id': result[0],
+            'user_id': result[1],
+            'name': result[2],
+            'category': result[3],
+            'barcode': result[4],
+            'price': float(result[5]) if result[5] else 0,
+            'quantity': result[6] or 0,
+            'min_quantity': result[7] or 0,
+            'image_url': result[8],
+            'created_at': result[9]
+        }
+    
+    async def update_warehouse_product(self, product_id: int, user_id: int, **kwargs) -> bool:
+        """Tovarni yangilash"""
+        allowed_fields = ['name', 'category', 'barcode', 'price', 'quantity', 'min_quantity', 'image_url']
+        updates = []
+        values = []
+        
+        for field, value in kwargs.items():
+            if field in allowed_fields:
+                updates.append(f"{field} = %s")
+                values.append(value)
+        
+        if not updates:
+            return False
+        
+        values.append(product_id)
+        values.append(user_id)
+        
+        query = f"""
+        UPDATE warehouse_products
+        SET {', '.join(updates)}, updated_at = NOW()
+        WHERE id = %s AND user_id = %s
+        """
+        await self.execute_query(query, tuple(values))
+        return True
+    
+    async def add_warehouse_movement(self, user_id: int, product_id: int, movement_type: str,
+                                     quantity: int, unit_price: float = None, 
+                                     total_cost: float = None, description: str = None) -> int:
+        """Ombor harakatini qo'shish (kirim/chiqim)"""
+        query = """
+        INSERT INTO warehouse_movements (user_id, product_id, movement_type, quantity, unit_price, total_cost, description)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """
+        movement_id = await self.execute_insert(query, (user_id, product_id, movement_type, quantity, unit_price, total_cost, description))
+        
+        # Tovarning sonini yangilash
+        if movement_type == 'in':
+            await self.execute_query(
+                "UPDATE warehouse_products SET quantity = quantity + %s WHERE id = %s",
+                (quantity, product_id)
+            )
+        elif movement_type == 'out':
+            await self.execute_query(
+                "UPDATE warehouse_products SET quantity = GREATEST(0, quantity - %s) WHERE id = %s",
+                (quantity, product_id)
+            )
+        
+        return movement_id
+    
+    async def get_warehouse_movements(self, user_id: int, product_id: int = None, 
+                                      movement_type: str = None, limit: int = 50) -> list:
+        """Ombor harakatlarini olish"""
+        conditions = ["user_id = %s"]
+        params = [user_id]
+        
+        if product_id:
+            conditions.append("product_id = %s")
+            params.append(product_id)
+        
+        if movement_type:
+            conditions.append("movement_type = %s")
+            params.append(movement_type)
+        
+        query = f"""
+        SELECT id, product_id, movement_type, quantity, unit_price, total_cost, description, created_at
+        FROM warehouse_movements
+        WHERE {' AND '.join(conditions)}
+        ORDER BY created_at DESC
+        LIMIT %s
+        """
+        params.append(limit)
+        
+        results = await self.execute_query(query, tuple(params))
+        movements = []
+        for result in results:
+            movements.append({
+                'id': result[0],
+                'product_id': result[1],
+                'movement_type': result[2],
+                'quantity': result[3],
+                'unit_price': float(result[4]) if result[4] else 0,
+                'total_cost': float(result[5]) if result[5] else 0,
+                'description': result[6],
+                'created_at': result[7]
+            })
+        return movements
+    
+    async def add_warehouse_expense(self, user_id: int, expense_type: str, amount: float,
+                                    product_id: int = None, movement_id: int = None,
+                                    description: str = None) -> int:
+        """Ombor xarajatini qo'shish"""
+        query = """
+        INSERT INTO warehouse_expenses (user_id, product_id, movement_id, expense_type, amount, description)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        return await self.execute_insert(query, (user_id, product_id, movement_id, expense_type, amount, description))
+    
+    async def get_warehouse_expenses(self, user_id: int, product_id: int = None, 
+                                     expense_type: str = None, limit: int = 50) -> list:
+        """Ombor xarajatlarini olish"""
+        conditions = ["user_id = %s"]
+        params = [user_id]
+        
+        if product_id:
+            conditions.append("product_id = %s")
+            params.append(product_id)
+        
+        if expense_type:
+            conditions.append("expense_type = %s")
+            params.append(expense_type)
+        
+        query = f"""
+        SELECT id, product_id, movement_id, expense_type, amount, description, created_at
+        FROM warehouse_expenses
+        WHERE {' AND '.join(conditions)}
+        ORDER BY created_at DESC
+        LIMIT %s
+        """
+        params.append(limit)
+        
+        results = await self.execute_query(query, tuple(params))
+        expenses = []
+        for result in results:
+            expenses.append({
+                'id': result[0],
+                'product_id': result[1],
+                'movement_id': result[2],
+                'expense_type': result[3],
+                'amount': float(result[4]) if result[4] else 0,
+                'description': result[5],
+                'created_at': result[6]
+            })
+        return expenses
+    
+    async def get_low_stock_products(self, user_id: int) -> list:
+        """Kam qolgan tovarlarni olish (quantity <= min_quantity)"""
+        query = """
+        SELECT id, name, category, quantity, min_quantity
+        FROM warehouse_products
+        WHERE user_id = %s AND quantity <= min_quantity AND min_quantity > 0
+        ORDER BY (quantity - min_quantity) ASC
+        """
+        results = await self.execute_query(query, (user_id,))
+        products = []
+        for result in results:
+            products.append({
+                'id': result[0],
+                'name': result[1],
+                'category': result[2],
+                'quantity': result[3],
+                'min_quantity': result[4]
+            })
+        return products
+    
+    async def get_warehouse_statistics(self, user_id: int) -> dict:
+        """Ombor statistikalarini olish"""
+        # Jami tovarlar soni
+        total_products = await self.execute_one(
+            "SELECT COUNT(*) FROM warehouse_products WHERE user_id = %s",
+            (user_id,)
+        )
+        
+        # Jami qoldiq qiymati
+        total_value = await self.execute_one(
+            "SELECT SUM(price * quantity) FROM warehouse_products WHERE user_id = %s",
+            (user_id,)
+        )
+        
+        # Kam qolgan tovarlar soni
+        low_stock_count = await self.execute_one(
+            "SELECT COUNT(*) FROM warehouse_products WHERE user_id = %s AND quantity <= min_quantity AND min_quantity > 0",
+            (user_id,)
+        )
+        
+        # Oylik kirim/chiqim
+        monthly_movements = await self.execute_query("""
+            SELECT movement_type, SUM(quantity) as total
+            FROM warehouse_movements
+            WHERE user_id = %s AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+            GROUP BY movement_type
+        """, (user_id,))
+        
+        monthly_in = 0
+        monthly_out = 0
+        for movement in monthly_movements:
+            if movement[0] == 'in':
+                monthly_in = movement[1] or 0
+            elif movement[0] == 'out':
+                monthly_out = movement[1] or 0
+        
+        # Oylik xarajatlar
+        monthly_expenses = await self.execute_one("""
+            SELECT SUM(amount) FROM warehouse_expenses
+            WHERE user_id = %s AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+        """, (user_id,))
+        
+        return {
+            'total_products': total_products[0] if total_products else 0,
+            'total_value': float(total_value[0]) if total_value and total_value[0] else 0,
+            'low_stock_count': low_stock_count[0] if low_stock_count else 0,
+            'monthly_in': monthly_in,
+            'monthly_out': monthly_out,
+            'monthly_expenses': float(monthly_expenses[0]) if monthly_expenses and monthly_expenses[0] else 0
+        }
 
 # Global database instance
 db = Database()

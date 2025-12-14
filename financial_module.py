@@ -99,13 +99,22 @@ class FinancialModule:
             print(f"DEBUG: Processing audio file: {audio_file_path}")
             
             # Google Cloud Speech-to-Text (asosiy)
-            if ACTIVE_SPEECH_MODELS.get('GOOGLE', True):
+            google_enabled = ACTIVE_SPEECH_MODELS.get('GOOGLE', True)
+            print(f"DEBUG: Google Speech enabled: {google_enabled}")
+            print(f"DEBUG: GOOGLE_APPLICATION_CREDENTIALS: {GOOGLE_APPLICATION_CREDENTIALS}")
+            
+            if google_enabled:
                 google_result = None
                 try:
+                    print("DEBUG: Trying to create Google Speech client...")
                     client = self._ensure_speech_client()
+                    print(f"DEBUG: Google Speech client created: {client is not None}")
+                    
                     if client:
                         with open(audio_file_path, "rb") as audio_file:
                             audio_content = audio_file.read()
+                        print(f"DEBUG: Audio file read, size: {len(audio_content)} bytes")
+                        
                         google_text = await self._transcribe_with_google(client, audio_content)
                         print(f"DEBUG: Google Speech transcription: {google_text}")
                         
@@ -119,7 +128,7 @@ class FinancialModule:
                         print("DEBUG: Google Speech client olinmadi - kredensiallar yo'q")
                 except RuntimeError as google_error:
                     # RuntimeError - kredensiallar yo'q, bu normal
-                    logging.debug(f"Google Speech credentials yo'q: {google_error}")
+                    logging.warning(f"Google Speech credentials yo'q: {google_error}")
                     print(f"DEBUG: Google Speech credentials yo'q: {google_error}")
                 except Exception as google_error:
                     logging.warning(f"Google Speech failed: {google_error}")
