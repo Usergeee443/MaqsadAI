@@ -32,8 +32,8 @@ class FinancialModule:
         ) if OPENROUTER_API_KEY else None
         self.speech_client = None
 
-    def _format_amount_with_sign(self, amount: float, trans_type: str) -> str:
-        """Tranzaksiya summasini foydalanuvchiga qulay ko'rinishda formatlash"""
+    def _format_amount_with_sign(self, amount: float, trans_type: str, currency: str = 'UZS') -> str:
+        """Tranzaksiya summasini foydalanuvchiga qulay ko'rinishda formatlash (valyuta bilan)"""
         amount_value = float(amount or 0)
         sign_map = {
             "income": "+",
@@ -41,7 +41,17 @@ class FinancialModule:
             "debt": ""
         }
         sign = sign_map.get(trans_type, "")
-        formatted = f"{amount_value:,.0f} so'm"
+        
+        currency_names = {'UZS': "so'm", 'USD': "dollar", 'EUR': "evro", 'RUB': "rubl", 'TRY': "lira"}
+        currency_symbols = {'UZS': "", 'USD': "🇺🇸", 'EUR': "🇪🇺", 'RUB': "🇷🇺", 'TRY': "🇹🇷"}
+        currency_name = currency_names.get(currency, currency)
+        currency_symbol = currency_symbols.get(currency, "💰")
+        
+        if currency != 'UZS':
+            formatted = f"{currency_symbol} {amount_value:,.2f} {currency_name}"
+        else:
+            formatted = f"{amount_value:,.0f} so'm"
+        
         return f"{sign} {formatted}".strip()
 
     def _format_human_date(self, iso_timestamp: Optional[str]) -> str:
@@ -444,7 +454,15 @@ MUHIM QOIDALAR:
    - "expense" = xarajat, sotib oldim, oldim (xarajat), ketdi, sarf qildim, to'ladim
    - "debt" = qarz berish, qarz olish (faqat qarz bo'lsa)
 
-2. KATEGORIYALAR (faqat quyidagilardan birini ishlat):
+2. VALYUTA aniqlash:
+   - "UZS" = so'm, sum, ming, million, mlrd (default)
+   - "USD" = dollar, $, usd, aqsh dollari
+   - "EUR" = evro, euro, €
+   - "RUB" = rubl, ruble, ₽, rossiya
+   - "TRY" = lira, turkiya lirasi, tl
+   - Agar valyuta ko'rsatilmagan bo'lsa, UZS deb qabul qil
+
+3. KATEGORIYALAR (faqat quyidagilardan birini ishlat):
    - "ish haqi" = oylik, maosh, ish haqi, daromad (ishdan)
    - "biznes" = biznes daromadi, savdo, sotish
    - "ovqat" = ovqat, somsa, non, lavash, shashlik, kebab, pizza, burger, restoran, kafe, oziq-ovqat, taom, yegimlik, ichimlik, kofe, choy, gazak
@@ -456,25 +474,25 @@ MUHIM QOIDALAR:
    - "o'yin-kulgi" = kino, teatr, konsert, o'yin, sayr
    - "boshqa" = boshqa barcha narsalar
 
-3. MISOLLAR (MUHIM - aniq tushunish uchun):
-   "80 ming ga somsa oldim" → {"transactions":[{"amount":80000,"type":"expense","category":"ovqat"}],"total_confidence":0.95}
-   "500 million oylik oldim" → {"transactions":[{"amount":500000000,"type":"income","category":"ish haqi"}],"total_confidence":0.95}
-   "100k xarajat" → {"transactions":[{"amount":100000,"type":"expense","category":"boshqa"}],"total_confidence":0.8}
-   "50 ming oziq" → {"transactions":[{"amount":50000,"type":"expense","category":"ovqat"}],"total_confidence":0.9}
-   "taksi 20k" → {"transactions":[{"amount":20000,"type":"expense","category":"transport"}],"total_confidence":0.95}
-   "non oldim 5 ming" → {"transactions":[{"amount":5000,"type":"expense","category":"ovqat"}],"total_confidence":0.95}
-   "lavash 15 ming" → {"transactions":[{"amount":15000,"type":"expense","category":"ovqat"}],"total_confidence":0.95}
-   "kofe ichdim 10 ming" → {"transactions":[{"amount":10000,"type":"expense","category":"ovqat"}],"total_confidence":0.95}
-   "restoranda ovqat yedim 200k" → {"transactions":[{"amount":200000,"type":"expense","category":"ovqat"}],"total_confidence":0.95}
-   "oylik tushdi 3 million" → {"transactions":[{"amount":3000000,"type":"income","category":"ish haqi"}],"total_confidence":0.95}
+4. MISOLLAR (MUHIM - aniq tushunish uchun):
+   "80 ming ga somsa oldim" → {"transactions":[{"amount":80000,"type":"expense","category":"ovqat","currency":"UZS"}],"total_confidence":0.95}
+   "500 million oylik oldim" → {"transactions":[{"amount":500000000,"type":"income","category":"ish haqi","currency":"UZS"}],"total_confidence":0.95}
+   "100 dollar xarajat" → {"transactions":[{"amount":100,"type":"expense","category":"boshqa","currency":"USD"}],"total_confidence":0.95}
+   "50 evro transfer" → {"transactions":[{"amount":50,"type":"expense","category":"boshqa","currency":"EUR"}],"total_confidence":0.95}
+   "1000 rubl keldi" → {"transactions":[{"amount":1000,"type":"income","category":"boshqa","currency":"RUB"}],"total_confidence":0.95}
+   "200 lira sarfladim" → {"transactions":[{"amount":200,"type":"expense","category":"boshqa","currency":"TRY"}],"total_confidence":0.95}
+   "$50 oldim" → {"transactions":[{"amount":50,"type":"expense","category":"boshqa","currency":"USD"}],"total_confidence":0.95}
+   "taksi 20k" → {"transactions":[{"amount":20000,"type":"expense","category":"transport","currency":"UZS"}],"total_confidence":0.95}
+   "oylik tushdi 3 million" → {"transactions":[{"amount":3000000,"type":"income","category":"ish haqi","currency":"UZS"}],"total_confidence":0.95}
 
-4. E'TIBOR BERING:
+5. E'TIBOR BERING:
    - "oldim" so'zi kontekstga qarab: "somsa oldim" = expense, "oylik oldim" = income
    - Ovqat so'zlari: somsa, non, lavash, shashlik, pizza, burger, kofe, choy → "ovqat"
    - Ish haqi so'zlari: oylik, maosh, ish haqi → "ish haqi"
    - Transport so'zlari: taksi, avtobus, benzin → "transport"
+   - Valyuta aniqlamagan bo'lsa, UZS deb qabul qil
 
-FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"kategoriya"}],"total_confidence":0.9}"""
+FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"kategoriya","currency":"UZS/USD/EUR/RUB/TRY"}],"total_confidence":0.9}"""
 
             user_prompt = f'Message: "{text}"\n\nJSON:'
 
@@ -693,10 +711,21 @@ FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"ka
                         trans_type = 'income'
                         category = 'ish haqi'
                 
+                # Valyuta validatsiya
+                currency = trans.get('currency', 'UZS')
+                currency = currency.upper() if currency else 'UZS'
+                if currency not in ['UZS', 'USD', 'EUR', 'RUB', 'TRY']:
+                    currency = 'UZS'
+                
                 # Description validatsiya - AI description kiritmaydi, shuning uchun avtomatik qo'shamiz
                 description = trans.get('description', '').strip()
                 if not description:
-                    description = f"{trans_type}: {amount:,.0f} so'm ({category})"
+                    currency_names = {'UZS': "so'm", 'USD': "dollar", 'EUR': "evro", 'RUB': "rubl", 'TRY': "lira"}
+                    currency_name = currency_names.get(currency, currency)
+                    if currency != 'UZS':
+                        description = f"{trans_type}: {amount:,.2f} {currency_name} ({category})"
+                    else:
+                        description = f"{trans_type}: {amount:,.0f} so'm ({category})"
                 elif len(description) > 100:
                     description = description[:100]
                 
@@ -708,6 +737,7 @@ FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"ka
                     'amount': float(amount),
                     'type': trans_type,
                     'category': category,
+                    'currency': currency,  # Valyutani qo'shish
                     'description': description,
                     'confidence': trans_confidence
                 })
@@ -800,6 +830,7 @@ FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"ka
             
             for item in confirmed_transactions:
                 trans = item['data']
+                currency = trans.get('currency', 'UZS')
                 
                 type_emoji = {
                     "income": "📈",
@@ -807,7 +838,18 @@ FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"ka
                     "debt": "💳"
                 }.get(trans['type'], "❓")
                 
-                message += f"{item['index']}. {type_emoji} **{trans['amount']:,.0f} so'm**\n"
+                # Valyutani formatlash
+                currency_names = {'UZS': "so'm", 'USD': "dollar", 'EUR': "evro", 'RUB': "rubl", 'TRY': "lira"}
+                currency_symbols = {'UZS': "", 'USD': "🇺🇸", 'EUR': "🇪🇺", 'RUB': "🇷🇺", 'TRY': "🇹🇷"}
+                currency_name = currency_names.get(currency, currency)
+                currency_symbol = currency_symbols.get(currency, "💰")
+                
+                if currency != 'UZS':
+                    amount_text = f"{currency_symbol} {trans['amount']:,.2f} {currency_name}"
+                else:
+                    amount_text = f"{trans['amount']:,.0f} so'm"
+                
+                message += f"{item['index']}. {type_emoji} **{amount_text}**\n"
                 message += f"   📂 {trans['category']}\n"
                 message += f"   📝 {trans['description']}\n"
                 message += f"   🎯 {trans['confidence']:.1%}\n\n"
@@ -966,7 +1008,19 @@ JSON formatida qaytaring:
                 "debt": "💳"
             }.get(trans.get('type'), "❓")
 
-            amount_line = self._format_amount_with_sign(trans.get('amount', 0), trans.get('type', ''))
+            currency = trans.get('currency', 'UZS')
+            amount = trans.get('amount', 0)
+            amount_line = self._format_amount_with_sign(amount, trans.get('type', ''), currency)
+            
+            # Agar UZS bo'lmasa, so'mga o'girilgan qiymatni ham ko'rsatish
+            if currency != 'UZS':
+                # Kurslarni olish
+                from database import db
+                rates = await db.get_currency_rates()
+                rate = rates.get(currency, 1.0)
+                amount_uzs = amount * rate
+                amount_line += f" ({amount_uzs:,.0f} so'm)"
+            
             formatted_date = self._format_human_date(trans.get('transaction_time'))
 
             message = "✅ Tranzaksiya aniqlandi\n\n"
@@ -1070,12 +1124,14 @@ JSON formatida qaytaring:
             for item in transaction_items:
                 trans = item['data']
                 try:
+                    currency = trans.get('currency', 'UZS')  # Valyutani olish
                     transaction_id = await self.save_transaction(
                         user_id=user_id,
                         amount=trans['amount'],
                         category=trans['category'],
                         description=trans['description'],
-                        transaction_type=TransactionType(trans['type'])
+                        transaction_type=TransactionType(trans['type']),
+                        currency=currency  # Valyutani o'tkazish
                     )
                     
                     if transaction_id:
@@ -1085,6 +1141,7 @@ JSON formatida qaytaring:
                             'amount': trans['amount'],
                             'type': trans['type'],
                             'category': trans['category'],
+                            'currency': currency,  # Valyutani qo'shish
                             'description': trans['description'],
                             'confidence': trans.get('confidence', 0)
                         })
@@ -1115,15 +1172,32 @@ JSON formatida qaytaring:
                     "debt": "💳"
                 }.get(trans['type'], "❓")
                 
-                message += f"#{trans['index']} {type_emoji} {trans['amount']:,.0f} so'm - {trans['category']}\n"
+                # Valyutani formatlash
+                currency = trans.get('currency', 'UZS')
+                currency_names = {'UZS': "so'm", 'USD': "dollar", 'EUR': "evro", 'RUB': "rubl", 'TRY': "lira"}
+                currency_symbols = {'UZS': "", 'USD': "🇺🇸", 'EUR': "🇪🇺", 'RUB': "🇷🇺", 'TRY': "🇹🇷"}
+                currency_name = currency_names.get(currency, currency)
+                currency_symbol = currency_symbols.get(currency, "💰")
                 
-                # Jami hisobga qo'shish
+                if currency != 'UZS':
+                    amount_text = f"{currency_symbol} {trans['amount']:,.2f} {currency_name}"
+                else:
+                    amount_text = f"{trans['amount']:,.0f} so'm"
+                
+                message += f"#{trans['index']} {type_emoji} {amount_text} - {trans['category']}\n"
+                
+                # Jami hisobga qo'shish (valyutani so'mga o'girib)
+                from database import db
+                rates = await db.get_currency_rates()
+                rate = rates.get(currency, 1.0)
+                amount_uzs = trans['amount'] * rate
+                
                 if trans['type'] == 'income':
-                    total_income += trans['amount']
+                    total_income += amount_uzs
                 elif trans['type'] == 'expense':
-                    total_expense += trans['amount'] 
+                    total_expense += amount_uzs
                 elif trans['type'] == 'debt':
-                    total_debt += trans['amount']
+                    total_debt += amount_uzs
             
             # Jami ko'rsatish - faqat 1 tadan ko'p bo'lsa
             if len(saved_transactions) > 1:
@@ -1141,6 +1215,7 @@ JSON formatida qaytaring:
             return {
                 "success": True,
                 "message": message,
+                "type": "completed",  # Type qo'shish
                 "saved_count": len(saved_transactions),
                 "failed_count": len(failed_transactions),
                 "transactions": saved_transactions
@@ -1158,15 +1233,20 @@ JSON formatida qaytaring:
         return await self.process_ai_input_advanced(text, user_id)
     
     async def save_transaction(self, user_id: int, amount: float, category: str, 
-                             description: str, transaction_type: TransactionType) -> int:
-        """Tranzaksiyani ma'lumotlar bazasiga saqlash"""
+                             description: str, transaction_type: TransactionType, currency: str = 'UZS') -> int:
+        """Tranzaksiyani ma'lumotlar bazasiga saqlash (valyuta bilan)"""
         try:
+            # Valyutani to'g'ri formatda saqlash
+            currency = currency.upper() if currency else 'UZS'
+            if currency not in ['UZS', 'USD', 'EUR', 'RUB', 'TRY']:
+                currency = 'UZS'
+            
             query = """
-            INSERT INTO transactions (user_id, amount, category, description, transaction_type, created_at)
-            VALUES (%s, %s, %s, %s, %s, NOW())
+            INSERT INTO transactions (user_id, amount, category, currency, description, transaction_type, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW())
             """
             transaction_id = await db.execute_insert(query, (
-                user_id, amount, category, description, transaction_type.value
+                user_id, amount, category, currency, description, transaction_type.value
             ))
             return transaction_id
         except Exception as e:

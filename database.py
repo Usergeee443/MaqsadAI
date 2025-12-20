@@ -38,20 +38,20 @@ class Database:
             await self.pool.wait_closed()
             
     async def execute_query(self, query, params=None):
-        """SQL so'rovni bajarish"""
+        """SQL so'rovni bajarish - dict qaytaradi"""
         if not self.pool:
             raise RuntimeError("Database pool mavjud emas. Avval create_pool() chaqirilishi kerak.")
         async with self.pool.acquire() as conn:
-            async with conn.cursor() as cursor:
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
                 await cursor.execute(query, params)
                 return await cursor.fetchall()
                 
     async def execute_one(self, query, params=None):
-        """Bitta natija qaytaruvchi SQL so'rov"""
+        """Bitta natija qaytaruvchi SQL so'rov - dict qaytaradi"""
         if not self.pool:
             raise RuntimeError("Database pool mavjud emas. Avval create_pool() chaqirilishi kerak.")
         async with self.pool.acquire() as conn:
-            async with conn.cursor() as cursor:
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
                 await cursor.execute(query, params)
                 return await cursor.fetchone()
                 
@@ -444,6 +444,44 @@ class Database:
                 )
             """)
             
+            # Biznes xodimlar jadvali
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS business_employees (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    owner_id BIGINT NOT NULL,
+                    telegram_id BIGINT NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    role ENUM('employee', 'manager') DEFAULT 'employee',
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (owner_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    INDEX idx_owner (owner_id),
+                    INDEX idx_telegram (telegram_id),
+                    INDEX idx_active (is_active)
+                )
+            """)
+            
+            # Biznes vazifalari jadvali
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS business_tasks (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    owner_id BIGINT NOT NULL,
+                    employee_id INT,
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    due_date DATETIME,
+                    status ENUM('pending', 'in_progress', 'completed', 'cancelled') DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP NULL,
+                    FOREIGN KEY (owner_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    FOREIGN KEY (employee_id) REFERENCES business_employees(id) ON DELETE SET NULL,
+                    INDEX idx_owner (owner_id),
+                    INDEX idx_employee (employee_id),
+                    INDEX idx_status (status)
+                )
+            """)
+            
             # Boshlang'ich qiymatlarni qo'shish
             await self.execute_query("""
                 INSERT IGNORE INTO config (key_name, value) VALUES
@@ -529,6 +567,76 @@ class Database:
                         logging.info(f"transactions.{column_name} allaqachon mavjud")
                     else:
                         logging.error(f"transactions.{column_name} qo'shishda xatolik: {e}")
+            
+            # Warehouse_products ga unit ustunini qo'shish
+            try:
+                await self.execute_query("ALTER TABLE warehouse_products ADD COLUMN unit VARCHAR(50) DEFAULT 'dona'")
+                logging.info("warehouse_products.unit qo'shildi")
+            except Exception as e:
+                if "Duplicate column name" in str(e):
+                    logging.info("warehouse_products.unit allaqachon mavjud")
+                else:
+                    logging.error(f"warehouse_products.unit qo'shishda xatolik: {e}")
+            
+            # Warehouse_movements ga reason ustunini qo'shish
+            try:
+                await self.execute_query("ALTER TABLE warehouse_movements ADD COLUMN reason VARCHAR(100) DEFAULT 'other'")
+                logging.info("warehouse_movements.reason qo'shildi")
+            except Exception as e:
+                if "Duplicate column name" in str(e):
+                    logging.info("warehouse_movements.reason allaqachon mavjud")
+                else:
+                    logging.error(f"warehouse_movements.reason qo'shishda xatolik: {e}")
+            
+            # Debts jadvaliga paid_amount ustunini qo'shish
+            try:
+                await self.execute_query("ALTER TABLE debts ADD COLUMN paid_amount DECIMAL(15,2) DEFAULT 0")
+                logging.info("debts.paid_amount qo'shildi")
+            except Exception as e:
+                if "Duplicate column name" in str(e):
+                    logging.info("debts.paid_amount allaqachon mavjud")
+                else:
+                    logging.error(f"debts.paid_amount qo'shishda xatolik: {e}")
+
+            # Transactions jadvaliga currency ustunini qo'shish
+            try:
+                await self.execute_query("ALTER TABLE transactions ADD COLUMN currency VARCHAR(10) DEFAULT 'UZS'")
+                logging.info("transactions.currency qo'shildi")
+            except Exception as e:
+                if "Duplicate column name" in str(e):
+                    logging.info("transactions.currency allaqachon mavjud")
+                else:
+                    logging.error(f"transactions.currency qo'shishda xatolik: {e}")
+
+            # Valyuta kurslari jadvali
+            try:
+                await self.execute_query("""
+                    CREATE TABLE IF NOT EXISTS currency_rates (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        currency_code VARCHAR(10) NOT NULL,
+                        rate_to_uzs DECIMAL(20,6) NOT NULL,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        UNIQUE KEY unique_currency (currency_code)
+                    )
+                """)
+                
+                # Default kurslarni qo'shish
+                default_rates = [
+                    ('UZS', 1.0),
+                    ('USD', 12750.0),
+                    ('EUR', 13800.0),
+                    ('RUB', 135.0),
+                    ('TRY', 370.0)
+                ]
+                for code, rate in default_rates:
+                    await self.execute_query("""
+                        INSERT INTO currency_rates (currency_code, rate_to_uzs) 
+                        VALUES (%s, %s)
+                        ON DUPLICATE KEY UPDATE rate_to_uzs = VALUES(rate_to_uzs)
+                    """, (code, rate))
+                logging.info("currency_rates jadvali yaratildi va default kurslar qo'shildi")
+            except Exception as e:
+                logging.error(f"currency_rates jadvalini yaratishda xatolik: {e}")
 
             # Qarz eslatmalari jadvali
             try:
@@ -572,20 +680,20 @@ class Database:
         """
         result = await self.execute_one(query, (user_id,))
         if result:
-            tariff = result[7]
+            tariff = result.get('tariff')
             if tariff in (None, 'FREE'):
                 tariff = 'NONE'
             return {
-                'user_id': result[0],
-                'username': result[1],
-                'first_name': result[2],
-                'last_name': result[3],
-                'phone': result[4],
-                'name': result[5],
-                'source': result[6],
+                'user_id': result.get('user_id'),
+                'username': result.get('username'),
+                'first_name': result.get('first_name'),
+                'last_name': result.get('last_name'),
+                'phone': result.get('phone'),
+                'name': result.get('name'),
+                'source': result.get('source'),
                 'tariff': tariff,
-                'created_at': result[8],
-                'tariff_expires_at': result[9],
+                'created_at': result.get('created_at'),
+                'tariff_expires_at': result.get('tariff_expires_at'),
                 'is_active': True
             }
         return None
@@ -603,43 +711,47 @@ class Database:
         transactions = []
         for result in results:
             transactions.append({
-                'id': result[0],
-                'type': result[1],
-                'amount': float(result[2]),
-                'category': result[3],
-                'description': result[4],
-                'created_at': result[5]
+                'id': result.get('id'),
+                'type': result.get('transaction_type'),
+                'amount': float(result.get('amount', 0)),
+                'category': result.get('category'),
+                'description': result.get('description'),
+                'created_at': result.get('created_at')
             })
         return transactions
 
-    async def add_transaction(self, user_id, transaction_type, amount, category, description=None):
-        """Yangi tranzaksiya qo'shish"""
+    async def add_transaction(self, user_id, transaction_type, amount, category, description=None, currency='UZS'):
+        """Yangi tranzaksiya qo'shish (valyuta bilan)"""
+        # Valyutani to'g'ri formatda saqlash
+        currency = currency.upper() if currency else 'UZS'
+        if currency not in ['UZS', 'USD', 'EUR', 'RUB', 'TRY']:
+            currency = 'UZS'
         query = """
-        INSERT INTO transactions (user_id, transaction_type, amount, category, description)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO transactions (user_id, transaction_type, amount, category, currency, description)
+        VALUES (%s, %s, %s, %s, %s, %s)
         """
-        return await self.execute_insert(query, (user_id, transaction_type, amount, category, description))
+        return await self.execute_insert(query, (user_id, transaction_type, amount, category, currency, description))
 
     async def get_balance(self, user_id):
         """Foydalanuvchi balansini olish"""
         # Kirimlar
-        income_query = "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s AND transaction_type = 'income'"
+        income_query = "SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = %s AND transaction_type = 'income'"
         income_result = await self.execute_one(income_query, (user_id,))
-        income = float(income_result[0]) if income_result else 0.0
+        income = float(income_result.get('total', 0)) if income_result else 0.0
         
         # Chiqimlar
-        expense_query = "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s AND transaction_type = 'expense'"
+        expense_query = "SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = %s AND transaction_type = 'expense'"
         expense_result = await self.execute_one(expense_query, (user_id,))
-        expense = float(expense_result[0]) if expense_result else 0.0
+        expense = float(expense_result.get('total', 0)) if expense_result else 0.0
         
         # Qarzlar (yo'nalma bo'yicha)
-        borrowed_query = "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s AND transaction_type = 'debt' AND debt_direction = 'borrowed'"
+        borrowed_query = "SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = %s AND transaction_type = 'debt' AND debt_direction = 'borrowed'"
         borrowed_result = await self.execute_one(borrowed_query, (user_id,))
-        borrowed = float(borrowed_result[0]) if borrowed_result else 0.0
+        borrowed = float(borrowed_result.get('total', 0)) if borrowed_result else 0.0
 
-        lent_query = "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = %s AND transaction_type = 'debt' AND debt_direction = 'lent'"
+        lent_query = "SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = %s AND transaction_type = 'debt' AND debt_direction = 'lent'"
         lent_result = await self.execute_one(lent_query, (user_id,))
-        lent = float(lent_result[0]) if lent_result else 0.0
+        lent = float(lent_result.get('total', 0)) if lent_result else 0.0
 
         # Naqd balans: kirim + olingan qarz - chiqim - berilgan qarz
         cash_balance = income + borrowed - expense - lent
@@ -681,8 +793,10 @@ class Database:
         }
         
         for result in results:
-            category, trans_type, total, count = result
-            total = float(total)
+            category = result.get('category')
+            trans_type = result.get('transaction_type')
+            total = float(result.get('total', 0))
+            count = result.get('count', 0)
             
             if trans_type == 'income':
                 stats['income_categories'][category] = {'total': total, 'count': count}
@@ -760,10 +874,13 @@ class Database:
         
         monthly_data = {}
         for result in results:
-            month, trans_type, total = result
+            month = result.get('month')
+            trans_type = result.get('transaction_type')
+            total = result.get('total', 0)
             if month not in monthly_data:
                 monthly_data[month] = {'income': 0, 'expense': 0, 'debt': 0}
-            monthly_data[month][trans_type] = float(total)
+            if trans_type:
+                monthly_data[month][trans_type] = float(total)
         
         return monthly_data
     
@@ -805,7 +922,7 @@ class Database:
                 "SELECT expires_at FROM user_subscriptions WHERE user_id = %s AND tariff = %s LIMIT 1",
                 (user_id, tariff)
             )
-            expires_at = sub[0] if (sub and sub[0]) else None
+            expires_at = sub.get('expires_at') if sub else None
         # Users jadvalidagi tariff ustunini ham yangilaymiz
         await self.execute_query(
             "UPDATE users SET tariff = %s, tariff_expires_at = %s WHERE user_id = %s",
@@ -845,14 +962,14 @@ class Database:
         if not result:
             return None
         package = {
-            'id': result[0],
-            'package_code': result[1],
-            'text_limit': result[2],
-            'text_used': int(result[3]) if result[3] is not None else 0,  # None bo'lsa 0
-            'voice_limit': result[4],
-            'voice_used': int(result[5]) if result[5] is not None else 0,  # None bo'lsa 0
-            'status': result[6],
-            'purchased_at': result[7],
+            'id': result.get('id'),
+            'package_code': result.get('package_code'),
+            'text_limit': result.get('text_limit', 0),
+            'text_used': int(result.get('text_used', 0)) if result.get('text_used') is not None else 0,
+            'voice_limit': result.get('voice_limit', 0),
+            'voice_used': int(result.get('voice_used', 0)) if result.get('voice_used') is not None else 0,
+            'status': result.get('status'),
+            'purchased_at': result.get('purchased_at'),
         }
         # Status ni to'g'ri formatlash - faqat 'active' yoki 'completed'
         status_value = package.get('status')
@@ -1086,7 +1203,7 @@ class Database:
         LIMIT 1
         """
         result = await self.execute_one(query, (user_id,))
-        return result[0] if result else "NONE"
+        return result.get('tariff') if result else "NONE"
     
     # Reminders funksiyalari
     async def create_reminder(self, user_id: int, reminder_type: str, title: str, 
@@ -1210,18 +1327,13 @@ class Database:
         reminder = await self.execute_one(
             "SELECT * FROM reminders WHERE id = %s", (reminder_id,)
         )
-        if not reminder or not reminder[13]:  # is_recurring index
+        if not reminder or not reminder.get('is_recurring'):
             return None
         
-        # Tuple indekslari:
-        # 0: id, 1: user_id, 2: reminder_type, 3: title, 4: description
-        # 5: reminder_date, 6: reminder_time, 7: amount, 8: currency, 9: person_name
-        # 10: location, 11: is_recurring, 12: recurrence_pattern, 13: recurrence_day
-        
         from datetime import timedelta
-        current_date = reminder[5]  # reminder_date
-        pattern = reminder[12]  # recurrence_pattern
-        recurrence_day = reminder[13]  # recurrence_day
+        current_date = reminder.get('reminder_date')
+        pattern = reminder.get('recurrence_pattern')
+        recurrence_day = reminder.get('recurrence_day')
         
         if pattern == 'daily':
             next_date = current_date + timedelta(days=1)
@@ -1249,19 +1361,19 @@ class Database:
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         return await self.execute_insert(query, (
-            reminder[1],   # user_id
-            reminder[2],   # reminder_type
-            reminder[3],   # title
-            reminder[4],   # description
-            next_date,     # reminder_date
-            reminder[6],   # reminder_time
-            reminder[7],   # amount
-            reminder[8],   # currency
-            reminder[9],   # person_name
-            reminder[10],  # location
-            True,          # is_recurring
-            pattern,       # recurrence_pattern
-            recurrence_day # recurrence_day
+            reminder.get('user_id'),
+            reminder.get('reminder_type'),
+            reminder.get('title'),
+            reminder.get('description'),
+            next_date,
+            reminder.get('reminder_time'),
+            reminder.get('amount'),
+            reminder.get('currency'),
+            reminder.get('person_name'),
+            reminder.get('location'),
+            True,
+            pattern,
+            recurrence_day
         ))
     
     # Pro tarifi xarajatlari funksiyalari
@@ -1282,12 +1394,12 @@ class Database:
         
         if result:
             return {
-                'id': result[0],
-                'text_cost': float(result[1]) if result[1] else 0,
-                'voice_cost': float(result[2]) if result[2] else 0,
-                'total_cost': float(result[3]) if result[3] else 0,
-                'text_count': result[4] if result[4] else 0,
-                'voice_count': result[5] if result[5] else 0,
+                'id': result.get('id'),
+                'text_cost': float(result.get('text_cost', 0)) if result.get('text_cost') else 0,
+                'voice_cost': float(result.get('voice_cost', 0)) if result.get('voice_cost') else 0,
+                'total_cost': float(result.get('total_cost', 0)) if result.get('total_cost') else 0,
+                'text_count': result.get('text_count', 0) if result.get('text_count') else 0,
+                'voice_count': result.get('voice_count', 0) if result.get('voice_count') else 0,
             }
         
         # Yangi yozuv yaratish
@@ -1380,15 +1492,15 @@ class Database:
         products = []
         for result in results:
             products.append({
-                'id': result[0],
-                'name': result[1],
-                'category': result[2],
-                'barcode': result[3],
-                'price': float(result[4]) if result[4] else 0,
-                'quantity': result[5] or 0,
-                'min_quantity': result[6] or 0,
-                'image_url': result[7],
-                'created_at': result[8]
+                'id': result.get('id'),
+                'name': result.get('name'),
+                'category': result.get('category'),
+                'barcode': result.get('barcode'),
+                'price': float(result.get('price', 0)) if result.get('price') else 0,
+                'quantity': result.get('quantity', 0) or 0,
+                'min_quantity': result.get('min_quantity', 0) or 0,
+                'image_url': result.get('image_url'),
+                'created_at': result.get('created_at')
             })
         return products
     
@@ -1413,16 +1525,16 @@ class Database:
             return None
         
         return {
-            'id': result[0],
-            'user_id': result[1],
-            'name': result[2],
-            'category': result[3],
-            'barcode': result[4],
-            'price': float(result[5]) if result[5] else 0,
-            'quantity': result[6] or 0,
-            'min_quantity': result[7] or 0,
-            'image_url': result[8],
-            'created_at': result[9]
+            'id': result.get('id'),
+            'user_id': result.get('user_id'),
+            'name': result.get('name'),
+            'category': result.get('category'),
+            'barcode': result.get('barcode'),
+            'price': float(result.get('price', 0)) if result.get('price') else 0,
+            'quantity': result.get('quantity', 0) or 0,
+            'min_quantity': result.get('min_quantity', 0) or 0,
+            'image_url': result.get('image_url'),
+            'created_at': result.get('created_at')
         }
     
     async def update_warehouse_product(self, product_id: int, user_id: int, **kwargs) -> bool:
@@ -1501,14 +1613,14 @@ class Database:
         movements = []
         for result in results:
             movements.append({
-                'id': result[0],
-                'product_id': result[1],
-                'movement_type': result[2],
-                'quantity': result[3],
-                'unit_price': float(result[4]) if result[4] else 0,
-                'total_cost': float(result[5]) if result[5] else 0,
-                'description': result[6],
-                'created_at': result[7]
+                'id': result.get('id'),
+                'product_id': result.get('product_id'),
+                'movement_type': result.get('movement_type'),
+                'quantity': result.get('quantity', 0),
+                'unit_price': float(result.get('unit_price', 0)) if result.get('unit_price') else 0,
+                'total_cost': float(result.get('total_cost', 0)) if result.get('total_cost') else 0,
+                'description': result.get('description'),
+                'created_at': result.get('created_at')
             })
         return movements
     
@@ -1549,13 +1661,13 @@ class Database:
         expenses = []
         for result in results:
             expenses.append({
-                'id': result[0],
-                'product_id': result[1],
-                'movement_id': result[2],
-                'expense_type': result[3],
-                'amount': float(result[4]) if result[4] else 0,
-                'description': result[5],
-                'created_at': result[6]
+                'id': result.get('id'),
+                'product_id': result.get('product_id'),
+                'movement_id': result.get('movement_id'),
+                'expense_type': result.get('expense_type'),
+                'amount': float(result.get('amount', 0)) if result.get('amount') else 0,
+                'description': result.get('description'),
+                'created_at': result.get('created_at')
             })
         return expenses
     
@@ -1571,11 +1683,11 @@ class Database:
         products = []
         for result in results:
             products.append({
-                'id': result[0],
-                'name': result[1],
-                'category': result[2],
-                'quantity': result[3],
-                'min_quantity': result[4]
+                'id': result.get('id'),
+                'name': result.get('name'),
+                'category': result.get('category'),
+                'quantity': result.get('quantity', 0),
+                'min_quantity': result.get('min_quantity', 0)
             })
         return products
     
@@ -1583,19 +1695,19 @@ class Database:
         """Ombor statistikalarini olish"""
         # Jami tovarlar soni
         total_products = await self.execute_one(
-            "SELECT COUNT(*) FROM warehouse_products WHERE user_id = %s",
+            "SELECT COUNT(*) as count FROM warehouse_products WHERE user_id = %s",
             (user_id,)
         )
         
         # Jami qoldiq qiymati
         total_value = await self.execute_one(
-            "SELECT SUM(price * quantity) FROM warehouse_products WHERE user_id = %s",
+            "SELECT SUM(price * quantity) as total FROM warehouse_products WHERE user_id = %s",
             (user_id,)
         )
         
         # Kam qolgan tovarlar soni
         low_stock_count = await self.execute_one(
-            "SELECT COUNT(*) FROM warehouse_products WHERE user_id = %s AND quantity <= min_quantity AND min_quantity > 0",
+            "SELECT COUNT(*) as count FROM warehouse_products WHERE user_id = %s AND quantity <= min_quantity AND min_quantity > 0",
             (user_id,)
         )
         
@@ -1610,25 +1722,157 @@ class Database:
         monthly_in = 0
         monthly_out = 0
         for movement in monthly_movements:
-            if movement[0] == 'in':
-                monthly_in = movement[1] or 0
-            elif movement[0] == 'out':
-                monthly_out = movement[1] or 0
+            if movement.get('movement_type') == 'in':
+                monthly_in = movement.get('total', 0) or 0
+            elif movement.get('movement_type') == 'out':
+                monthly_out = movement.get('total', 0) or 0
         
         # Oylik xarajatlar
         monthly_expenses = await self.execute_one("""
-            SELECT SUM(amount) FROM warehouse_expenses
+            SELECT SUM(amount) as total FROM warehouse_expenses
             WHERE user_id = %s AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
         """, (user_id,))
         
         return {
-            'total_products': total_products[0] if total_products else 0,
-            'total_value': float(total_value[0]) if total_value and total_value[0] else 0,
-            'low_stock_count': low_stock_count[0] if low_stock_count else 0,
+            'total_products': total_products.get('count', 0) if total_products else 0,
+            'total_value': float(total_value.get('total', 0)) if total_value and total_value.get('total') else 0,
+            'low_stock_count': low_stock_count.get('count', 0) if low_stock_count else 0,
             'monthly_in': monthly_in,
             'monthly_out': monthly_out,
-            'monthly_expenses': float(monthly_expenses[0]) if monthly_expenses and monthly_expenses[0] else 0
+            'monthly_expenses': float(monthly_expenses.get('total', 0)) if monthly_expenses and monthly_expenses.get('total') else 0
         }
+
+    # ============ VALYUTA FUNKSIYALARI ============
+    
+    async def get_currency_rates(self) -> dict:
+        """Barcha valyuta kurslarini olish"""
+        try:
+            results = await self.execute_query("SELECT currency_code, rate_to_uzs FROM currency_rates")
+            rates = {}
+            for row in results:
+                rates[row.get('currency_code')] = float(row.get('rate_to_uzs', 1))
+            # Default qiymatlar agar topilmasa
+            if 'UZS' not in rates:
+                rates['UZS'] = 1.0
+            if 'USD' not in rates:
+                rates['USD'] = 12750.0
+            if 'EUR' not in rates:
+                rates['EUR'] = 13800.0
+            if 'RUB' not in rates:
+                rates['RUB'] = 135.0
+            if 'TRY' not in rates:
+                rates['TRY'] = 370.0
+            return rates
+        except Exception as e:
+            logging.error(f"Valyuta kurslarini olishda xatolik: {e}")
+            return {'UZS': 1.0, 'USD': 12750.0, 'EUR': 13800.0, 'RUB': 135.0, 'TRY': 370.0}
+    
+    async def update_currency_rate(self, currency_code: str, rate_to_uzs: float) -> bool:
+        """Valyuta kursini yangilash"""
+        try:
+            await self.execute_query("""
+                INSERT INTO currency_rates (currency_code, rate_to_uzs) 
+                VALUES (%s, %s)
+                ON DUPLICATE KEY UPDATE rate_to_uzs = VALUES(rate_to_uzs)
+            """, (currency_code, rate_to_uzs))
+            return True
+        except Exception as e:
+            logging.error(f"Valyuta kursini yangilashda xatolik: {e}")
+            return False
+    
+    async def convert_to_uzs(self, amount: float, currency: str) -> float:
+        """Istalgan valyutani UZS ga o'girish"""
+        if currency == 'UZS':
+            return amount
+        rates = await self.get_currency_rates()
+        rate = rates.get(currency, 1.0)
+        return amount * rate
+    
+    async def get_balance_multi_currency(self, user_id: int) -> dict:
+        """Foydalanuvchi balansini har bir valyutada va umumiy so'mda olish"""
+        rates = await self.get_currency_rates()
+        
+        # Har bir valyuta uchun balanslarni olish
+        currencies = ['UZS', 'USD', 'EUR', 'RUB', 'TRY']
+        result = {
+            'by_currency': {},
+            'total_uzs': {'income': 0.0, 'expense': 0.0, 'borrowed': 0.0, 'lent': 0.0}
+        }
+        
+        for currency in currencies:
+            # COALESCE yordamida NULL valyutalarni UZS deb qabul qilish
+            # Kirimlar
+            income_query = """
+                SELECT COALESCE(SUM(amount), 0) as total 
+                FROM transactions 
+                WHERE user_id = %s AND transaction_type = 'income' AND COALESCE(currency, 'UZS') = %s
+            """
+            income_result = await self.execute_one(income_query, (user_id, currency))
+            income = float(income_result.get('total', 0)) if income_result else 0.0
+            
+            # Chiqimlar
+            expense_query = """
+                SELECT COALESCE(SUM(amount), 0) as total 
+                FROM transactions 
+                WHERE user_id = %s AND transaction_type = 'expense' AND COALESCE(currency, 'UZS') = %s
+            """
+            expense_result = await self.execute_one(expense_query, (user_id, currency))
+            expense = float(expense_result.get('total', 0)) if expense_result else 0.0
+            
+            # Qarzlar
+            borrowed_query = """
+                SELECT COALESCE(SUM(amount), 0) as total 
+                FROM transactions 
+                WHERE user_id = %s AND transaction_type = 'debt' AND debt_direction = 'borrowed' AND COALESCE(currency, 'UZS') = %s
+            """
+            borrowed_result = await self.execute_one(borrowed_query, (user_id, currency))
+            borrowed = float(borrowed_result.get('total', 0)) if borrowed_result else 0.0
+            
+            lent_query = """
+                SELECT COALESCE(SUM(amount), 0) as total 
+                FROM transactions 
+                WHERE user_id = %s AND transaction_type = 'debt' AND debt_direction = 'lent' AND COALESCE(currency, 'UZS') = %s
+            """
+            lent_result = await self.execute_one(lent_query, (user_id, currency))
+            lent = float(lent_result.get('total', 0)) if lent_result else 0.0
+            
+            # Agar bu valyutada hech narsa yo'q bo'lsa, qo'shmaslik
+            if income > 0 or expense > 0 or borrowed > 0 or lent > 0:
+                balance = income + borrowed - expense - lent
+                result['by_currency'][currency] = {
+                    'income': income,
+                    'expense': expense,
+                    'borrowed': borrowed,
+                    'lent': lent,
+                    'balance': balance
+                }
+                
+                # UZS ga o'girish
+                rate = rates.get(currency, 1.0)
+                result['total_uzs']['income'] += income * rate
+                result['total_uzs']['expense'] += expense * rate
+                result['total_uzs']['borrowed'] += borrowed * rate
+                result['total_uzs']['lent'] += lent * rate
+        
+        # Umumiy balans
+        result['total_uzs']['balance'] = (
+            result['total_uzs']['income'] + 
+            result['total_uzs']['borrowed'] - 
+            result['total_uzs']['expense'] - 
+            result['total_uzs']['lent']
+        )
+        result['total_uzs']['net_balance'] = result['total_uzs']['income'] - result['total_uzs']['expense']
+        
+        return result
+
+    async def add_transaction_with_currency(self, user_id, transaction_type, amount, category, 
+                                            currency='UZS', description=None):
+        """Yangi tranzaksiya qo'shish (valyuta bilan)"""
+        query = """
+        INSERT INTO transactions (user_id, transaction_type, amount, category, currency, description)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        return await self.execute_insert(query, (user_id, transaction_type, amount, category, currency, description))
 
 # Global database instance
 db = Database()

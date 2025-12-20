@@ -37,6 +37,7 @@ from financial_module import FinancialModule
 from reports_module import ReportsModule
 from ai_chat import AIChat, AIChatFree
 from warehouse_module import WarehouseModule
+from business_module import BusinessModule, BusinessStates, create_business_module
 
 # Bot va dispatcher
 bot = Bot(token=BOT_TOKEN)
@@ -48,6 +49,7 @@ reports_module = ReportsModule()
 ai_chat = AIChat(db=db)
 ai_chat_free = AIChatFree(db=db)
 warehouse_module = WarehouseModule(db=db, ai_chat=ai_chat)
+business_module = create_business_module(db=db, ai_chat=ai_chat)
 
 # Admin panelga ruxsat berilgan ID
 ADMIN_USER_ID = 6429299277
@@ -393,13 +395,24 @@ def get_premium_menu():
     )
     return keyboard
 
-# Business menyusi
+# Business menyusi - YANGI TZ bo'yicha faqat 3 ta tugma + AI Chat
 def get_business_menu():
+    """Business tarif uchun asosiy menyu - AI orqali boshqarish"""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📦 Ombor"), KeyboardButton(text="➕ Xodim qo'shish")],
-            [KeyboardButton(text="💳 Qarzlar"), KeyboardButton(text="📊 Hisobotlar")],
-            [KeyboardButton(text="👤 Profil")]
+            [KeyboardButton(text="📊 Hisobotlar"), KeyboardButton(text="📦 Ombor")],
+            [KeyboardButton(text="🤖 AI Chat"), KeyboardButton(text="👤 Profil")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False
+    )
+    return keyboard
+
+def get_ai_chat_stop_menu():
+    """AI Chat rejimida to'xtatish tugmasi"""
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🛑 AI Chatni to'xtatish")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -1107,7 +1120,7 @@ async def get_user_name(user_id: int) -> str:
     try:
         query = "SELECT name FROM users WHERE user_id = %s"
         result = await db.execute_one(query, (user_id,))
-        return result[0] if result else "Xojayin"
+        return result.get('name') if result else "Xojayin"
     except:
         return "Xojayin"
 
@@ -1150,16 +1163,16 @@ async def start_command(message: types.Message, state: FSMContext):
     has_any_transactions = False
     if user_data:
         balance_query = """
-        SELECT COUNT(*) FROM transactions 
+        SELECT COUNT(*) as count FROM transactions 
         WHERE user_id = %s AND category IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
         """
         result = await db.execute_one(balance_query, (user_id,))
-        has_initial_balance = result[0] > 0 if result else False
+        has_initial_balance = result.get('count', 0) > 0 if result else False
 
         # Foydalanuvchida umuman tranzaksiya bormi (yangi foydalanuvchini ajratish uchun)
-        tx_count_query = "SELECT COUNT(*) FROM transactions WHERE user_id = %s"
+        tx_count_query = "SELECT COUNT(*) as count FROM transactions WHERE user_id = %s"
         tx_result = await db.execute_one(tx_count_query, (user_id,))
-        has_any_transactions = (tx_result[0] > 0) if tx_result else False
+        has_any_transactions = (tx_result.get('count', 0) > 0) if tx_result else False
 
     # Eski onboarding logikasini tekshirish
     # Agar foydalanuvchi onboarding jarayonida bo'lsa, qayerda to'xtagan bo'lsa o'sha yerdan davom etadi
@@ -1507,11 +1520,23 @@ async def start_command(message: types.Message, state: FSMContext):
 
 # Tur tanlash menyusini qaytaradi
 def get_account_type_menu():
-    """Hisob turini tanlash uchun tugmalar"""
+    """Hisob turini tanlash uchun tugmalar - faqat Shaxsiy va Biznes"""
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="👤 Shaxsiy foydalanish uchun", callback_data="account_type_SHI")],
-            [InlineKeyboardButton(text="👨‍👩‍👧‍👦 Oila uchun", callback_data="account_type_OILA"), InlineKeyboardButton(text="🏢 Biznes uchun", callback_data="account_type_BIZNES")]
+            [InlineKeyboardButton(text="🏢 Biznes uchun", callback_data="account_type_BIZNES")]
+        ]
+    )
+    return keyboard
+
+# Shaxsiy tarif tanlash menyusi (Plus va Pro)
+def get_personal_tariff_menu():
+    """Plus va Pro tariflardan birini tanlash uchun tugmalar"""
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⭐ Plus tarif (3 kun bepul)", callback_data="trial_tariff_PLUS")],
+            [InlineKeyboardButton(text="💎 Pro tarif (3 kun bepul)", callback_data="trial_tariff_PRO")],
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_account_type")]
         ]
     )
     return keyboard
@@ -1632,7 +1657,7 @@ async def process_name(message: types.Message, state: FSMContext):
 async def process_account_type(callback_query: CallbackQuery, state: FSMContext):
     """Hisob turini qabul qilish"""
     user_id = callback_query.from_user.id
-    account_type = callback_query.data.split("_")[2]  # SHI, OILA, BIZNES
+    account_type = callback_query.data.split("_")[2]  # SHI, BIZNES
     
     # Account turini bazaga saqlash
     await db.execute_query(
@@ -1640,26 +1665,28 @@ async def process_account_type(callback_query: CallbackQuery, state: FSMContext)
         (account_type, user_id)
     )
     
-    # Oila va Biznes uchun rasmli xabar va tugmalar
-    if account_type == 'OILA':
-        # Oila uchun rasmli xabar
+    if account_type == 'BIZNES':
+        # Biznes uchun ma'lumot va "3 kun sinab ko'rish" tugmasini ko'rsatish
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⚡ Aktivlashtirish", callback_data="activate_oila")],
+            [InlineKeyboardButton(text="🚀 3 kun bepul sinab ko'rish", callback_data="trial_tariff_BUSINESS")],
             [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_account_type")]
         ])
         
-        # Xabarni yangilash
         try:
             await callback_query.message.edit_caption(
                 caption=(
-                    "👨‍👩‍👧‍👦 **Oila Rejimi**\n\n"
-                    "Oila rejimida siz o'z oilangiz bilan birgalikda moliyaviy ma'lumotlaringizni boshqarishingiz mumkin.\n\n"
+                    "🏢 **Business tarif**\n\n"
+                    "Biznesingiz uchun to'liq boshqaruv tizimi!\n\n"
                     "✨ **Imkoniyatlar:**\n"
-                    "• Oiladagi barcha a'zolarning tranzaksiyalari\n"
-                    "• Kelishilgan moliyaviy maqsadlar\n"
-                    "• Oilaviy xarajatlar monitoringi\n"
-                    "• Bolalar uchun alohida hisobotlar\n\n"
-                    "⚡ **Tez orada ishga tushadi!**"
+                    "• 📦 Ombor boshqaruvi (Mini CRM)\n"
+                    "• 👥 Xodimlar va ularning maoshlarini boshqarish\n"
+                    "• 🏪 Do'kon va filiallarni monitoring qilish\n"
+                    "• 📊 Xarajatlar va foydaning tahlili\n"
+                    "• 🤖 AI yordamida biznes tahlillari\n"
+                    "• 📈 To'liq biznes hisobotlari\n"
+                    "• ⚠️ Tovar kamayib qoldi bildirishnomalari\n\n"
+                    "💰 **Narxi:** 199,000 so'm/oy\n\n"
+                    "3 kunlik bepul sinov davomida barcha funksiyalardan foydalaning!"
                 ),
                 reply_markup=keyboard,
                 parse_mode='Markdown'
@@ -1667,16 +1694,20 @@ async def process_account_type(callback_query: CallbackQuery, state: FSMContext)
         except:
             await callback_query.message.delete()
             await callback_query.message.answer_photo(
-                photo=FSInputFile('welcome1.png'),
+                photo=FSInputFile('welcome.png'),
                 caption=(
-                    "👨‍👩‍👧‍👦 **Oila Rejimi**\n\n"
-                    "Oila rejimida siz o'z oilangiz bilan birgalikda moliyaviy ma'lumotlaringizni boshqarishingiz mumkin.\n\n"
+                    "🏢 **Business tarif**\n\n"
+                    "Biznesingiz uchun to'liq boshqaruv tizimi!\n\n"
                     "✨ **Imkoniyatlar:**\n"
-                    "• Oiladagi barcha a'zolarning tranzaksiyalari\n"
-                    "• Kelishilgan moliyaviy maqsadlar\n"
-                    "• Oilaviy xarajatlar monitoringi\n"
-                    "• Bolalar uchun alohida hisobotlar\n\n"
-                    "⚡ **Tez orada ishga tushadi!**"
+                    "• 📦 Ombor boshqaruvi (Mini CRM)\n"
+                    "• 👥 Xodimlar va ularning maoshlarini boshqarish\n"
+                    "• 🏪 Do'kon va filiallarni monitoring qilish\n"
+                    "• 📊 Xarajatlar va foydaning tahlili\n"
+                    "• 🤖 AI yordamida biznes tahlillari\n"
+                    "• 📈 To'liq biznes hisobotlari\n"
+                    "• ⚠️ Tovar kamayib qoldi bildirishnomalari\n\n"
+                    "💰 **Narxi:** 199,000 so'm/oy\n\n"
+                    "3 kunlik bepul sinov davomida barcha funksiyalardan foydalaning!"
                 ),
                 reply_markup=keyboard,
                 parse_mode='Markdown'
@@ -1684,15 +1715,121 @@ async def process_account_type(callback_query: CallbackQuery, state: FSMContext)
         await callback_query.answer()
         return
     
-    if account_type == 'BIZNES':
-        # Biznes uchun to'g'ridan-to'g'ri Business tarifini aktivlashtirish
-        from datetime import datetime, timedelta
+    # Shaxsiy tanlangan - Plus yoki Pro tanlash
+    try:
+        await callback_query.message.edit_caption(
+            caption=(
+                "👤 **Shaxsiy foydalanish**\n\n"
+                "Quyidagi tariflardan birini tanlang:\n\n"
+                "⭐ **Plus tarif** — 3 kun bepul sinov\n"
+                "• AI yordamida matn va ovozli kiritish\n"
+                "• Tezkor moliyaviy tahlillar\n"
+                "• Shaxsiy byudjetni kuzatish\n"
+                "• Eslatmalar va bildirishnomalar\n\n"
+                "💎 **Pro tarif** — 3 kun bepul sinov\n"
+                "• Plus tarifning barcha imkoniyatlari\n"
+                "• Cheksiz AI so'rovlar\n"
+                "• Kengaytirilgan hisobotlar\n"
+                "• Shaxsiy moliyaviy maslahatlar\n"
+                "• Maqsadlar va rejalar tuzish"
+            ),
+            reply_markup=get_personal_tariff_menu(),
+            parse_mode='Markdown'
+        )
+    except:
+        await callback_query.message.delete()
+        await callback_query.message.answer_photo(
+            photo=FSInputFile('welcome.png'),
+            caption=(
+                "👤 **Shaxsiy foydalanish**\n\n"
+                "Quyidagi tariflardan birini tanlang:\n\n"
+                "⭐ **Plus tarif** — 3 kun bepul sinov\n"
+                "• AI yordamida matn va ovozli kiritish\n"
+                "• Tezkor moliyaviy tahlillar\n"
+                "• Shaxsiy byudjetni kuzatish\n"
+                "• Eslatmalar va bildirishnomalar\n\n"
+                "💎 **Pro tarif** — 3 kun bepul sinov\n"
+                "• Plus tarifning barcha imkoniyatlari\n"
+                "• Cheksiz AI so'rovlar\n"
+                "• Kengaytirilgan hisobotlar\n"
+                "• Shaxsiy moliyaviy maslahatlar\n"
+                "• Maqsadlar va rejalar tuzish"
+            ),
+            reply_markup=get_personal_tariff_menu(),
+            parse_mode='Markdown'
+        )
+    await callback_query.answer()
+
+# Plus/Pro tarif bepul sinov aktivlashtirish
+@dp.callback_query(lambda c: c.data.startswith("trial_tariff_"))
+async def process_trial_tariff(callback_query: CallbackQuery, state: FSMContext):
+    """Plus yoki Pro tarifni 3 kunlik bepul sinov bilan aktivlashtirish"""
+    user_id = callback_query.from_user.id
+    tariff = callback_query.data.split("_")[2]  # PLUS yoki PRO
+    
+    from datetime import datetime, timedelta
+    
+    try:
+        # 3 kunlik bepul sinov muddati
+        expires_at = datetime.now() + timedelta(days=3)
         
-        try:
-            # 30 kunlik test muddati
-            expires_at = datetime.now() + timedelta(days=30)
+        if tariff == 'PLUS':
+            # Plus tarif - plus_package_purchases jadvaliga qo'shish
+            await db.execute_query(
+                "UPDATE users SET tariff = %s, tariff_expires_at = %s WHERE user_id = %s",
+                ('PLUS', expires_at, user_id)
+            )
             
-            # Users jadvalini yangilash - Business tarifini aktivlashtirish
+            # Plus package sotib olish jadvaliga qo'shish
+            await db.execute_query(
+                """INSERT INTO plus_package_purchases 
+                (user_id, package_type, text_limit, voice_limit, text_used, voice_used, status, purchased_at, expires_at) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s)
+                ON DUPLICATE KEY UPDATE 
+                package_type = %s, text_limit = %s, voice_limit = %s, 
+                text_used = 0, voice_used = 0, status = %s, expires_at = %s""",
+                (user_id, 'plus_trial', 300, 100, 0, 0, 'active', expires_at,
+                 'plus_trial', 300, 100, 'active', expires_at)
+            )
+            
+            tariff_name = "Plus"
+            features = (
+                "• AI yordamida matn va ovozli kiritish\n"
+                "• 300 ta matnli so'rov\n"
+                "• 100 ta ovozli so'rov\n"
+                "• Tezkor moliyaviy tahlillar\n"
+                "• Shaxsiy byudjetni kuzatish\n"
+                "• Eslatmalar va bildirishnomalar"
+            )
+            
+        elif tariff == 'PRO':
+            # Pro tarif
+            await db.execute_query(
+                "UPDATE users SET tariff = %s, tariff_expires_at = %s WHERE user_id = %s",
+                ('PRO', expires_at, user_id)
+            )
+            
+            # User subscriptions jadvaliga qo'shish
+            await db.execute_query(
+                """INSERT INTO user_subscriptions (user_id, tariff, is_active, expires_at) 
+                VALUES (%s, %s, %s, %s) 
+                ON DUPLICATE KEY UPDATE tariff = %s, is_active = %s, expires_at = %s""",
+                (user_id, 'PRO', True, expires_at, 'PRO', True, expires_at)
+            )
+            
+            tariff_name = "Pro"
+            tariff_icon = "💎"
+            features = (
+                "• Cheksiz AI so'rovlar\n"
+                "• Matn va ovozli kiritish\n"
+                "• Kengaytirilgan hisobotlar\n"
+                "• Shaxsiy moliyaviy maslahatlar\n"
+                "• Maqsadlar va rejalar tuzish\n"
+                "• To'liq tahlil va prognozlar"
+            )
+            
+        else:  # BUSINESS
+            # Business tarif
             await db.execute_query(
                 "UPDATE users SET tariff = %s, tariff_expires_at = %s WHERE user_id = %s",
                 ('BUSINESS', expires_at, user_id)
@@ -1700,78 +1837,78 @@ async def process_account_type(callback_query: CallbackQuery, state: FSMContext)
             
             # User subscriptions jadvaliga qo'shish
             await db.execute_query(
-                "INSERT INTO user_subscriptions (user_id, tariff, is_active, expires_at) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE tariff = %s, is_active = %s, expires_at = %s",
+                """INSERT INTO user_subscriptions (user_id, tariff, is_active, expires_at) 
+                VALUES (%s, %s, %s, %s) 
+                ON DUPLICATE KEY UPDATE tariff = %s, is_active = %s, expires_at = %s""",
                 (user_id, 'BUSINESS', True, expires_at, 'BUSINESS', True, expires_at)
             )
             
-            # Payments jadvaliga qo'shish (test uchun 0 so'm)
-            await db.execute_query(
-                "INSERT INTO payments (user_id, tariff, provider, total_amount, currency, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, NOW())",
-                (user_id, 'BUSINESS', 'onboarding_test', 0, 'UZS', 'paid')
+            tariff_name = "Business"
+            tariff_icon = "🏢"
+            features = (
+                "• 📦 Ombor boshqaruvi (Mini CRM)\n"
+                "• 👥 Xodimlar va maoshlarni boshqarish\n"
+                "• 🏪 Do'kon va filiallarni monitoring\n"
+                "• 📊 Xarajatlar va foyda tahlili\n"
+                "• 🤖 AI biznes tahlillari\n"
+                "• 📈 To'liq biznes hisobotlari"
             )
-            
-            user_name = await get_user_name(user_id)
-            
-            # Muvaffaqiyatli xabar
-            try:
-                await callback_query.message.delete()
-            except:
-                pass
-            
-            await callback_query.message.answer(
-                f"✅ **Business tarif aktivlashtirildi!**\n\n"
-                f"Salom, {user_name}!\n\n"
-                f"🏢 **Business tarif** — 30 kun bepul sinov\n"
-                f"📅 Tugash sanasi: {expires_at.strftime('%d.%m.%Y %H:%M')}\n\n"
-                f"✨ **Imkoniyatlar:**\n"
-                f"• 📦 Ombor boshqaruvi (Mini CRM)\n"
-                f"• Xodimlar soni va ularning maoshlarini boshqarish\n"
-                f"• Do'kon va filyallarning daromadlarini monitoring qilish\n"
-                f"• Xarajatlar va foydaning tahlili\n"
-                f"• AI yordamida biznes tahlillari\n"
-                f"• To'liq biznes hisobotlari\n\n"
-                f"Endi barcha Business funksiyalaridan foydalanishingiz mumkin!",
-                parse_mode='Markdown'
-            )
-            
-            # Business menyusini ko'rsatish
+        
+        # Payments jadvaliga qo'shish (bepul sinov)
+        await db.execute_query(
+            "INSERT INTO payments (user_id, tariff, provider, total_amount, currency, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, NOW())",
+            (user_id, tariff, 'free_trial', 0, 'UZS', 'paid')
+        )
+        
+        user_name = await get_user_name(user_id)
+        
+        # Muvaffaqiyatli xabar
+        try:
+            await callback_query.message.delete()
+        except:
+            pass
+        
+        # Plus uchun icon
+        if tariff == 'PLUS':
+            tariff_icon = "⭐"
+        
+        await callback_query.message.answer(
+            f"🎉 **3 kunlik bepul sinov aktivlashtirildi!**\n\n"
+            f"Salom, {user_name}!\n\n"
+            f"{tariff_icon} **{tariff_name} tarif** — 3 kun bepul sinov\n"
+            f"📅 Tugash sanasi: {expires_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+            f"✨ **Imkoniyatlar:**\n"
+            f"{features}\n\n"
+            f"Sinov muddati tugagandan so'ng, tarifni davom ettirish uchun to'lov qilishingiz mumkin.",
+            parse_mode='Markdown'
+        )
+        
+        # Business tarif uchun alohida menyu
+        if tariff == 'BUSINESS':
             await callback_query.message.answer(
                 "🏢 Business tarif menyusi:",
                 reply_markup=get_business_menu()
             )
-            
-            await callback_query.answer("✅ Business tarif aktivlashtirildi!")
+            await callback_query.answer(f"✅ {tariff_name} tarif aktivlashtirildi!")
             await state.clear()
-            
-        except Exception as e:
-            logging.error(f"Business tarif aktivlashtirishda xatolik: {e}")
-            await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+            return
         
-        return
-    
-    # Shaxsiy tanlangan - xabarni o'chirish
-    try:
-        await callback_query.message.delete()
-    except:
-        pass
-    
-    # Tabrik xabari
-    tabrik_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Boshlash", callback_data="start_onboarding")]
-    ])
-    
-    await callback_query.message.answer_photo(
-        photo=FSInputFile('welcome.png'),
-        caption=(
-            "🎉 **Hammasi tayyor!**\n\n"
-            "Balans AI ga xush kelibsiz! Biz sizga shaxsiy moliyaviy yordam berishdan xursandmiz.\n\n"
-            "Boshlash tugmasini bosing."
-        ),
-        reply_markup=tabrik_keyboard,
-        parse_mode='Markdown'
-    )
-    await callback_query.answer()
-    await state.set_state(UserStates.onboarding_complete)
+        # Onboarding davom ettirish - balans kiritish (Plus va Pro uchun)
+        await callback_query.message.answer_photo(
+            photo=FSInputFile('welcome.png'),
+            caption=(
+                "💰 **Onboarding bosqichi**\n\n"
+                "1. Hozir balansingizda qancha pul bor?"
+            ),
+            parse_mode='Markdown'
+        )
+        
+        await callback_query.answer(f"✅ {tariff_name} tarif aktivlashtirildi!")
+        await state.set_state(UserStates.onboarding_balance)
+        
+    except Exception as e:
+        logging.error(f"{tariff} tarif aktivlashtirishda xatolik: {e}")
+        await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
 
 # Boshlash tugmasini bosish
 @dp.callback_query(lambda c: c.data == "start_onboarding")
@@ -2342,6 +2479,12 @@ async def process_category(callback_query: CallbackQuery, state: FSMContext):
     transaction_type = data.get('transaction_type')
     amount = data.get('amount')
     description = data.get('description', '')
+    currency = data.get('currency', 'UZS')  # Valyuta olish (default UZS)
+    
+    # Valyutani to'g'ri formatda saqlash
+    currency = currency.upper() if currency else 'UZS'
+    if currency not in ['UZS', 'USD', 'EUR', 'RUB', 'TRY']:
+        currency = 'UZS'
     
     # Qarzlar uchun transaction_type ni to'g'ri o'rnatish
     if not transaction_type:
@@ -2372,43 +2515,58 @@ async def process_category(callback_query: CallbackQuery, state: FSMContext):
                     await state.clear()
                     return
 
-            # Qarz berish qaydini saqlaymiz
+            # Qarz berish qaydini saqlaymiz (valyuta bilan)
             insert_id = await db.execute_insert(
-                "INSERT INTO transactions (user_id, transaction_type, amount, category, description, due_date, debt_direction) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (user_id, transaction_type, amount, category, description, due_date, debt_direction)
+                "INSERT INTO transactions (user_id, transaction_type, amount, category, currency, description, due_date, debt_direction) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (user_id, transaction_type, amount, category, currency, description, due_date, debt_direction)
             )
 
-            # Onboarding tugagan bo'lsa, balansdan chiqim yozamiz
+            # Onboarding tugagan bo'lsa, balansdan chiqim yozamiz (valyuta bilan)
             if not is_onboarding:
                 await db.execute_query(
-                    "INSERT INTO transactions (user_id, transaction_type, amount, category, description) VALUES (%s, %s, %s, %s, %s)",
-                    (user_id, 'expense', amount, f"Qarz berish: {category}", f"Qarz berish - {description}")
+                    "INSERT INTO transactions (user_id, transaction_type, amount, category, currency, description) VALUES (%s, %s, %s, %s, %s, %s)",
+                    (user_id, 'expense', amount, f"Qarz berish: {category}", currency, f"Qarz berish - {description}")
                 )
 
         # Qarz olish (borrowed): balansga kirim yozish faqat onboarding tugaganidan keyin
         elif transaction_type == 'debt' and debt_type == 'borrowed':
-            # Qarz olish qaydini saqlaymiz
+            # Qarz olish qaydini saqlaymiz (valyuta bilan)
             insert_id = await db.execute_insert(
-                "INSERT INTO transactions (user_id, transaction_type, amount, category, description, due_date, debt_direction) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (user_id, transaction_type, amount, category, description, due_date, debt_direction)
+                "INSERT INTO transactions (user_id, transaction_type, amount, category, currency, description, due_date, debt_direction) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (user_id, transaction_type, amount, category, currency, description, due_date, debt_direction)
             )
 
-            # Onboarding tugagan bo'lsa, balansga kirim yozamiz
+            # Onboarding tugagan bo'lsa, balansga kirim yozamiz (valyuta bilan)
             if not is_onboarding:
                 await db.execute_query(
-                    "INSERT INTO transactions (user_id, transaction_type, amount, category, description) VALUES (%s, %s, %s, %s, %s)",
-                    (user_id, 'income', amount, f"Qarz olish: {category}", f"Qarz olish - {description}")
+                    "INSERT INTO transactions (user_id, transaction_type, amount, category, currency, description) VALUES (%s, %s, %s, %s, %s, %s)",
+                    (user_id, 'income', amount, f"Qarz olish: {category}", currency, f"Qarz olish - {description}")
                 )
 
         else:
-            # Oddiy tranzaksiya (kirim, chiqim)
+            # Oddiy tranzaksiya (kirim, chiqim) - valyuta bilan
             insert_id = await db.execute_insert(
-                "INSERT INTO transactions (user_id, transaction_type, amount, category, description, due_date, debt_direction) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (user_id, transaction_type, amount, category, description, due_date, debt_direction)
+                "INSERT INTO transactions (user_id, transaction_type, amount, category, currency, description, due_date, debt_direction) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (user_id, transaction_type, amount, category, currency, description, due_date, debt_direction)
             )
         
         type_emoji = {"income": "📈", "expense": "📉", "debt": "💳"}.get(transaction_type, "❓")
         type_name = {"income": "Kirim", "expense": "Chiqim", "debt": "Qarz"}.get(transaction_type, "Tranzaksiya")
+        
+        # Valyuta nomini ko'rsatish
+        currency_names = {'UZS': "so'm", 'USD': "dollar", 'EUR': "evro", 'RUB': "rubl", 'TRY': "lira"}
+        currency_name = currency_names.get(currency, currency)
+        currency_symbols = {'UZS': "🇺🇿", 'USD': "🇺🇸", 'EUR': "🇪🇺", 'RUB': "🇷🇺", 'TRY': "🇹🇷"}
+        currency_symbol = currency_symbols.get(currency, "💰")
+        
+        # So'mga o'girilgan qiymat (agar UZS bo'lmasa)
+        if currency != 'UZS':
+            rates = await db.get_currency_rates()
+            rate = rates.get(currency, 1)
+            amount_uzs = amount * rate
+            amount_text = f"{currency_symbol} {amount:,.2f} {currency_name} ({amount_uzs:,.0f} so'm)"
+        else:
+            amount_text = f"{amount:,.0f} so'm"
         
         # Qarzlar uchun qarz turini ko'rsatish
         debt_type_text = ""
@@ -2423,7 +2581,7 @@ async def process_category(callback_query: CallbackQuery, state: FSMContext):
         
         await callback_query.message.edit_text(
             f"✅ *{type_name} qo'shildi!*\n\n"
-            f"{type_emoji} {amount:,.0f} so'm\n"
+            f"{type_emoji} {amount_text}\n"
             f"{debt_type_text}"
             f"📂 {category}\n",
             parse_mode="Markdown"
@@ -2498,29 +2656,43 @@ async def process_category(callback_query: CallbackQuery, state: FSMContext):
 # Hisobotlar menyusi
 @dp.message(lambda message: message.text == "📊 Hisobotlar")
 async def reports_menu(message: types.Message, state: FSMContext):
-    """Hisobotlar menyusi - qisqa balans ko'rsatish"""
+    """Hisobotlar menyusi - qisqa balans ko'rsatish (ko'p valyutali)"""
     user_id = message.from_user.id
     user_tariff = await get_user_tariff(user_id)
     
-    # Balans ma'lumotlarini olish
-    balances = await db.get_balances(user_id)
+    # Ko'p valyutali balans ma'lumotlarini olish
+    multi_balance = await db.get_balance_multi_currency(user_id)
+    total_uzs = multi_balance.get('total_uzs', {})
+    by_currency = multi_balance.get('by_currency', {})
     
-    # Qisqa balans ko'rsatish
-    message_text = "📊 **Qisqa balans**\n\n"
-    message_text += f"💵 **Naqd balans:** {balances['cash_balance']:,.0f} so'm\n"
-    message_text += f"📊 **Sof balans:** {balances['net_balance']:,.0f} so'm\n"
-    message_text += f"📈 **Jami kirim:** {balances['total_income']:,.0f} so'm\n"
-    message_text += f"📉 **Jami chiqim:** {balances['total_expense']:,.0f} so'm\n"
+    # Umumiy balans (so'mda)
+    message_text = "📊 **Umumiy balans (so'mda)**\n\n"
+    message_text += f"💵 **Naqd balans:** {total_uzs.get('balance', 0):,.0f} so'm\n"
+    message_text += f"📊 **Sof balans:** {total_uzs.get('net_balance', 0):,.0f} so'm\n"
+    message_text += f"📈 **Jami kirim:** {total_uzs.get('income', 0):,.0f} so'm\n"
+    message_text += f"📉 **Jami chiqim:** {total_uzs.get('expense', 0):,.0f} so'm\n"
     
     # Qarzlar bo'lsa ko'rsatish
-    if balances['total_lent_debt'] > 0:
-        message_text += f"💸 **Berilgan qarz:** {balances['total_lent_debt']:,.0f} so'm\n"
-    if balances['total_borrowed_debt'] > 0:
-        message_text += f"💳 **Olingan qarz:** {balances['total_borrowed_debt']:,.0f} so'm\n"
+    if total_uzs.get('lent', 0) > 0:
+        message_text += f"💸 **Berilgan qarz:** {total_uzs.get('lent', 0):,.0f} so'm\n"
+    if total_uzs.get('borrowed', 0) > 0:
+        message_text += f"💳 **Olingan qarz:** {total_uzs.get('borrowed', 0):,.0f} so'm\n"
+    
+    # Har bir valyutadagi balans
+    if by_currency:
+        message_text += "\n💱 **Valyutalar bo'yicha:**\n"
+        currency_symbols = {'UZS': "🇺🇿", 'USD': "🇺🇸", 'EUR': "🇪🇺", 'RUB': "🇷🇺", 'TRY': "🇹🇷"}
+        currency_names = {'UZS': "so'm", 'USD': "dollar", 'EUR': "evro", 'RUB': "rubl", 'TRY': "lira"}
+        for curr, data in by_currency.items():
+            symbol = currency_symbols.get(curr, "💰")
+            name = currency_names.get(curr, curr)
+            balance = data.get('balance', 0)
+            message_text += f"{symbol} {balance:,.2f} {name}\n"
     
     # Mini app uchun tugma
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📱 To'liq ko'rish", url="https://t.me/balansaibot/hisobotlar")]
+        [InlineKeyboardButton(text="📱 To'liq ko'rish", url="https://t.me/balansaibot/hisobotlar")],
+        [InlineKeyboardButton(text="💱 Valyuta kurslari", callback_data="currency_rates")]
     ])
     
     await message.answer(
@@ -2528,6 +2700,90 @@ async def reports_menu(message: types.Message, state: FSMContext):
         reply_markup=keyboard,
         parse_mode="Markdown"
     )
+
+# Valyuta kurslari callback
+@dp.callback_query(lambda c: c.data == "currency_rates")
+async def currency_rates_callback(callback_query: CallbackQuery):
+    """Valyuta kurslarini ko'rsatish"""
+    try:
+        rates = await db.get_currency_rates()
+        
+        message_text = "💱 **Valyuta kurslari**\n\n"
+        message_text += "1 valyuta = ... so'm\n\n"
+        
+        currency_info = {
+            'USD': ('🇺🇸 Dollar (USD)', rates.get('USD', 12750)),
+            'EUR': ('🇪🇺 Evro (EUR)', rates.get('EUR', 13800)),
+            'RUB': ('🇷🇺 Rubl (RUB)', rates.get('RUB', 135)),
+            'TRY': ('🇹🇷 Lira (TRY)', rates.get('TRY', 370))
+        }
+        
+        for code, (name, rate) in currency_info.items():
+            message_text += f"{name}: {rate:,.2f} so'm\n"
+        
+        message_text += "\n💡 _Kurslar taxminiy. Tranzaksiya kiritishda valyutani ayting (masalan: \"50 dollar xarajat\")_"
+        
+        await callback_query.message.edit_text(
+            message_text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_to_reports")]
+            ]),
+            parse_mode="Markdown"
+        )
+        await callback_query.answer()
+    except Exception as e:
+        logging.error(f"Currency rates error: {e}")
+        await callback_query.answer("Xatolik yuz berdi", show_alert=True)
+
+@dp.callback_query(lambda c: c.data == "back_to_reports")
+async def back_to_reports_callback(callback_query: CallbackQuery):
+    """Hisobotlarga qaytish"""
+    try:
+        user_id = callback_query.from_user.id
+        
+        # Ko'p valyutali balans ma'lumotlarini olish
+        multi_balance = await db.get_balance_multi_currency(user_id)
+        total_uzs = multi_balance.get('total_uzs', {})
+        by_currency = multi_balance.get('by_currency', {})
+        
+        # Umumiy balans (so'mda)
+        message_text = "📊 **Umumiy balans (so'mda)**\n\n"
+        message_text += f"💵 **Naqd balans:** {total_uzs.get('balance', 0):,.0f} so'm\n"
+        message_text += f"📊 **Sof balans:** {total_uzs.get('net_balance', 0):,.0f} so'm\n"
+        message_text += f"📈 **Jami kirim:** {total_uzs.get('income', 0):,.0f} so'm\n"
+        message_text += f"📉 **Jami chiqim:** {total_uzs.get('expense', 0):,.0f} so'm\n"
+        
+        # Qarzlar bo'lsa ko'rsatish
+        if total_uzs.get('lent', 0) > 0:
+            message_text += f"💸 **Berilgan qarz:** {total_uzs.get('lent', 0):,.0f} so'm\n"
+        if total_uzs.get('borrowed', 0) > 0:
+            message_text += f"💳 **Olingan qarz:** {total_uzs.get('borrowed', 0):,.0f} so'm\n"
+        
+        # Har bir valyutadagi balans
+        if by_currency:
+            message_text += "\n💱 **Valyutalar bo'yicha:**\n"
+            currency_symbols = {'UZS': "🇺🇿", 'USD': "🇺🇸", 'EUR': "🇪🇺", 'RUB': "🇷🇺", 'TRY': "🇹🇷"}
+            currency_names = {'UZS': "so'm", 'USD': "dollar", 'EUR': "evro", 'RUB': "rubl", 'TRY': "lira"}
+            for curr, data in by_currency.items():
+                symbol = currency_symbols.get(curr, "💰")
+                name = currency_names.get(curr, curr)
+                balance = data.get('balance', 0)
+                message_text += f"{symbol} {balance:,.2f} {name}\n"
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📱 To'liq ko'rish", url="https://t.me/balansaibot/hisobotlar")],
+            [InlineKeyboardButton(text="💱 Valyuta kurslari", callback_data="currency_rates")]
+        ])
+        
+        await callback_query.message.edit_text(
+            message_text,
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        await callback_query.answer()
+    except Exception as e:
+        logging.error(f"Back to reports error: {e}")
+        await callback_query.answer("Xatolik yuz berdi", show_alert=True)
 
 # Profil menyusi
 @dp.message(lambda message: message.text == "👤 Profil")
@@ -2601,7 +2857,7 @@ async def profile_handler(message: Message, state: FSMContext):
         try:
             row = await db.execute_one(
                 """
-                SELECT COUNT(*) 
+                SELECT COUNT(*) as count
                 FROM transactions 
                 WHERE user_id = %s 
                 AND MONTH(created_at) = MONTH(NOW())
@@ -2609,11 +2865,11 @@ async def profile_handler(message: Message, state: FSMContext):
                 """,
                 (user_id,)
             )
-            monthly_count = row[0] if row else 0
+            monthly_count = row.get('count', 0) if row else 0
             
             audio_row = await db.execute_one(
                 """
-                SELECT COUNT(*) 
+                SELECT COUNT(*) as count
                 FROM transactions 
                 WHERE user_id = %s 
                 AND MONTH(created_at) = MONTH(NOW())
@@ -2622,7 +2878,7 @@ async def profile_handler(message: Message, state: FSMContext):
                 """,
                 (user_id,)
             )
-            audio_count = audio_row[0] if audio_row else 0
+            audio_count = audio_row.get('count', 0) if audio_row else 0
             
             expires_str = _format_date_uz(user_data['tariff_expires_at']) + " gacha" if user_data.get('tariff_expires_at') else '—'
             
@@ -2709,8 +2965,8 @@ async def profile_stats_callback(callback_query: CallbackQuery):
         return
     
     try:
-        row = await db.execute_one("SELECT COUNT(*) FROM transactions WHERE user_id = %s", (user_id,))
-        total = row[0] if row else 0
+        row = await db.execute_one("SELECT COUNT(*) as count FROM transactions WHERE user_id = %s", (user_id,))
+        total = row.get('count', 0) if row else 0
     except Exception as e:
         logging.error(f"profile_stats_callback error: {e}")
         total = 0
@@ -3178,7 +3434,7 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
         try:
             row = await db.execute_one(
                 """
-                SELECT COUNT(*) 
+                SELECT COUNT(*) as count
                 FROM transactions 
                 WHERE user_id = %s 
                 AND MONTH(created_at) = MONTH(NOW())
@@ -3186,11 +3442,11 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
                 """,
                 (user_id,)
             )
-            monthly_count = row[0] if row else 0
+            monthly_count = row.get('count', 0) if row else 0
             
             audio_row = await db.execute_one(
                 """
-                SELECT COUNT(*) 
+                SELECT COUNT(*) as count
                 FROM transactions 
                 WHERE user_id = %s 
                 AND MONTH(created_at) = MONTH(NOW())
@@ -3199,7 +3455,7 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
                 """,
                 (user_id,)
             )
-            audio_count = audio_row[0] if audio_row else 0
+            audio_count = audio_row.get('count', 0) if audio_row else 0
             
             expires_str = _format_date_uz(user_data['tariff_expires_at']) + " gacha" if user_data.get('tariff_expires_at') else '—'
             
@@ -3221,7 +3477,7 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
         try:
             row = await db.execute_one(
                 """
-                SELECT COUNT(*) 
+                SELECT COUNT(*) as count
                 FROM transactions 
                 WHERE user_id = %s 
                 AND MONTH(created_at) = MONTH(NOW())
@@ -3229,11 +3485,11 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
                 """,
                 (user_id,)
             )
-            monthly_count = row[0] if row else 0
+            monthly_count = row.get('count', 0) if row else 0
             
             audio_row = await db.execute_one(
                 """
-                SELECT COUNT(*) 
+                SELECT COUNT(*) as count
                 FROM transactions 
                 WHERE user_id = %s 
                 AND MONTH(created_at) = MONTH(NOW())
@@ -3242,7 +3498,7 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
                 """,
                 (user_id,)
             )
-            audio_count = audio_row[0] if audio_row else 0
+            audio_count = audio_row.get('count', 0) if audio_row else 0
             
             expires_str = _format_date_uz(user_data['tariff_expires_at']) + " gacha" if user_data.get('tariff_expires_at') else '—'
             
@@ -4095,7 +4351,7 @@ async def back_to_duration_selection(callback_query: CallbackQuery, state: FSMCo
     await state.set_state(UserStates.waiting_for_subscription_duration)
     await callback_query.answer()
 
-@dp.callback_query(lambda c: not c.data.startswith("trans_") and not c.data.startswith("accept_employee_") and not c.data.startswith("reject_employee") and not c.data.startswith("leave_team") and not c.data.startswith("confirm_leave_team"))
+@dp.callback_query(lambda c: not c.data.startswith("trans_") and not c.data.startswith("accept_employee_") and not c.data.startswith("reject_employee") and not c.data.startswith("leave_team") and not c.data.startswith("confirm_leave_team") and not c.data.startswith("biz_"))
 async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext):
     print(f"DEBUG: Non-transaction callback received: {callback_query.data}")
     # Avtomatik tarif muddatini tekshirish
@@ -4461,7 +4717,27 @@ async def process_tariff_onboarding_only(callback_query: CallbackQuery, state: F
     # Boshqa holatlar yuqorida qayta ishlangan
     await callback_query.answer()
 
-# Xodim qo'shish handler
+# ================== BIZNES HANDLERLARI (YANGI TZ) ==================
+
+# 📊 Hisobotlar handler
+@dp.message(lambda message: message.text == "📊 Hisobotlar" and hasattr(message, 'from_user'))
+async def business_reports_handler(message: types.Message, state: FSMContext):
+    """Hisobotlar menyusi - Business uchun"""
+    user_id = message.from_user.id
+    user_tariff = await get_user_tariff(user_id)
+    
+    if user_tariff != "BUSINESS":
+        # Boshqa tariflar uchun standart hisobotlar
+        return
+    
+    await message.answer(
+        "📊 **Hisobotlar**\n\n"
+        "Biznesingiz statistikasi va tahlillari:",
+        reply_markup=business_module.get_reports_menu(),
+        parse_mode='Markdown'
+    )
+
+# 📦 Ombor handler
 @dp.message(lambda message: message.text == "📦 Ombor")
 async def warehouse_menu_handler(message: types.Message, state: FSMContext):
     """Ombor menyusi"""
@@ -4472,21 +4748,343 @@ async def warehouse_menu_handler(message: types.Message, state: FSMContext):
         await message.answer("❌ Bu funksiya faqat Business tarif uchun mavjud.")
         return
     
+    # Ombor ma'lumotlarini ko'rsatish
+    products_text = await business_module.get_warehouse_products(user_id)
+    
+    await message.answer(
+        products_text + "\n\n💡 **Tovar qo'shish:** \"Omborga 50 kg shakar qo'sh\"\n"
+        "💡 **Chiqim:** \"10 ta yog' sotildi\"",
+        reply_markup=business_module.get_warehouse_menu(),
+        parse_mode='Markdown'
+    )
+
+# 🤖 AI Chat handler - REJIM BOSHLASH
+@dp.message(lambda message: message.text == "🤖 AI Chat")
+async def ai_chat_start_handler(message: types.Message, state: FSMContext):
+    """AI Chat rejimini boshlash"""
+    user_id = message.from_user.id
+    user_tariff = await get_user_tariff(user_id)
+    
+    if user_tariff != "BUSINESS":
+        await message.answer("❌ Bu funksiya faqat Business tarif uchun mavjud.")
+        return
+    
+    await state.set_state(BusinessStates.ai_chat_mode)
+    
+    await message.answer(
+        "🤖 **AI Chat rejimi faollashtirildi!**\n\n"
+        "Men sizning biznes yordamchingizman. Menga savollaringizni bering:\n\n"
+        "💡 **Misollar:**\n"
+        "• \"Bu oy foydam qancha?\"\n"
+        "• \"Qaysi kun eng yaxshi savdo bo'lgan?\"\n"
+        "• \"Xarajatlarimni qayerdan qisqartirsam bo'ladi?\"\n"
+        "• \"Qaysi mahsulot eng ko'p sotilmoqda?\"\n\n"
+        "🛑 Chatni to'xtatish uchun pastdagi tugmani bosing.",
+        reply_markup=get_ai_chat_stop_menu(),
+        parse_mode='Markdown'
+    )
+
+# 🛑 AI Chat to'xtatish
+@dp.message(lambda message: message.text == "🛑 AI Chatni to'xtatish")
+async def ai_chat_stop_handler(message: types.Message, state: FSMContext):
+    """AI Chat rejimini to'xtatish"""
+    await state.clear()
+    
+    await message.answer(
+        "✅ AI Chat rejimi to'xtatildi.\n\n"
+        "Endi odatdagidek yozing yoki menyudan foydalaning.",
+        reply_markup=get_business_menu()
+    )
+
+# AI Chat rejimida xabarlar
+@dp.message(BusinessStates.ai_chat_mode)
+async def ai_chat_message_handler(message: types.Message, state: FSMContext):
+    """AI Chat rejimida xabarlarni qayta ishlash"""
+    user_id = message.from_user.id
+    text = message.text
+    
+    if not text:
+        return
+    
+    # Processing xabari
+    processing_msg = await message.answer("🤔 O'ylayapman...")
+    
+    try:
+        # AI dan javob olish
+        response = await business_module.ai_chat_response(user_id, text)
+        
+        await processing_msg.edit_text(
+            f"🤖 **AI Javob:**\n\n{response}",
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logging.error(f"AI Chat error: {e}")
+        await processing_msg.edit_text("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.")
+
+# 👤 Profil handler (Business uchun)
+@dp.message(lambda message: message.text == "👤 Profil")
+async def business_profile_handler(message: types.Message, state: FSMContext):
+    """Profil - Business uchun kengaytirilgan"""
+    user_id = message.from_user.id
+    user_tariff = await get_user_tariff(user_id)
+    
+    if user_tariff != "BUSINESS":
+        # Boshqa tariflar uchun standart profil
+        return
+    
+    await message.answer(
+        "👤 **Profil**\n\n"
+        "Biznes sozlamalari va ma'lumotlari:",
+        reply_markup=business_module.get_profile_menu(),
+        parse_mode='Markdown'
+    )
+
+# Business callbacks - biz_ prefiksi bilan
+@dp.callback_query(lambda c: c.data.startswith("biz_"))
+async def business_callback_handler(callback_query: CallbackQuery, state: FSMContext):
+    """Barcha biznes callbacklarni qayta ishlash"""
+    user_id = callback_query.from_user.id
+    data = callback_query.data
+    
+    try:
+        # MAIN
+        if data == "biz_main":
+            await callback_query.message.delete()
+            await callback_query.message.answer(
+                "🏢 Business menyusi:",
+                reply_markup=get_business_menu()
+            )
+            await state.clear()
+        
+        # HISOBOTLAR
+        elif data == "biz_report_daily":
+            report = await business_module.get_daily_report(user_id)
+            await callback_query.message.edit_text(
+                report,
+                reply_markup=business_module.get_reports_menu(),
+                parse_mode='Markdown'
+            )
+        
+        elif data == "biz_report_weekly":
+            report = await business_module.get_weekly_report(user_id)
+            await callback_query.message.edit_text(
+                report,
+                reply_markup=business_module.get_reports_menu(),
+                parse_mode='Markdown'
+            )
+        
+        elif data == "biz_report_monthly":
+            report = await business_module.get_monthly_report(user_id)
+            await callback_query.message.edit_text(
+                report,
+                reply_markup=business_module.get_reports_menu(),
+                parse_mode='Markdown'
+            )
+        
+        elif data == "biz_report_debts":
+            report = await business_module.get_debts_report(user_id)
+            await callback_query.message.edit_text(
+                report,
+                reply_markup=business_module.get_reports_menu(),
+                parse_mode='Markdown'
+            )
+        
+        elif data == "biz_report_ai":
+            await callback_query.message.edit_text("🤖 AI tahlil qilinmoqda...", parse_mode='Markdown')
+            analysis = await business_module.ai_business_analysis(user_id)
+            await callback_query.message.edit_text(
+                analysis,
+                reply_markup=business_module.get_reports_menu(),
+                parse_mode='Markdown'
+            )
+        
+        # OMBOR
+        elif data == "biz_warehouse_products":
+            products = await business_module.get_warehouse_products(user_id)
+            await callback_query.message.edit_text(
+                products,
+                reply_markup=business_module.get_warehouse_menu(),
+                parse_mode='Markdown'
+            )
+        
+        elif data == "biz_warehouse_stats":
+            stats = await business_module.get_warehouse_stats(user_id)
+            await callback_query.message.edit_text(
+                stats,
+                reply_markup=business_module.get_warehouse_menu(),
+                parse_mode='Markdown'
+            )
+        
+        elif data == "biz_warehouse_low":
+            low_stock = await business_module.get_low_stock_products(user_id)
+            await callback_query.message.edit_text(
+                low_stock,
+                reply_markup=business_module.get_warehouse_menu(),
+                parse_mode='Markdown'
+            )
+        
+        elif data == "biz_warehouse_ai":
+            await callback_query.message.edit_text("🤖 AI tahlil qilinmoqda...", parse_mode='Markdown')
+            analysis = await business_module.ai_warehouse_analysis(user_id)
+            await callback_query.message.edit_text(
+                analysis,
+                reply_markup=business_module.get_warehouse_menu(),
+                parse_mode='Markdown'
+            )
+        
+        # PROFIL
+        elif data == "biz_profile_info":
+            user_name = await get_user_name(user_id)
+            user_data = await db.execute_query(
+                "SELECT tariff, tariff_expires_at FROM users WHERE user_id = %s",
+                (user_id,)
+            )
+            
+            tariff_expires = user_data[0].get('tariff_expires_at') if user_data else None
+            expires_text = tariff_expires.strftime('%d.%m.%Y') if tariff_expires else "Belgilanmagan"
+            
+            info_text = (
+                f"🏢 **Biznes ma'lumotlari**\n\n"
+                f"👤 Ism: {user_name}\n"
+                f"📋 Tarif: Business\n"
+                f"📅 Amal qilish: {expires_text}\n"
+            )
+            await callback_query.message.edit_text(
+                info_text,
+                reply_markup=business_module.get_profile_menu(),
+                parse_mode='Markdown'
+            )
+        
+        elif data == "biz_profile_employees":
+            employees = await business_module.get_employees_list(user_id)
+            await callback_query.message.edit_text(
+                employees,
+                reply_markup=business_module.get_employees_menu(),
+                parse_mode='Markdown'
+            )
+        
+        elif data == "biz_emp_list":
+            employees = await business_module.get_employees_list(user_id)
+            await callback_query.message.edit_text(
+                employees,
+                reply_markup=business_module.get_employees_menu(),
+                parse_mode='Markdown'
+            )
+        
+        elif data == "biz_emp_add":
+            await callback_query.message.edit_text(
+                "👥 **Xodim qo'shish**\n\n"
+                "Xodimning Telegram ID sini yuboring:\n"
+                "(Xodim avval botda /start bosgan bo'lishi kerak)",
+                parse_mode='Markdown'
+            )
+            await state.set_state(BusinessStates.waiting_for_employee_telegram_id)
+        
+        elif data == "biz_profile_settings":
+            await callback_query.message.edit_text(
+                "⚙️ **Sozlamalar**\n\n"
+                "Tez orada...",
+                reply_markup=business_module.get_profile_menu(),
+                parse_mode='Markdown'
+            )
+        
+        elif data == "biz_profile_export":
+            await callback_query.message.edit_text(
+                "📤 **Ma'lumotlarni eksport**\n\n"
+                "Tez orada...",
+                reply_markup=business_module.get_profile_menu(),
+                parse_mode='Markdown'
+            )
+        
+        elif data == "biz_profile_help":
+            help_text = (
+                "💬 **Yordam**\n\n"
+                "Balans AI Biznes - bu AI-powered Mini CRM.\n\n"
+                "**Qanday ishlaydi:**\n"
+                "Siz shunchaki yozasiz yoki gapirasiz - AI tushunadi va saqlaydi.\n\n"
+                "**Misollar:**\n"
+                "💰 \"Bugun 1.2 mln savdo bo'ldi\"\n"
+                "💸 \"Elektrga 350 ming to'ladim\"\n"
+                "📝 \"Aliga 500 ming qarz berdim\"\n"
+                "📦 \"Omborga 50 kg shakar qo'sh\"\n"
+                "📦 \"10 ta yog' sotildi\"\n\n"
+                "🤖 AI Chat - savol-javob rejimi\n"
+                "📊 Hisobotlar - statistika va tahlil\n"
+                "📦 Ombor - tovarlar boshqaruvi"
+            )
+            await callback_query.message.edit_text(
+                help_text,
+                reply_markup=business_module.get_profile_menu(),
+                parse_mode='Markdown'
+            )
+        
+        await callback_query.answer()
+        
+    except Exception as e:
+        logging.error(f"Business callback error: {e}")
+        await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+
+# Xodim qo'shish - Telegram ID
+@dp.message(BusinessStates.waiting_for_employee_telegram_id)
+async def process_employee_telegram_id(message: types.Message, state: FSMContext):
+    """Xodim Telegram ID qabul qilish"""
+    try:
+        telegram_id = int(message.text.strip())
+        await state.update_data(employee_telegram_id=telegram_id)
+        
+        await message.answer(
+            "👤 **Xodim ismi:**\n\n"
+            "Xodim ismini kiriting:",
+            parse_mode='Markdown'
+        )
+        await state.set_state(BusinessStates.waiting_for_employee_name)
+        
+    except ValueError:
+        await message.answer("❌ Noto'g'ri format. Faqat raqam kiriting (Telegram ID).")
+
+# Xodim qo'shish - Ism
+@dp.message(BusinessStates.waiting_for_employee_name)
+async def process_employee_name(message: types.Message, state: FSMContext):
+    """Xodim ismini qabul qilish"""
+    name = message.text.strip()
+    await state.update_data(employee_name=name)
+    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ Tovar qo'shish", callback_data="warehouse_add_product")],
-        [InlineKeyboardButton(text="📋 Tovarlar ro'yxati", callback_data="warehouse_list_products")],
-        [InlineKeyboardButton(text="📥 Kirim", callback_data="warehouse_movement_in"), 
-         InlineKeyboardButton(text="📤 Chiqim", callback_data="warehouse_movement_out")],
-        [InlineKeyboardButton(text="📊 Statistikalar", callback_data="warehouse_statistics")],
-        [InlineKeyboardButton(text="🤖 AI Tahlil", callback_data="warehouse_ai_analysis")]
+        [InlineKeyboardButton(text="👤 Xodim", callback_data="emp_role_employee")],
+        [InlineKeyboardButton(text="👔 Menejer", callback_data="emp_role_manager")],
+        [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="biz_profile_employees")]
     ])
     
     await message.answer(
-        "📦 **Ombor boshqaruvi**\n\n"
-        "Quyidagi funksiyalardan foydalaning:",
+        "📋 **Rol tanlang:**",
         reply_markup=keyboard,
         parse_mode='Markdown'
     )
+    await state.set_state(BusinessStates.waiting_for_employee_role)
+
+# Xodim role callback
+@dp.callback_query(lambda c: c.data.startswith("emp_role_"))
+async def process_employee_role_callback(callback_query: CallbackQuery, state: FSMContext):
+    """Xodim rolini qabul qilish va saqlash"""
+    user_id = callback_query.from_user.id
+    role = callback_query.data.replace("emp_role_", "")
+    
+    data = await state.get_data()
+    telegram_id = data.get('employee_telegram_id')
+    name = data.get('employee_name')
+    
+    result = await business_module.add_employee(user_id, telegram_id, name, role)
+    
+    await callback_query.message.edit_text(
+        result['message'],
+        reply_markup=business_module.get_employees_menu(),
+        parse_mode='Markdown'
+    )
+    
+    await state.clear()
+    await callback_query.answer()
+
+# ================== /BIZNES HANDLERLARI ==================
 
 @dp.message(lambda message: message.text == "➕ Xodim qo'shish")
 async def add_employee_handler(message: types.Message, state: FSMContext):
@@ -4911,7 +5509,11 @@ async def confirm_leave_team_callback(callback_query: CallbackQuery):
         await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
 
 # MAX tarif - AI chat (real-time muloqot)
-@dp.message(lambda message: message.text and not message.text.startswith('/') and message.text not in ["📊 Hisobotlar", "👤 Profil", "➕ Kirim", "➖ Chiqim", "💳 Qarzlar", "➕ Xodim qo'shish", "❌ Bekor qilish"])
+@dp.message(lambda message: message.text and not message.text.startswith('/') and message.text not in [
+    "📊 Hisobotlar", "👤 Profil", "➕ Kirim", "➖ Chiqim", "💳 Qarzlar", 
+    "➕ Xodim qo'shish", "❌ Bekor qilish", "📦 Ombor", "🤖 AI Chat", 
+    "🛑 AI Chatni to'xtatish", "👥 Xodimlar", "🏪 Filiallar"
+])
 async def process_financial_message(message: types.Message, state: FSMContext):
     """MAX va FREE tariflar uchun AI chat"""
     user_id = message.from_user.id
@@ -4937,6 +5539,54 @@ async def process_financial_message(message: types.Message, state: FSMContext):
     
     await ensure_tariff_valid(user_id)
     user_tariff = await get_user_tariff(user_id)
+    
+    # BUSINESS tarif - AI orqali avtomatik aniqlash
+    if user_tariff == 'BUSINESS':
+        # AI Chat rejimida bo'lsa, bu handler ishlamaydi (BusinessStates.ai_chat_mode)
+        if current_state == BusinessStates.ai_chat_mode.state:
+            return  # AI Chat handler qayta ishlaydi
+        
+        # Oddiy xabarlarni AI orqali qayta ishlash
+        processing_msg = await message.answer("🔄 AI qayta ishlamoqda...")
+        
+        try:
+            result = await business_module.process_business_message(user_id, message.text)
+            
+            await processing_msg.delete()
+            
+            if result.get('success'):
+                if result.get('type') == 'question':
+                    # Savol - AI Chat javob beradi
+                    response = await business_module.ai_chat_response(user_id, result.get('question', message.text))
+                    await message.answer(
+                        f"🤖 **AI Javob:**\n\n{response}",
+                        parse_mode='Markdown',
+                        reply_markup=get_business_menu()
+                    )
+                else:
+                    # Amaliyot (kirim/chiqim/qarz/ombor)
+                    await message.answer(
+                        result.get('message', '✅ Saqlandi!'),
+                        parse_mode='Markdown',
+                        reply_markup=get_business_menu()
+                    )
+            else:
+                await message.answer(
+                    result.get('message', '❌ Xatolik yuz berdi'),
+                    parse_mode='Markdown',
+                    reply_markup=get_business_menu()
+                )
+        except Exception as e:
+            logging.error(f"Business message error: {e}")
+            try:
+                await processing_msg.delete()
+            except:
+                pass
+            await message.answer(
+                "❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.",
+                reply_markup=get_business_menu()
+            )
+        return
     
     # PLUS tarif uchun financial_module ishlaydi
     if user_tariff == 'PLUS':
@@ -5108,12 +5758,16 @@ async def process_financial_message(message: types.Message, state: FSMContext):
             if has_transaction:
                 # Tranzaksiya aniqlangan
                 transaction_type = financial_result.get('type', '')
+                transaction_data_to_save = financial_result['transaction_data']
+                
+                # State ga saqlash va state ni o'rnatish
+                await state.set_state(UserStates.waiting_for_transaction_confirmation)
+                await state.update_data(transaction_data=transaction_data_to_save)
+                
                 buttons = financial_module.generate_transaction_buttons({
-                    'transactions': financial_result['transaction_data'].get('transactions', []),
+                    'transactions': transaction_data_to_save.get('transactions', []),
                     'type': transaction_type
                 })
-                
-                await state.update_data(transaction_data=financial_result['transaction_data'])
                 
                 response_message = financial_result.get('message', '')
                 if has_reminder:
@@ -5825,15 +6479,51 @@ async def process_income_date(message: types.Message, state: FSMContext):
 async def handle_transaction_callback(callback_query: CallbackQuery, state: FSMContext):
     """Tranzaksiya tugmalari uchun umumiy handler"""
     print(f"DEBUG: Transaction callback received: {callback_query.data}")
+    user_id = callback_query.from_user.id
+    
     try:
+        # State ni tekshirish
+        current_state = await state.get_state()
+        print(f"DEBUG: Current state: {current_state}")
+        
         data = await state.get_data()
         transaction_data = data.get('transaction_data', {})
         print(f"DEBUG: Transaction data from state: {transaction_data}")
         
-        if not transaction_data:
-            print("DEBUG: No transaction data found in state")
-            await callback_query.answer("❌ Tranzaksiya ma'lumotlari topilmadi!")
-            return
+        # Agar state bo'sh bo'lsa yoki transaction_data yo'q bo'lsa
+        if not transaction_data or not data.get('transaction_data'):
+            print("DEBUG: No transaction data found in state, trying to recreate from message")
+            
+            # Callback query message text dan tranzaksiya ma'lumotlarini qayta parse qilish
+            message_text = callback_query.message.text or callback_query.message.caption or ""
+            
+            # Financial module dan qaytadan parse qilish
+            if message_text and "Tranzaksiya aniqlandi" in message_text:
+                # Message text dan tranzaksiyani qayta parse qilish - original text ni topish
+                # Message text dan "Izoh:" qismidan keyin original text bor
+                original_text = ""
+                if "Izoh:" in message_text:
+                    izoh_part = message_text.split("Izoh:")[-1].split("\n")[0].strip().strip('"')
+                    original_text = izoh_part
+                
+                if original_text:
+                    # Original text dan qaytadan parse qilish
+                    financial_result = await financial_module.process_ai_input_advanced(original_text, user_id)
+                    
+                    if financial_result.get('success') and financial_result.get('transaction_data'):
+                        transaction_data = financial_result['transaction_data']
+                        await state.set_state(UserStates.waiting_for_transaction_confirmation)
+                        await state.update_data(transaction_data=transaction_data)
+                        print(f"DEBUG: Recreated transaction_data from original text: {transaction_data}")
+                    else:
+                        await callback_query.answer("❌ Tranzaksiya ma'lumotlari topilmadi! Iltimos, qaytadan yuboring.", show_alert=True)
+                        return
+                else:
+                    await callback_query.answer("❌ Tranzaksiya ma'lumotlari topilmadi! Iltimos, qaytadan yuboring.", show_alert=True)
+                    return
+            else:
+                await callback_query.answer("❌ Tranzaksiya ma'lumotlari topilmadi! Iltimos, qaytadan yuboring.", show_alert=True)
+                return
         
         # Financial module orqali ishlov berish
         print(f"DEBUG: Calling financial_module.handle_transaction_action with data: {callback_query.data}")
@@ -6007,11 +6697,11 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
 
             try:
                 balance_query = """
-                SELECT COUNT(*) FROM transactions 
+                SELECT COUNT(*) as count FROM transactions 
                 WHERE user_id = %s AND category IN ('boshlang_ich_naqd', 'boshlang_ich_karta')
                 """
                 result = await db.execute_one(balance_query, (user_id,))
-                has_initial_balance = result and result[0] > 0
+                has_initial_balance = result and result.get('count', 0) > 0
             except Exception:
                 has_initial_balance = True
 
@@ -6120,11 +6810,11 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
             # To'lovdan so'ng onboarding holatini tekshiramiz
             try:
                 balance_query = """
-                SELECT COUNT(*) FROM transactions 
+                SELECT COUNT(*) as count FROM transactions 
                 WHERE user_id = %s AND category IN ('boshlang_ich_naqd', 'boshlang_ich_karta')
                 """
                 result = await db.execute_one(balance_query, (user_id,))
-                has_initial_balance = result and result[0] > 0
+                has_initial_balance = result and result.get('count', 0) > 0
             except Exception:
                 has_initial_balance = True
 
@@ -6205,24 +6895,24 @@ async def load_config_from_db():
         # Speech models
         result = await db.execute_one("SELECT value FROM config WHERE key_name = 'active_speech_google'")
         if result:
-            ACTIVE_SPEECH_MODELS['GOOGLE'] = result[0].lower() == 'true'
+            ACTIVE_SPEECH_MODELS['GOOGLE'] = result.get('value', 'false').lower() == 'true'
         
         result = await db.execute_one("SELECT value FROM config WHERE key_name = 'active_speech_elevenlabs'")
         if result:
-            ACTIVE_SPEECH_MODELS['ELEVENLABS'] = result[0].lower() == 'true'
+            ACTIVE_SPEECH_MODELS['ELEVENLABS'] = result.get('value', 'false').lower() == 'true'
         
         # Free trials
         result = await db.execute_one("SELECT value FROM config WHERE key_name = 'free_trial_plus'")
         if result:
-            FREE_TRIAL_ENABLED['PLUS'] = result[0].lower() == 'true'
+            FREE_TRIAL_ENABLED['PLUS'] = result.get('value', 'false').lower() == 'true'
         
         result = await db.execute_one("SELECT value FROM config WHERE key_name = 'free_trial_max'")
         if result:
-            FREE_TRIAL_ENABLED['PRO'] = result[0].lower() == 'true'
+            FREE_TRIAL_ENABLED['PRO'] = result.get('value', 'false').lower() == 'true'
         
         result = await db.execute_one("SELECT value FROM config WHERE key_name = 'free_trial_business'")
         if result:
-            FREE_TRIAL_ENABLED['BUSINESS'] = result[0].lower() == 'true'
+            FREE_TRIAL_ENABLED['BUSINESS'] = result.get('value', 'false').lower() == 'true'
         
         print("✅ Sozlamalar bazadan yuklandi!")
     except Exception as e:
@@ -6490,11 +7180,11 @@ async def send_daily_reports():
                     
                     # Bugungi tranzaksiyalarni tekshirish
                     today_transactions = await db.execute_query("""
-                        SELECT COUNT(*) FROM transactions 
+                        SELECT COUNT(*) as count FROM transactions 
                         WHERE user_id = %s AND DATE(created_at) = CURDATE()
                     """, (user_id,))
                     
-                    has_transactions = today_transactions[0][0] > 0 if today_transactions else False
+                    has_transactions = today_transactions[0].get('count', 0) > 0 if today_transactions else False
                     
                     if not has_transactions:
                         # Tranzaksiya yo'q bo'lsa
@@ -6513,8 +7203,8 @@ async def send_daily_reports():
                             WHERE user_id = %s AND DATE(created_at) = CURDATE()
                         """, (user_id,))
                         
-                        income = float(today_stats[0][0]) if today_stats and today_stats[0][0] else 0
-                        expense = float(today_stats[0][1]) if today_stats and today_stats[0][1] else 0
+                        income = float(today_stats[0].get('income', 0)) if today_stats and today_stats[0].get('income') else 0
+                        expense = float(today_stats[0].get('expense', 0)) if today_stats and today_stats[0].get('expense') else 0
                         
                         # Qarzlar
                         debts = await db.execute_query("""
@@ -6525,8 +7215,8 @@ async def send_daily_reports():
                             WHERE user_id = %s AND status != 'paid'
                         """, (user_id,))
                         
-                        lent = float(debts[0][0]) if debts and debts[0][0] else 0
-                        borrowed = float(debts[0][1]) if debts and debts[0][1] else 0
+                        lent = float(debts[0].get('lent', 0)) if debts and debts[0].get('lent') else 0
+                        borrowed = float(debts[0].get('borrowed', 0)) if debts and debts[0].get('borrowed') else 0
                         
                         # Hisobot xabari
                         report = f"📊 **Bugungi kun oxiri hisoboti:**\n\n"
@@ -6865,14 +7555,14 @@ async def send_daily_analysis_midnight():
                         WHERE user_id = %s AND DATE(created_at) = %s
                     """, (user_id, yesterday))
                     
-                    if not yesterday_stats or yesterday_stats[0] == 0:
+                    if not yesterday_stats or yesterday_stats.get('count', 0) == 0:
                         # Hech nima bo'lmagan bo'lsa, yuborilmaydi
                         continue
                     
-                    tx_count = yesterday_stats[0] if yesterday_stats[0] else 0
-                    income = float(yesterday_stats[1]) if yesterday_stats[1] else 0
-                    expense = float(yesterday_stats[2]) if yesterday_stats[2] else 0
-                    debt = float(yesterday_stats[3]) if yesterday_stats[3] else 0
+                    tx_count = yesterday_stats.get('count', 0) if yesterday_stats.get('count') else 0
+                    income = float(yesterday_stats.get('income', 0)) if yesterday_stats.get('income') else 0
+                    expense = float(yesterday_stats.get('expense', 0)) if yesterday_stats.get('expense') else 0
+                    debt = float(yesterday_stats.get('debt', 0)) if yesterday_stats.get('debt') else 0
                     
                     # Qarzlar (debt_reminders jadvalidan)
                     debts_info = await db.execute_query("""
@@ -6883,8 +7573,8 @@ async def send_daily_analysis_midnight():
                         WHERE user_id = %s AND transaction_type = 'debt' AND DATE(created_at) = %s
                     """, (user_id, yesterday))
                     
-                    lent = float(debts_info[0][0]) if debts_info and debts_info[0][0] else 0
-                    borrowed = float(debts_info[0][1]) if debts_info and debts_info[0][1] else 0
+                    lent = float(debts_info[0].get('lent', 0)) if debts_info and debts_info[0].get('lent') else 0
+                    borrowed = float(debts_info[0].get('borrowed', 0)) if debts_info and debts_info[0].get('borrowed') else 0
                     
                     # Kategoriyalar bo'yicha xarajatlar (keraksiz xarajatlarni aniqlash uchun)
                     category_expenses = await db.execute_query("""
@@ -6915,9 +7605,9 @@ async def send_daily_analysis_midnight():
                         unnecessary_categories = []
                         if category_expenses:
                             for cat_row in category_expenses:
-                                cat_name = cat_row[0]
-                                cat_total = float(cat_row[1])
-                                cat_count = int(cat_row[2])
+                                cat_name = cat_row.get('category')
+                                cat_total = float(cat_row.get('total', 0))
+                                cat_count = int(cat_row.get('count', 0))
                                 
                                 # Agar bir kategoriyada ko'p marta yoki katta summa bo'lsa
                                 if cat_count >= 3 or cat_total > expense * 0.3:  # 30% dan ko'p
@@ -6963,6 +7653,11 @@ async def main():
         print("📋 Jadvallarni yaratish...")
         await db.create_tables()
         print("✅ Jadvallar yaratildi!")
+        
+        # Business modulga OpenAI client ulash
+        print("🤖 Business AI parser sozlanmoqda...")
+        business_module.set_openai_client(ai_chat.openai_client)
+        print("✅ Business AI parser sozlandi!")
         
         print("⚙️ Sozlamalarni yuklash...")
         await load_config_from_db()

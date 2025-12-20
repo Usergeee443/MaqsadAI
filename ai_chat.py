@@ -1182,6 +1182,12 @@ FAQAT JSON QAYTARING, HECH QANDAY IZOH YOZMA."""
             transaction_type = tx.get('type')
             amount = tx.get('amount')
             category = tx.get('category', 'other')
+            currency = tx.get('currency', 'UZS')  # Default UZS
+            
+            # Valyutani to'g'ri formatda saqlash
+            currency = currency.upper() if currency else 'UZS'
+            if currency not in ['UZS', 'USD', 'EUR', 'RUB', 'TRY']:
+                currency = 'UZS'
             
             # Type mapping (income/expense/debt)
             type_mapping = {
@@ -1213,16 +1219,17 @@ FAQAT JSON QAYTARING, HECH QANDAY IZOH YOZMA."""
             if not transaction_type or not amount:
                 return None
             
-            # Tranzaksiyani saqlash
+            # Tranzaksiyani saqlash (valyuta bilan)
             try:
-                transaction_id = await self.db.add_transaction(
+                transaction_id = await self.db.add_transaction_with_currency(
                     user_id=user_id,
                     transaction_type=transaction_type,
                     amount=float(amount),
                     category=category,
+                    currency=currency,
                     description=message[:100]
                 )
-                logger.info(f"Transaction saved: id={transaction_id}, type={transaction_type}, amount={amount}, user={user_id}")
+                logger.info(f"Transaction saved: id={transaction_id}, type={transaction_type}, amount={amount} {currency}, user={user_id}")
             except Exception as save_error:
                 logger.error(f"Error saving transaction: {save_error}")
                 return None
@@ -1230,7 +1237,8 @@ FAQAT JSON QAYTARING, HECH QANDAY IZOH YOZMA."""
             return {
                 "type": transaction_type,
                 "amount": float(amount),
-                "category": category
+                "category": category,
+                "currency": currency
             }
             
         except Exception as e:
@@ -1451,6 +1459,46 @@ Sen Balans AI ning hazil va do'stona buxgalterisiz. Foydalanuvchiga:
             text += "\n"
         
         return text
+    
+    async def generate_business_response(self, user_id: int, question: str, context: str = "") -> str:
+        """Biznes tarif uchun AI javob generatsiya qilish"""
+        try:
+            system_prompt = """Sen Balans AI Biznes yordamchisisiz. Biznes egasiga moliyaviy maslahat va tahlil berasiz.
+
+QOIDALAR:
+1. O'zbek tilida javob ber
+2. Qisqa va aniq javob ber (max 5-6 gap)
+3. Raqamlarni formatlangan ko'rinishda ko'rsat (1,000,000)
+4. Amaliy tavsiyalar ber
+5. Agar ma'lumot yetarli bo'lmasa, shuni ayt
+6. Hech qachon formatlash belgilarini ishlatma (**, ##, va h.k.)
+7. Emoji ishlatishni yaxshi ko'rasan (2-3 ta)
+
+SEN QILA OLASIZ:
+- Moliyaviy tahlil qilish
+- Foyda/zarar hisoblash
+- Xarajatlarni optimallashtirish bo'yicha maslahat berish
+- Ombor tahlili qilish
+- Qarzlar holati haqida ma'lumot berish
+- Biznes strategiyasi bo'yicha maslahat berish"""
+
+            user_prompt = f"Kontekst:\n{context}\n\nSavol: {question}"
+            
+            response = await self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=500,
+                temperature=0.3
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            logger.error(f"Business AI response error: {e}")
+            return None
 
 
 class AIChatFree:
@@ -1496,12 +1544,23 @@ class AIChatFree:
                 # Saqlash
                 await self.save_transaction(user_id, transaction)
                 
-                # Qisqa javob (tafsif yo'q, faqat summa va kategoriya)
+                # Qisqa javob (tafsif yo'q, faqat summa va kategoriya) - valyuta bilan
                 type_name = "Kirim" if transaction['type'] == 'income' else "Chiqim"
-                amount = int(transaction['amount'])
+                amount = float(transaction['amount'])
                 category = transaction['category']
+                currency = transaction.get('currency', 'UZS')
                 
-                response = f"{type_name}: {amount:,} so'm ({category})"
+                currency_names = {'UZS': "so'm", 'USD': "dollar", 'EUR': "evro", 'RUB': "rubl", 'TRY': "lira"}
+                currency_name = currency_names.get(currency, currency)
+                
+                if currency != 'UZS':
+                    # So'mga o'girilgan qiymat
+                    rates = await self.db.get_currency_rates()
+                    rate = rates.get(currency, 1)
+                    amount_uzs = amount * rate
+                    response = f"{type_name}: {amount:,.2f} {currency_name} ({amount_uzs:,.0f} so'm) ({category})"
+                else:
+                    response = f"{type_name}: {amount:,.0f} so'm ({category})"
                 
                 # OpenAI fallback ishlatilganda xabar qo'shamiz
                 if transaction.get('fallback_warning'):
@@ -1558,13 +1617,16 @@ class AIChatFree:
             # AI dan yordam so'rash - YAXSHIROQ SYSTEM PROMPT
             system_prompt = """You are a financial transaction parser. Extract type (income/expense), amount, and category (food/transport/utilities/health/education/other/qarz_olish/qarz_berish). Return ONLY valid JSON."""
             
-            # User prompt - misol bilan
+            # User prompt - misol bilan (valyuta bilan)
             user_prompt = f"""Message: "{message}"
 
 Extract financial data and return JSON:
-{{"type":"income/expense","amount":NUMBER,"category":"category_name"}}
+{{"type":"income/expense","amount":NUMBER,"category":"category_name","currency":"UZS/USD/EUR/RUB/TRY"}}
 
-Example: "20 ming so'mga lavash oldim" → {{"type":"expense","amount":20000,"category":"food"}}
+Examples: 
+"20 ming so'mga lavash oldim" → {{"type":"expense","amount":20000,"category":"food","currency":"UZS"}}
+"100 dollar xarajat" → {{"type":"expense","amount":100,"category":"other","currency":"USD"}}
+"50 evro kirim" → {{"type":"income","amount":50,"category":"other","currency":"EUR"}}
 
 JSON: """
 
@@ -1635,6 +1697,7 @@ JSON: """
                         "type": result['type'],
                         "amount": float(result['amount']),
                         "category": result['category'],
+                        "currency": result.get('currency', 'UZS'),  # Valyuta
                         "description": ""  # Tafsif yo'q
                     }
                     # OpenAI fallback ishlatilganda xabar qo'shamiz
@@ -1654,14 +1717,16 @@ JSON: """
             return None
     
     async def save_transaction(self, user_id: int, transaction: Dict):
-        """Tranzaksiyani saqlash"""
+        """Tranzaksiyani saqlash (valyuta bilan)"""
         try:
+            currency = transaction.get('currency', 'UZS')
             await self.db.add_transaction(
                 user_id=user_id,
                 transaction_type=transaction['type'],
                 amount=transaction['amount'],
                 category=transaction['category'],
-                description=""  # Tafsif yo'q
+                description=transaction.get('description', ''),  # Tafsif yo'q
+                currency=currency
             )
         except Exception as e:
             logger.error(f"Error saving transaction (Free): {e}")
