@@ -2660,6 +2660,11 @@ async def reports_menu(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user_tariff = await get_user_tariff(user_id)
     
+    # Biznes tarifi uchun alohida handler
+    if user_tariff == "BUSINESS":
+        await business_reports_handler(message, state)
+        return
+    
     # Ko'p valyutali balans ma'lumotlarini olish
     multi_balance = await db.get_balance_multi_currency(user_id)
     total_uzs = multi_balance.get('total_uzs', {})
@@ -4742,14 +4747,13 @@ async def process_tariff_onboarding_only(callback_query: CallbackQuery, state: F
 # ================== BIZNES HANDLERLARI (YANGI TZ) ==================
 
 # 📊 Hisobotlar handler
-@dp.message(lambda message: message.text == "📊 Hisobotlar" and hasattr(message, 'from_user'))
 async def business_reports_handler(message: types.Message, state: FSMContext):
     """Hisobotlar menyusi - Business uchun"""
     user_id = message.from_user.id
     user_tariff = await get_user_tariff(user_id)
     
     if user_tariff != "BUSINESS":
-        # Boshqa tariflar uchun standart hisobotlar
+        # Boshqa tariflar uchun standart hisobotlar (bu holat endi bo'lmaydi, chunki reports_menu tekshiradi)
         return
     
     # Hisobotlar menyusi keyboard
