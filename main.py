@@ -2689,10 +2689,19 @@ async def reports_menu(message: types.Message, state: FSMContext):
             balance = data.get('balance', 0)
             message_text += f"{symbol} {balance:,.2f} {name}\n"
     
-    # Mini app uchun tugma
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📱 To'liq ko'rish", url="https://t.me/balansaibot/hisobotlar")],
-        [InlineKeyboardButton(text="💱 Valyuta kurslari", callback_data="currency_rates")]
+    # Mini app uchun tugma (Plus va Pro tariflar uchun)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+    
+    if user_tariff in ('PLUS', 'PRO'):
+        keyboard.inline_keyboard.append([
+            InlineKeyboardButton(
+                text="📱 To'liq ko'rish", 
+                web_app=WebAppInfo(url="https://balansai-app.onrender.com")
+            )
+        ])
+    
+    keyboard.inline_keyboard.append([
+        InlineKeyboardButton(text="💱 Valyuta kurslari", callback_data="currency_rates")
     ])
     
     await message.answer(
@@ -2770,9 +2779,22 @@ async def back_to_reports_callback(callback_query: CallbackQuery):
                 balance = data.get('balance', 0)
                 message_text += f"{symbol} {balance:,.2f} {name}\n"
         
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📱 To'liq ko'rish", url="https://t.me/balansaibot/hisobotlar")],
-            [InlineKeyboardButton(text="💱 Valyuta kurslari", callback_data="currency_rates")]
+        # User tarifini tekshirish
+        user_tariff = await get_user_tariff(user_id)
+        
+        # Mini app uchun tugma (Plus va Pro tariflar uchun)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+        
+        if user_tariff in ('PLUS', 'PRO'):
+            keyboard.inline_keyboard.append([
+                InlineKeyboardButton(
+                    text="📱 To'liq ko'rish", 
+                    web_app=WebAppInfo(url="https://balansai-app.onrender.com")
+                )
+            ])
+        
+        keyboard.inline_keyboard.append([
+            InlineKeyboardButton(text="💱 Valyuta kurslari", callback_data="currency_rates")
         ])
         
         await callback_query.message.edit_text(
@@ -4730,10 +4752,21 @@ async def business_reports_handler(message: types.Message, state: FSMContext):
         # Boshqa tariflar uchun standart hisobotlar
         return
     
+    # Hisobotlar menyusi keyboard
+    reports_menu = business_module.get_reports_menu()
+    
+    # Mini app tugmasini qo'shish
+    reports_menu.inline_keyboard.insert(0, [
+        InlineKeyboardButton(
+            text="📱 To'liq ko'rish", 
+            web_app=WebAppInfo(url="https://balansai-biznes-app.onrender.com")
+        )
+    ])
+    
     await message.answer(
         "📊 **Hisobotlar**\n\n"
         "Biznesingiz statistikasi va tahlillari:",
-        reply_markup=business_module.get_reports_menu(),
+        reply_markup=reports_menu,
         parse_mode='Markdown'
     )
 
