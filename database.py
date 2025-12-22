@@ -1,5 +1,6 @@
 import aiomysql
 import asyncio
+from datetime import datetime
 from config import MYSQL_CONFIG
 import logging
 
@@ -269,6 +270,7 @@ class Database:
                     voice_limit INT NOT NULL,
                     voice_used INT DEFAULT 0,
                     status ENUM('active','completed') DEFAULT 'active',
+                    expires_at DATETIME NULL,
                     purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
@@ -489,7 +491,7 @@ class Database:
                 ('active_speech_elevenlabs', 'true'),
                 ('active_speech_whisper', 'false'),
                 ('free_trial_plus', 'true'),
-                ('free_trial_max', 'true'),
+                ('free_trial_pro', 'true'),
                 ('free_trial_business', 'true')
             """)
 
@@ -536,6 +538,32 @@ class Database:
                 logging.info("User subscriptions tariff enum yangilandi")
             except Exception as e:
                 logging.error(f"User subscriptions tariff enum yangilashda xatolik: {e}")
+
+            # Plus paketlar jadvaliga expires_at ustunini qo'shish
+            try:
+                await self.execute_query("ALTER TABLE plus_package_purchases ADD COLUMN expires_at DATETIME NULL")
+                logging.info("plus_package_purchases jadvaliga expires_at ustuni qo'shildi")
+            except Exception as e:
+                if "Duplicate column name" in str(e):
+                    logging.info("expires_at ustuni allaqachon mavjud")
+                else:
+                    logging.error(f"expires_at ustunini qo'shishda xatolik: {e}")
+
+            # Plus paketlar jadvalidagi status enum qiymatlarini standartlashtirish
+            try:
+                await self.execute_query(
+                    "ALTER TABLE plus_package_purchases "
+                    "MODIFY COLUMN status ENUM('active','completed') DEFAULT 'active'"
+                )
+                await self.execute_query(
+                    "UPDATE plus_package_purchases "
+                    "SET status = LOWER(status) "
+                    "WHERE status IS NOT NULL"
+                )
+                logging.info("plus_package_purchases status enum yangilandi")
+            except Exception as e:
+                logging.error(f"plus_package_purchases status enum yangilashda xatolik: {e}")
+
             
             # Payments jadvalini yangilash
             try:
@@ -543,6 +571,23 @@ class Database:
                 logging.info("Payments tariff enum yangilandi")
             except Exception as e:
                 logging.error(f"Payments tariff enum yangilashda xatolik: {e}")
+            
+            # Payments jadvaliga merchant_trans_id maydonini to'g'rilash
+            # KUCHLI USUL: ustunni DROP qilib qayta yaratish
+            try:
+                # Avval ustunni o'chiramiz (agar mavjud bo'lsa)
+                try:
+                    await self.execute_query("ALTER TABLE payments DROP COLUMN merchant_trans_id")
+                    logging.info("merchant_trans_id ustuni o'chirildi")
+                except Exception as drop_err:
+                    # Ustun yo'q bo'lishi mumkin, davom etamiz
+                    pass
+                
+                # Yangi ustun qo'shamiz - NULL va DEFAULT NULL bilan
+                await self.execute_query("ALTER TABLE payments ADD COLUMN merchant_trans_id VARCHAR(255) NULL DEFAULT NULL")
+                logging.info("merchant_trans_id ustuni qayta yaratildi (NULL DEFAULT NULL)")
+            except Exception as e:
+                logging.error(f"merchant_trans_id ustunini qayta yaratishda xatolik: {e}")
             
             # Premium tarifli foydalanuvchilarni FREE ga o'zgartirish
             try:
@@ -952,9 +997,9 @@ class Database:
     async def get_active_plus_package(self, user_id):
         """Foydalanuvchining hozirgi aktiv Plus paketini olish"""
         query = """
-        SELECT id, package_code, text_limit, text_used, voice_limit, voice_used, status, purchased_at
+        SELECT id, package_code, text_limit, text_used, voice_limit, voice_used, status, purchased_at, expires_at
         FROM plus_package_purchases
-        WHERE user_id = %s
+        WHERE user_id = %s AND status = 'active'
         ORDER BY purchased_at DESC
         LIMIT 1
         """
@@ -970,7 +1015,20 @@ class Database:
             'voice_used': int(result.get('voice_used', 0)) if result.get('voice_used') is not None else 0,
             'status': result.get('status'),
             'purchased_at': result.get('purchased_at'),
+            'expires_at': result.get('expires_at'),
         }
+        # Agar paket muddati o'tgan bo'lsa, yakunlangan deb belgilaymiz
+        expires_at = package.get('expires_at')
+        if expires_at and isinstance(expires_at, datetime):
+            if expires_at < datetime.now():
+                try:
+                    await self.execute_query(
+                        "UPDATE plus_package_purchases SET status = 'completed' WHERE id = %s",
+                        (package['id'],)
+                    )
+                except Exception as e:
+                    logging.error(f"plus_package_purchases status yangilashda xatolik: {e}")
+                return None
         # Status ni to'g'ri formatlash - faqat 'active' yoki 'completed'
         status_value = package.get('status')
         if status_value:

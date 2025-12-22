@@ -135,6 +135,27 @@ async def ensure_tariff_valid(user_id: int) -> None:
                     "UPDATE users SET tariff = 'NONE', tariff_expires_at = NULL WHERE user_id = %s",
                     (user_id,)
                 )
+                # Aktiv obunalarni va Plus paketlarini ham deaktiv qilamiz
+                try:
+                    await db.execute_query(
+                        "UPDATE user_subscriptions SET is_active = FALSE WHERE user_id = %s",
+                        (user_id,)
+                    )
+                    await db.execute_query(
+                        "UPDATE plus_package_purchases SET status = 'completed' WHERE user_id = %s AND expires_at IS NOT NULL AND expires_at <= NOW()",
+                        (user_id,)
+                    )
+                except Exception as deactivate_err:
+                    logging.error(f"Tarifni o'chirishda qo'shimcha xato: {deactivate_err}")
+                # Foydalanuvchini xabardor qilish
+                try:
+                    await bot.send_message(
+                        user_id,
+                        "⏰ 3 kunlik bepul sinov muddati tugadi.\n\n"
+                        "Tarifdan foydalanishni davom ettirish uchun mos tarifni tanlab to'lovni amalga oshiring."
+                    )
+                except Exception as notify_err:
+                    logging.debug(f"Expire notification yuborilmadi: {notify_err}")
     except Exception as _e:
         logging.error(f"ensure_tariff_valid error: {_e}")
 
@@ -174,17 +195,17 @@ def build_tariff_detail_keyboard(tariff_code: str, back_callback: str) -> Inline
             # Aktiv tarif: faqat orqaga tugmasi
             return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback)]])
         
-        # 1 haftalik sinov holatini tekshirish
+        # 3 kunlik sinov holatini tekshirish
         if tariff_code in FREE_TRIAL_ENABLED and FREE_TRIAL_ENABLED[tariff_code]:
-            # 1 haftalik sinov yoqilgan - sinov tugmasi
-            return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback), InlineKeyboardButton(text="🆓 1 Hafta bepul sinash", callback_data=f"free_trial_{tariff_code}")]])
+            # Sinov yoqilgan - sinov tugmasi
+            return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback), InlineKeyboardButton(text="🆓 3 kun bepul sinov", callback_data=f"trial_tariff_{tariff_code}")]])
         else:
-            # 1 haftalik sinov o'chirilgan - aktivlashtirish tugmasi
+            # Sinov o'chirilgan - aktivlashtirish tugmasi
             return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback), InlineKeyboardButton(text="🚀 Aktivlashtirish", callback_data=f"activate_{tariff_code}")]])
 
     # Fallback sync qurilishi (agar user_id konteksti yo'q bo'lsa)
     if tariff_code in FREE_TRIAL_ENABLED and FREE_TRIAL_ENABLED[tariff_code]:
-        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback), InlineKeyboardButton(text="🆓 1 Hafta bepul sinash", callback_data=f"free_trial_{tariff_code}")]])
+        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback), InlineKeyboardButton(text="🆓 3 kun bepul sinov", callback_data=f"trial_tariff_{tariff_code}")]])
     else:
         return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Orqaga", callback_data=back_callback), InlineKeyboardButton(text="🚀 Aktivlashtirish", callback_data=f"activate_{tariff_code}")]])
 
@@ -492,9 +513,11 @@ def get_profile_menu(user_tariff='PLUS'):
         buttons.append([InlineKeyboardButton(text="📊 Tarif ma'lumotlari", callback_data="tariff_info")])
         buttons.append([InlineKeyboardButton(text="🛒 Paket sotib olish", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL))])
         buttons.append([InlineKeyboardButton(text="🔥 Pro tarifga o'tish", web_app=WebAppInfo(url=PAYMENT_PRO_WEBAPP_URL))])
+        buttons.append([InlineKeyboardButton(text="📋 Batafsil", web_app=WebAppInfo(url="https://balansai-app.onrender.com/profile"))])
     elif user_tariff == 'PRO':
         buttons.append([InlineKeyboardButton(text="📊 Tarif ma'lumotlari", callback_data="tariff_info")])
         buttons.append([InlineKeyboardButton(text="🧾 Obunani boshqarish", web_app=WebAppInfo(url=PAYMENT_PRO_WEBAPP_URL))])
+        buttons.append([InlineKeyboardButton(text="📋 Batafsil", web_app=WebAppInfo(url="https://balansai-app.onrender.com/profile"))])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -548,7 +571,7 @@ async def admin_command(message: Message, state: FSMContext):
             [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
             [InlineKeyboardButton(text="📨 Xabar yuborish", callback_data="admin_broadcast")],
             [InlineKeyboardButton(text="🎤 Speech Model Boshqarish", callback_data="admin_speech_models")],
-            [InlineKeyboardButton(text="🆓 1 Haftalik Sinov Boshqarish", callback_data="admin_free_trial")]
+            [InlineKeyboardButton(text="🆓 3 kunlik Sinov Boshqarish", callback_data="admin_free_trial")]
         ]
     )
     try:
@@ -827,14 +850,14 @@ async def admin_back_callback(callback_query: CallbackQuery):
             [InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")],
             [InlineKeyboardButton(text="📨 Xabar yuborish", callback_data="admin_broadcast")],
             [InlineKeyboardButton(text="🎤 Speech Model Boshqarish", callback_data="admin_speech_models")],
-            [InlineKeyboardButton(text="🆓 1 Haftalik Sinov Boshqarish", callback_data="admin_free_trial")]
+            [InlineKeyboardButton(text="🆓 3 kunlik Sinov Boshqarish", callback_data="admin_free_trial")]
         ]
     )
     
     await callback_query.message.edit_caption(caption="Admin panel", reply_markup=kb)
     await callback_query.answer()
 
-# 1 haftalik sinov boshqarish
+# Bepul sinov boshqarish (3 kunlik)
 @dp.callback_query(lambda c: c.data == "admin_free_trial")
 async def admin_free_trial_callback(callback_query: CallbackQuery):
     if callback_query.from_user.id != ADMIN_USER_ID:
@@ -842,7 +865,7 @@ async def admin_free_trial_callback(callback_query: CallbackQuery):
         return
     
     # Hozirgi holatni ko'rsatish
-    text = "🆓 **1 Haftalik Sinov Boshqarish**\n\n**Hozirgi holat:**\n"
+    text = "🆓 **3 kunlik sinov boshqarish**\n\n**Hozirgi holat:**\n"
     
     for tariff, enabled in FREE_TRIAL_ENABLED.items():
         status = "✅ Yoqilgan" if enabled else "❌ O'chirilgan"
@@ -879,7 +902,7 @@ async def admin_free_trial_callback(callback_query: CallbackQuery):
         pass
     await callback_query.answer()
 
-# 1 haftalik sinov toggle
+# 3 kunlik sinov toggle
 @dp.callback_query(lambda c: c.data.startswith("admin_toggle_trial_"))
 async def admin_toggle_trial_callback(callback_query: CallbackQuery):
     if callback_query.from_user.id != ADMIN_USER_ID:
@@ -1760,40 +1783,22 @@ async def process_account_type(callback_query: CallbackQuery, state: FSMContext)
         )
     await callback_query.answer()
 
-# Plus/Pro tarif bepul sinov aktivlashtirish
+# Plus/Pro/Business tarif bepul sinov aktivlashtirish - TO'LIQ QAYTA YOZILGAN
 @dp.callback_query(lambda c: c.data.startswith("trial_tariff_"))
 async def process_trial_tariff(callback_query: CallbackQuery, state: FSMContext):
-    """Plus yoki Pro tarifni 3 kunlik bepul sinov bilan aktivlashtirish"""
+    """Plus, Pro yoki Business tarifni 3 kunlik bepul sinov bilan aktivlashtirish"""
     user_id = callback_query.from_user.id
-    tariff = callback_query.data.split("_")[2]  # PLUS yoki PRO
+    tariff = callback_query.data.split("_")[2]  # PLUS, PRO yoki BUSINESS
     
     from datetime import datetime, timedelta
+    expires_at = datetime.now() + timedelta(days=3)
     
-    try:
-        # 3 kunlik bepul sinov muddati
-        expires_at = datetime.now() + timedelta(days=3)
-        
-        if tariff == 'PLUS':
-            # Plus tarif - plus_package_purchases jadvaliga qo'shish
-            await db.execute_query(
-                "UPDATE users SET tariff = %s, tariff_expires_at = %s WHERE user_id = %s",
-                ('PLUS', expires_at, user_id)
-            )
-            
-            # Plus package sotib olish jadvaliga qo'shish
-            await db.execute_query(
-                """INSERT INTO plus_package_purchases 
-                (user_id, package_type, text_limit, voice_limit, text_used, voice_used, status, purchased_at, expires_at) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s)
-                ON DUPLICATE KEY UPDATE 
-                package_type = %s, text_limit = %s, voice_limit = %s, 
-                text_used = 0, voice_used = 0, status = %s, expires_at = %s""",
-                (user_id, 'plus_trial', 300, 100, 0, 0, 'active', expires_at,
-                 'plus_trial', 300, 100, 'active', expires_at)
-            )
-            
-            tariff_name = "Plus"
-            features = (
+    # Tarif ma'lumotlari
+    tariff_info = {
+        'PLUS': {
+            'name': 'Plus',
+            'icon': '⭐',
+            'features': (
                 "• AI yordamida matn va ovozli kiritish\n"
                 "• 300 ta matnli so'rov\n"
                 "• 100 ta ovozli so'rov\n"
@@ -1801,25 +1806,11 @@ async def process_trial_tariff(callback_query: CallbackQuery, state: FSMContext)
                 "• Shaxsiy byudjetni kuzatish\n"
                 "• Eslatmalar va bildirishnomalar"
             )
-            
-        elif tariff == 'PRO':
-            # Pro tarif
-            await db.execute_query(
-                "UPDATE users SET tariff = %s, tariff_expires_at = %s WHERE user_id = %s",
-                ('PRO', expires_at, user_id)
-            )
-            
-            # User subscriptions jadvaliga qo'shish
-            await db.execute_query(
-                """INSERT INTO user_subscriptions (user_id, tariff, is_active, expires_at) 
-                VALUES (%s, %s, %s, %s) 
-                ON DUPLICATE KEY UPDATE tariff = %s, is_active = %s, expires_at = %s""",
-                (user_id, 'PRO', True, expires_at, 'PRO', True, expires_at)
-            )
-            
-            tariff_name = "Pro"
-            tariff_icon = "💎"
-            features = (
+        },
+        'PRO': {
+            'name': 'Pro',
+            'icon': '💎',
+            'features': (
                 "• Cheksiz AI so'rovlar\n"
                 "• Matn va ovozli kiritish\n"
                 "• Kengaytirilgan hisobotlar\n"
@@ -1827,25 +1818,11 @@ async def process_trial_tariff(callback_query: CallbackQuery, state: FSMContext)
                 "• Maqsadlar va rejalar tuzish\n"
                 "• To'liq tahlil va prognozlar"
             )
-            
-        else:  # BUSINESS
-            # Business tarif
-            await db.execute_query(
-                "UPDATE users SET tariff = %s, tariff_expires_at = %s WHERE user_id = %s",
-                ('BUSINESS', expires_at, user_id)
-            )
-            
-            # User subscriptions jadvaliga qo'shish
-            await db.execute_query(
-                """INSERT INTO user_subscriptions (user_id, tariff, is_active, expires_at) 
-                VALUES (%s, %s, %s, %s) 
-                ON DUPLICATE KEY UPDATE tariff = %s, is_active = %s, expires_at = %s""",
-                (user_id, 'BUSINESS', True, expires_at, 'BUSINESS', True, expires_at)
-            )
-            
-            tariff_name = "Business"
-            tariff_icon = "🏢"
-            features = (
+        },
+        'BUSINESS': {
+            'name': 'Business',
+            'icon': '🏢',
+            'features': (
                 "• 📦 Ombor boshqaruvi (Mini CRM)\n"
                 "• 👥 Xodimlar va maoshlarni boshqarish\n"
                 "• 🏪 Do'kon va filiallarni monitoring\n"
@@ -1853,62 +1830,123 @@ async def process_trial_tariff(callback_query: CallbackQuery, state: FSMContext)
                 "• 🤖 AI biznes tahlillari\n"
                 "• 📈 To'liq biznes hisobotlari"
             )
-        
-        # Payments jadvaliga qo'shish (bepul sinov)
+        }
+    }
+    
+    info = tariff_info.get(tariff, tariff_info['PLUS'])
+    
+    # 1. Users jadvalini yangilash
+    try:
         await db.execute_query(
-            "INSERT INTO payments (user_id, tariff, provider, total_amount, currency, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, NOW())",
-            (user_id, tariff, 'free_trial', 0, 'UZS', 'paid')
+            "UPDATE users SET tariff = %s, tariff_expires_at = %s WHERE user_id = %s",
+            (tariff, expires_at, user_id)
         )
-        
-        user_name = await get_user_name(user_id)
-        
-        # Muvaffaqiyatli xabar
-        try:
-            await callback_query.message.delete()
-        except:
-            pass
-        
-        # Plus uchun icon
-        if tariff == 'PLUS':
-            tariff_icon = "⭐"
-        
-        await callback_query.message.answer(
-            f"🎉 **3 kunlik bepul sinov aktivlashtirildi!**\n\n"
-            f"Salom, {user_name}!\n\n"
-            f"{tariff_icon} **{tariff_name} tarif** — 3 kun bepul sinov\n"
-            f"📅 Tugash sanasi: {expires_at.strftime('%d.%m.%Y %H:%M')}\n\n"
-            f"✨ **Imkoniyatlar:**\n"
-            f"{features}\n\n"
-            f"Sinov muddati tugagandan so'ng, tarifni davom ettirish uchun to'lov qilishingiz mumkin.",
-            parse_mode='Markdown'
-        )
-        
-        # Business tarif uchun alohida menyu
-        if tariff == 'BUSINESS':
-            await callback_query.message.answer(
-                "🏢 Business tarif menyusi:",
-                reply_markup=get_business_menu()
-            )
-            await callback_query.answer(f"✅ {tariff_name} tarif aktivlashtirildi!")
-            await state.clear()
-            return
-        
-        # Onboarding davom ettirish - balans kiritish (Plus va Pro uchun)
-        await callback_query.message.answer_photo(
-            photo=FSInputFile('welcome.png'),
-            caption=(
-                "💰 **Onboarding bosqichi**\n\n"
-                "1. Hozir balansingizda qancha pul bor?"
-            ),
-            parse_mode='Markdown'
-        )
-        
-        await callback_query.answer(f"✅ {tariff_name} tarif aktivlashtirildi!")
-        await state.set_state(UserStates.onboarding_balance)
-        
+        logging.info(f"User {user_id} tarifi {tariff} ga yangilandi")
     except Exception as e:
-        logging.error(f"{tariff} tarif aktivlashtirishda xatolik: {e}")
-        await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+        logging.error(f"{tariff}: users yangilashda xatolik: {e}")
+    
+    # 2. User subscriptions jadvaliga qo'shish
+    try:
+        await db.execute_query(
+            """INSERT INTO user_subscriptions (user_id, tariff, is_active, expires_at) 
+            VALUES (%s, %s, TRUE, %s) 
+            ON DUPLICATE KEY UPDATE tariff = VALUES(tariff), is_active = TRUE, expires_at = VALUES(expires_at)""",
+            (user_id, tariff, expires_at)
+        )
+    except Exception as e:
+        logging.error(f"{tariff}: user_subscriptions da xatolik: {e}")
+    
+    # 3. PLUS tarifi uchun paket yaratish - MAJBURIY
+    if tariff == 'PLUS':
+        plus_package_created = False
+        
+        # 1-usul: Avvalgilarni o'chirib, yangi paket yaratish
+        try:
+            await db.execute_query(
+                "DELETE FROM plus_package_purchases WHERE user_id = %s",
+                (user_id,)
+            )
+            await db.execute_query(
+                """INSERT INTO plus_package_purchases 
+                (user_id, package_code, text_limit, voice_limit, text_used, voice_used, status, expires_at) 
+                VALUES (%s, 'plus_trial', 300, 100, 0, 0, 'active', %s)""",
+                (user_id, expires_at)
+            )
+            plus_package_created = True
+            logging.info(f"User {user_id} uchun Plus paket yaratildi (1-usul)")
+        except Exception as e:
+            logging.error(f"PLUS paket yaratish 1-usul xatolik: {e}")
+        
+        # 2-usul: Agar 1-usul ishlamasa, ON DUPLICATE KEY UPDATE bilan
+        if not plus_package_created:
+            try:
+                await db.execute_query(
+                    """INSERT INTO plus_package_purchases 
+                    (user_id, package_code, text_limit, voice_limit, text_used, voice_used, status, expires_at, purchased_at) 
+                    VALUES (%s, 'plus_trial', 300, 100, 0, 0, 'active', %s, NOW())
+                    ON DUPLICATE KEY UPDATE 
+                    package_code = 'plus_trial', text_limit = 300, voice_limit = 100, 
+                    text_used = 0, voice_used = 0, status = 'active', expires_at = %s""",
+                    (user_id, expires_at, expires_at)
+                )
+                plus_package_created = True
+                logging.info(f"User {user_id} uchun Plus paket yaratildi (2-usul)")
+            except Exception as e:
+                logging.error(f"PLUS paket yaratish 2-usul xatolik: {e}")
+        
+        # 3-usul: db.create_plus_package_purchase funksiyasidan foydalanish
+        if not plus_package_created:
+            try:
+                await db.create_plus_package_purchase(user_id, 'plus_trial', 300, 100)
+                plus_package_created = True
+                logging.info(f"User {user_id} uchun Plus paket yaratildi (3-usul)")
+            except Exception as e:
+                logging.error(f"PLUS paket yaratish 3-usul xatolik: {e}")
+        
+        if not plus_package_created:
+            logging.error(f"PLUS paket yaratish BUTUNLAY MUVAFFAQIYATSIZ user_id={user_id}")
+    
+    # Xabar yuborish
+    try:
+        await callback_query.message.delete()
+    except:
+        pass
+    
+    user_name = await get_user_name(user_id)
+    
+    await callback_query.message.answer(
+        f"🎉 **3 kunlik bepul sinov aktivlashtirildi!**\n\n"
+        f"Salom, {user_name}!\n\n"
+        f"{info['icon']} **{info['name']} tarif** — 3 kun bepul sinov\n"
+        f"📅 Tugash sanasi: {expires_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+        f"✨ **Imkoniyatlar:**\n"
+        f"{info['features']}\n\n"
+        f"Sinov muddati tugagandan so'ng, tarifni davom ettirish uchun to'lov qilishingiz mumkin.",
+        parse_mode='Markdown'
+    )
+    
+    # Business tarif uchun to'g'ridan-to'g'ri menyu
+    if tariff == 'BUSINESS':
+        await callback_query.message.answer(
+            "🏢 Business tarif menyusi:",
+            reply_markup=get_business_menu()
+        )
+        await callback_query.answer(f"✅ {info['name']} tarif aktivlashtirildi!")
+        await state.clear()
+        return
+    
+    # PLUS va PRO uchun onboarding
+    await callback_query.message.answer_photo(
+        photo=FSInputFile('welcome.png'),
+        caption=(
+            "💰 **Onboarding bosqichi**\n\n"
+            "1. Hozir balansingizda qancha pul bor?"
+        ),
+        parse_mode='Markdown'
+    )
+    
+    await callback_query.answer(f"✅ {info['name']} tarif aktivlashtirildi!")
+    await state.set_state(UserStates.onboarding_balance)
 
 # Boshlash tugmasini bosish
 @dp.callback_query(lambda c: c.data == "start_onboarding")
@@ -2942,11 +2980,10 @@ async def profile_handler(message: Message, state: FSMContext):
         await message.answer_photo(
             photo=FSInputFile('Profil.png'),
             caption=profile_text,
-            reply_markup=profile_kb,
-            parse_mode='Markdown'
+            reply_markup=profile_kb
         )
     except Exception:
-        await message.answer(profile_text, reply_markup=profile_kb, parse_mode='Markdown')
+        await message.answer(profile_text, reply_markup=profile_kb)
 
 # Profil callback handlerlari
 @dp.callback_query(lambda c: c.data == "settings")
@@ -3130,6 +3167,29 @@ async def send_onboarding_completion_message(user_id: int) -> None:
     except Exception as _e:
         logging.debug(f"ensure_tariff_valid skip in onboarding completion: {_e}")
 
+    # Foydalanuvchi tarifini tekshirish
+    user_tariff = await get_user_tariff(user_id)
+    
+    # Agar foydalanuvchi pullik tarifda bo'lsa (PLUS, PRO, BUSINESS), 
+    # tarif tanlash xabarini ko'rsatmaslik
+    if user_tariff in ('PLUS', 'PRO', 'BUSINESS'):
+        # Faqat muvaffaqiyatli xabar va asosiy menyuni ko'rsatish
+        if user_tariff == 'BUSINESS':
+            menu = get_business_menu()
+        else:
+            menu = get_premium_menu()
+        
+        await bot.send_message(
+            chat_id=user_id,
+            text="✅ **Onboarding yakunlandi!**\n\n"
+                 f"Siz {user_tariff} tarifidan foydalanmoqdasiz.\n"
+                 "Endi botdan to'liq foydalanishingiz mumkin!",
+            reply_markup=menu,
+            parse_mode="Markdown"
+        )
+        return
+
+    # FREE tarif uchun - tarif tanlash
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛒 Plus paket tanlash", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL))],
         [InlineKeyboardButton(text="🔥 Pro tarifga o'tish", web_app=WebAppInfo(url=PAYMENT_PRO_WEBAPP_URL))]
@@ -3703,8 +3763,8 @@ async def test_activate_business_callback(callback_query: CallbackQuery):
         
         # Payments jadvaliga qo'shish (test uchun 0 so'm)
         await db.execute_query(
-            "INSERT INTO payments (user_id, tariff, provider, total_amount, currency, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, NOW())",
-            (user_id, tariff_code, 'test_mode', 0, 'UZS', 'paid')
+            "INSERT INTO payments (user_id, tariff, provider, total_amount, currency, status, merchant_trans_id, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())",
+            (user_id, tariff_code, 'test_mode', 0, 'UZS', 'paid', None)
         )
         
         tariff_name = TARIFFS.get(tariff_code, tariff_code)
@@ -3817,8 +3877,8 @@ async def help_tariff_callback(callback_query: CallbackQuery):
         "💬 **Ko'p so'raladigan savollar:**\n"
         "• Tarifni qanday o'zgartirish mumkin?\n"
         "→ Profil > Tarif > Tarifni o'zgartirish\n\n"
-        "• 1 haftalik bepul sinov qanday?\n"
-        "→ Yangi tarifni tanlang > 1 hafta bepul sinash tugmasini bosing\n\n"
+        "• 3 kunlik bepul sinov qanday?\n"
+        "→ Yangi tarifni tanlang > 3 kun bepul sinov tugmasini bosing\n\n"
         "• To'lov qanday amalga oshiriladi?\n"
         "→ Click, Payme yoki bank orqali\n\n"
         "Savollaringiz bo'lsa, biz bilan bog'laning! 👇"
@@ -3848,7 +3908,7 @@ async def process_subscription_duration(callback_query: CallbackQuery, state: FS
     """Obuna muddatini qabul qilish"""
     user_id = callback_query.from_user.id
     
-    # 1 haftalik bepul sinov
+    # 3 kunlik bepul sinov (legacy callback uchun)
     if callback_query.data == "duration_trial":
         data = await state.get_data()
         tariff = data.get('selected_tariff')
@@ -3861,53 +3921,9 @@ async def process_subscription_duration(callback_query: CallbackQuery, state: FS
             await callback_query.answer("❌ Tarif topilmadi. Qaytadan boshlang.", show_alert=True)
             return
         
-        # Foydalanuvchini tarifga o'tkazish (1 haftalik bepul)
-        try:
-            from datetime import datetime, timedelta
-            
-            logging.info(f"Updating user {user_id} tariff to {tariff} with 1 week expiry")
-            
-            # 1. Users jadvalini yangilash
-            await db.execute_query(
-                "UPDATE users SET tariff = %s, tariff_expires_at = DATE_ADD(NOW(), INTERVAL 1 WEEK) WHERE user_id = %s",
-                (tariff, user_id)
-            )
-            
-            # 2. User subscriptions jadvaliga qo'shish
-            expires_at = datetime.now() + timedelta(days=7)
-            await db.execute_query(
-                "INSERT INTO user_subscriptions (user_id, tariff, is_active, expires_at) VALUES (%s, %s, %s, %s)",
-                (user_id, tariff, True, expires_at)
-            )
-            
-            # 3. Payments jadvaliga qo'shish (bepul sinov uchun 0 so'm)
-            await db.execute_query(
-                "INSERT INTO payments (user_id, tariff, provider, total_amount, currency, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, NOW())",
-                (user_id, tariff, 'free_trial', 0, 'UZS', 'paid')
-            )
-            
-            logging.info(f"Successfully updated user {user_id} tariff to {tariff} with full subscription and payment records")
-            
-            # Tabrik xabari (pullik tariflar kabi)
-            await callback_query.message.answer(
-                "🎉 **Tabriklaymiz!**\n\n"
-                f"✅ Siz {TARIFFS.get(tariff, tariff)} tarifiga ega bo'ldingiz!\n"
-                f"⏰ Muddati: 1 hafta (bepul sinov)\n"
-                f"📅 Tugash sanasi: {expires_at.strftime('%d.%m.%Y %H:%M')}\n\n"
-                "🚀 **Boshlash** tugmasini bosing va onboarding jarayonini boshlaymiz!",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🚀 Boshlash", callback_data="start_onboarding")]
-                ]),
-                parse_mode='Markdown'
-            )
-            
-            await callback_query.answer("✅ 1 haftalik bepul sinov faollashtirildi!")
-            return
-            
-        except Exception as e:
-            logging.error(f"Free trial activation error: {e}")
-            await callback_query.answer("❌ Xatolik yuz berdi. Admin bilan bog'laning.", show_alert=True)
-            return
+        # Eski "duration_trial" oqimini 3 kunlik umumiy handlerga yo'naltiramiz
+        callback_query.data = f"trial_tariff_{tariff}"
+        return await process_trial_tariff(callback_query, state)
     
     months = int(callback_query.data.split("_")[1])
     
@@ -4506,58 +4522,12 @@ async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext
         await callback_query.answer()
         return
     
-    # 1 haftalik sinov callbacklari
+    # 3 kunlik sinov callbacklari (legacy free_trial_* aliaslari)
     if callback_query.data.startswith("free_trial_"):
         tariff_code = callback_query.data.replace("free_trial_", "")
-        print(f"DEBUG: Free trial callback received for tariff: {tariff_code}")
-        
-        # 1 haftalik sinov aktiv qilish
-        try:
-            from datetime import datetime, timedelta
-            
-            logging.info(f"Activating free trial for user {user_id} with tariff {tariff_code}")
-            
-            # 1. Users jadvalini yangilash
-            await db.execute_query(
-                "UPDATE users SET tariff = %s, tariff_expires_at = DATE_ADD(NOW(), INTERVAL 1 WEEK) WHERE user_id = %s",
-                (tariff_code, user_id)
-            )
-            
-            # 2. User subscriptions jadvaliga qo'shish
-            expires_at = datetime.now() + timedelta(days=7)
-            await db.execute_query(
-                "INSERT INTO user_subscriptions (user_id, tariff, is_active, expires_at) VALUES (%s, %s, %s, %s)",
-                (user_id, tariff_code, True, expires_at)
-            )
-            
-            # 3. Payments jadvaliga qo'shish (bepul sinov uchun 0 so'm)
-            await db.execute_query(
-                "INSERT INTO payments (user_id, tariff, provider, total_amount, currency, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, NOW())",
-                (user_id, tariff_code, 'free_trial', 0, 'UZS', 'paid')
-            )
-            
-            logging.info(f"Successfully activated free trial for user {user_id} with tariff {tariff_code}")
-            
-            # Tabrik xabari
-            await callback_query.message.answer(
-                "🎉 **Tabriklaymiz!**\n\n"
-                f"✅ Siz {TARIFFS.get(tariff_code, tariff_code)} tarifiga ega bo'ldingiz!\n"
-                f"⏰ Muddati: 1 hafta (bepul sinov)\n"
-                f"📅 Tugash sanasi: {expires_at.strftime('%d.%m.%Y %H:%M')}\n\n"
-                "🚀 **Boshlash** tugmasini bosing va onboarding jarayonini boshlaymiz!",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🚀 Boshlash", callback_data="start_onboarding")]
-                ]),
-                parse_mode='Markdown'
-            )
-            
-            await callback_query.answer("✅ 1 haftalik bepul sinov faollashtirildi!")
-            return
-            
-        except Exception as e:
-            logging.error(f"Free trial activation error: {e}")
-            await callback_query.answer("❌ Xatolik yuz berdi. Admin bilan bog'laning.", show_alert=True)
-            return
+        # Eski callbacklarni yangi 3 kunlik sinov oqimiga yo'naltiramiz
+        callback_query.data = f"trial_tariff_{tariff_code}"
+        return await process_trial_tariff(callback_query, state)
 
     # Aktivlashtirish callbacklari
     if callback_query.data.startswith("activate_"):
@@ -6726,8 +6696,8 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
 
             await db.execute_insert(
                 """
-                INSERT INTO payments (user_id, tariff, total_amount, currency, payload, telegram_charge_id, provider_charge_id, status, paid_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 'paid', NOW())
+                INSERT INTO payments (user_id, tariff, total_amount, currency, payload, telegram_charge_id, provider_charge_id, merchant_trans_id, status, paid_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NULL, 'paid', NOW())
                 """,
                 (user_id, 'PLUS', total_amount, currency, payload, telegram_charge_id, provider_charge_id)
             )
@@ -6830,8 +6800,8 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
             sp = message.successful_payment
             await db.execute_insert(
                 """
-                INSERT INTO payments (user_id, tariff, total_amount, currency, payload, telegram_charge_id, provider_charge_id, status, paid_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 'paid', NOW())
+                INSERT INTO payments (user_id, tariff, total_amount, currency, payload, telegram_charge_id, provider_charge_id, merchant_trans_id, status, paid_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NULL, 'paid', NOW())
                 """,
                 (
                     user_id,
@@ -6943,7 +6913,10 @@ async def load_config_from_db():
         if result:
             FREE_TRIAL_ENABLED['PLUS'] = result.get('value', 'false').lower() == 'true'
         
-        result = await db.execute_one("SELECT value FROM config WHERE key_name = 'free_trial_max'")
+        result = await db.execute_one("SELECT value FROM config WHERE key_name = 'free_trial_pro'")
+        if not result:
+            # Eski nomdagi kalitdan fallback
+            result = await db.execute_one("SELECT value FROM config WHERE key_name = 'free_trial_max'")
         if result:
             FREE_TRIAL_ENABLED['PRO'] = result.get('value', 'false').lower() == 'true'
         
