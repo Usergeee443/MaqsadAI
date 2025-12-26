@@ -298,20 +298,58 @@ class Database:
                 )
             """)
             
-            # Debts jadvali - qarzlar uchun
+            # Contacts jadvali - qarz kontaktlari uchun
             await self.execute_query("""
-                CREATE TABLE IF NOT EXISTS debts (
+                CREATE TABLE IF NOT EXISTS contacts (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     user_id BIGINT NOT NULL,
-                    debt_type ENUM('lent', 'borrowed') NOT NULL,
-                    amount DECIMAL(15,2) NOT NULL,
-                    person_name VARCHAR(255),
-                    due_date DATE NULL,
-                    status ENUM('active', 'paid') DEFAULT 'active',
+                    name VARCHAR(255) NOT NULL,
+                    phone VARCHAR(50) NULL,
+                    notes TEXT NULL,
+                    total_lent DECIMAL(15,2) DEFAULT 0,
+                    total_borrowed DECIMAL(15,2) DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
                     INDEX idx_user_id (user_id),
+                    INDEX idx_name (name)
+                )
+            """)
+            
+            # User settings jadvali - foydalanuvchi sozlamalari
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS user_settings (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL UNIQUE,
+                    require_debt_details BOOLEAN DEFAULT FALSE,
+                    auto_save_transactions BOOLEAN DEFAULT TRUE,
+                    language VARCHAR(10) DEFAULT 'uz',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                )
+            """)
+            
+            # Debts jadvali - qarzlar uchun (contact_id bilan)
+            await self.execute_query("""
+                CREATE TABLE IF NOT EXISTS debts (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    contact_id INT NULL,
+                    debt_type ENUM('lent', 'borrowed') NOT NULL,
+                    amount DECIMAL(15,2) NOT NULL,
+                    currency VARCHAR(10) DEFAULT 'UZS',
+                    person_name VARCHAR(255),
+                    due_date DATE NULL,
+                    description TEXT NULL,
+                    status ENUM('active', 'paid', 'partial') DEFAULT 'active',
+                    paid_amount DECIMAL(15,2) DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE SET NULL,
+                    INDEX idx_user_id (user_id),
+                    INDEX idx_contact_id (contact_id),
                     INDEX idx_status (status)
                 )
             """)
@@ -642,6 +680,50 @@ class Database:
                     logging.info("debts.paid_amount allaqachon mavjud")
                 else:
                     logging.error(f"debts.paid_amount qo'shishda xatolik: {e}")
+            
+            # contact_id ustunini qo'shish
+            try:
+                await self.execute_query("ALTER TABLE debts ADD COLUMN contact_id INT NULL")
+                logging.info("debts.contact_id qo'shildi")
+            except Exception as e:
+                if "Duplicate column name" in str(e):
+                    logging.info("debts.contact_id allaqachon mavjud")
+                else:
+                    logging.error(f"debts.contact_id qo'shishda xatolik: {e}")
+            
+            # contact_id uchun foreign key qo'shish (mavjud bo'lmasa)
+            try:
+                await self.execute_query("""
+                    ALTER TABLE debts 
+                    ADD CONSTRAINT fk_debts_contact 
+                    FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE SET NULL
+                """)
+                logging.info("debts.contact_id foreign key qo'shildi")
+            except Exception as e:
+                if "Duplicate foreign key" in str(e) or "already exists" in str(e).lower() or "Duplicate key name" in str(e):
+                    logging.info("debts.contact_id foreign key allaqachon mavjud")
+                else:
+                    logging.error(f"debts.contact_id foreign key qo'shishda xatolik: {e}")
+
+            # Debts jadvaliga currency ustunini qo'shish
+            try:
+                await self.execute_query("ALTER TABLE debts ADD COLUMN currency VARCHAR(10) DEFAULT 'UZS'")
+                logging.info("debts.currency qo'shildi")
+            except Exception as e:
+                if "Duplicate column name" in str(e):
+                    logging.info("debts.currency allaqachon mavjud")
+                else:
+                    logging.error(f"debts.currency qo'shishda xatolik: {e}")
+
+            # Debts jadvaliga description ustunini qo'shish (agar yo'q bo'lsa)
+            try:
+                await self.execute_query("ALTER TABLE debts ADD COLUMN description TEXT NULL")
+                logging.info("debts.description qo'shildi")
+            except Exception as e:
+                if "Duplicate column name" in str(e):
+                    logging.info("debts.description allaqachon mavjud")
+                else:
+                    logging.error(f"debts.description qo'shishda xatolik: {e}")
 
             # Transactions jadvaliga currency ustunini qo'shish
             try:
@@ -765,17 +847,216 @@ class Database:
             })
         return transactions
 
-    async def add_transaction(self, user_id, transaction_type, amount, category, description=None, currency='UZS'):
-        """Yangi tranzaksiya qo'shish (valyuta bilan)"""
+    async def add_transaction(self, user_id, transaction_type, amount, category, description=None, 
+                              currency='UZS', person_name=None, due_date=None):
+        """Yangi tranzaksiya qo'shish (valyuta va qarz ma'lumotlari bilan)"""
         # Valyutani to'g'ri formatda saqlash
         currency = currency.upper() if currency else 'UZS'
         if currency not in ['UZS', 'USD', 'EUR', 'RUB', 'TRY']:
             currency = 'UZS'
+        
+        # Bo'sh stringlarni None ga o'zgartirish (MySQL DATE uchun)
+        if due_date == '' or due_date is None:
+            due_date = None
+        if person_name == '':
+            person_name = None
+        
+        # Qarz turlarini qayta ishlash
+        debt_direction = None
+        if transaction_type == 'debt_lent':
+            transaction_type = 'debt'
+            debt_direction = 'lent'
+        elif transaction_type == 'debt_borrowed':
+            transaction_type = 'debt'
+            debt_direction = 'borrowed'
+        
+        # Qarz uchun debts jadvaliga ham qo'shish
+        if transaction_type == 'debt' and person_name:
+            await self.add_debt_with_contact(
+                user_id=user_id,
+                debt_type=debt_direction or 'lent',
+                amount=amount,
+                person_name=person_name,
+                currency=currency,
+                due_date=due_date,
+                description=description
+            )
+        
         query = """
-        INSERT INTO transactions (user_id, transaction_type, amount, category, currency, description)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO transactions (user_id, transaction_type, amount, category, currency, description, debt_direction, due_date)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """
-        return await self.execute_insert(query, (user_id, transaction_type, amount, category, currency, description))
+        return await self.execute_insert(query, (user_id, transaction_type, amount, category, currency, description, debt_direction, due_date))
+
+    async def delete_transaction(self, transaction_id: int, user_id: int) -> dict:
+        """Tranzaksiyani o'chirish (debts va kontakt balansini ham yangilaydi)"""
+        try:
+            # Avval tranzaksiyani o'qib olish
+            query = """
+                SELECT transaction_type, amount, currency, debt_direction, description, created_at
+                FROM transactions 
+                WHERE id = %s AND user_id = %s
+            """
+            trans = await self.execute_one(query, (transaction_id, user_id))
+            
+            if not trans:
+                return {'success': False, 'message': 'Tranzaksiya topilmadi'}
+            
+            trans_type = trans.get('transaction_type')
+            amount = float(trans.get('amount', 0))
+            currency = trans.get('currency', 'UZS')
+            debt_direction = trans.get('debt_direction')
+            description = trans.get('description', '')
+            created_at = trans.get('created_at')
+            
+            # Agar qarz bo'lsa, debts jadvalidan ham o'chirish kerak
+            if trans_type == 'debt' and debt_direction:
+                # Debts jadvalidan qidirish va o'chirish
+                # created_at va amount bo'yicha eng yaqin qarzni topish
+                debt_query = """
+                    SELECT id, contact_id, debt_type, amount, person_name
+                    FROM debts 
+                    WHERE user_id = %s 
+                      AND debt_type = %s 
+                      AND currency = %s
+                      AND ABS(amount - %s) < 0.01
+                      AND created_at BETWEEN DATE_SUB(%s, INTERVAL 5 MINUTE) AND DATE_ADD(%s, INTERVAL 5 MINUTE)
+                    ORDER BY ABS(TIMESTAMPDIFF(SECOND, created_at, %s))
+                    LIMIT 1
+                """
+                debt = await self.execute_one(debt_query, (
+                    user_id, debt_direction, currency, amount, 
+                    created_at, created_at, created_at
+                ))
+                
+                if debt:
+                    debt_id = debt.get('id')
+                    contact_id = debt.get('contact_id')
+                    debt_amount = float(debt.get('amount', 0))
+                    
+                    # Debt ni o'chirish
+                    await self.execute_query(
+                        "DELETE FROM debts WHERE id = %s AND user_id = %s",
+                        (debt_id, user_id)
+                    )
+                    
+                    # Kontakt balansini yangilash
+                    if contact_id:
+                        if debt_direction == 'lent':
+                            await self.execute_query(
+                                "UPDATE contacts SET total_lent = GREATEST(0, total_lent - %s) WHERE id = %s",
+                                (debt_amount, contact_id)
+                            )
+                        else:  # borrowed
+                            await self.execute_query(
+                                "UPDATE contacts SET total_borrowed = GREATEST(0, total_borrowed - %s) WHERE id = %s",
+                                (debt_amount, contact_id)
+                            )
+                        
+                        # Kontaktning umumiy balansini yangilash
+                        await self.update_contact_totals(contact_id)
+            
+            # Tranzaksiyani o'chirish
+            await self.execute_query(
+                "DELETE FROM transactions WHERE id = %s AND user_id = %s",
+                (transaction_id, user_id)
+            )
+            
+            return {
+                'success': True,
+                'message': 'Tranzaksiya muvaffaqiyatli o\'chirildi',
+                'transaction_type': trans_type,
+                'amount': amount,
+                'currency': currency
+            }
+            
+        except Exception as e:
+            logging.error(f"Tranzaksiyani o'chirishda xatolik: {e}")
+            return {'success': False, 'message': f'Xatolik: {str(e)}'}
+
+    async def update_transaction(self, transaction_id: int, user_id: int, person_name: str = None, due_date: str = None) -> dict:
+        """Tranzaksiyani yangilash (qarz uchun person_name va due_date)"""
+        try:
+            # Avval tranzaksiyani o'qib olish
+            query = """
+                SELECT transaction_type, debt_direction, description, due_date
+                FROM transactions 
+                WHERE id = %s AND user_id = %s
+            """
+            trans = await self.execute_one(query, (transaction_id, user_id))
+            
+            if not trans:
+                return {'success': False, 'message': 'Tranzaksiya topilmadi'}
+            
+            trans_type = trans.get('transaction_type')
+            debt_direction = trans.get('debt_direction')
+            
+            # Faqat qarz tranzaksiyalarini yangilash mumkin
+            if trans_type != 'debt':
+                return {'success': False, 'message': 'Bu tranzaksiya qarz emas'}
+            
+            # Update queries
+            updates = []
+            params = []
+            
+            if person_name is not None:
+                updates.append("description = %s")
+                # Description ni yangilash yoki person_name ni qo'shish
+                old_desc = trans.get('description', '')
+                if old_desc and person_name:
+                    # Person_name ni description ga qo'shish
+                    new_desc = f"{person_name}ga {old_desc}" if 'ga' not in old_desc.lower() else old_desc.replace(old_desc.split()[0], person_name)
+                else:
+                    new_desc = person_name
+                params.append(new_desc)
+                
+                # Kontaktni yaratish/yangilash
+                if person_name:
+                    contact = await self.get_or_create_contact(user_id, person_name)
+                    if contact and contact.get('id'):
+                        # Debts jadvalidan contact_id ni yangilash
+                        await self.execute_query(
+                            "UPDATE debts SET person_name = %s WHERE user_id = %s AND ABS(amount - (SELECT amount FROM transactions WHERE id = %s)) < 0.01 AND debt_type = %s ORDER BY ABS(TIMESTAMPDIFF(SECOND, created_at, (SELECT created_at FROM transactions WHERE id = %s))) LIMIT 1",
+                            (person_name, user_id, transaction_id, debt_direction, transaction_id)
+                        )
+            
+            if due_date is not None:
+                if due_date == '':
+                    due_date = None
+                updates.append("due_date = %s")
+                params.append(due_date)
+                
+                # Eslatma yaratish yoki o'chirish
+                if due_date:
+                    # Eslatma yaratish
+                    await self.execute_query(
+                        "INSERT INTO debt_reminders (user_id, transaction_id, reminder_date) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE reminder_date = %s",
+                        (user_id, transaction_id, due_date, due_date)
+                    )
+                else:
+                    # Eslatma o'chirish
+                    await self.execute_query(
+                        "DELETE FROM debt_reminders WHERE user_id = %s AND transaction_id = %s",
+                        (user_id, transaction_id)
+                    )
+            
+            if not updates:
+                return {'success': False, 'message': 'Yangilanish uchun ma\'lumotlar topilmadi'}
+            
+            params.append(transaction_id)
+            params.append(user_id)
+            
+            update_query = f"UPDATE transactions SET {', '.join(updates)} WHERE id = %s AND user_id = %s"
+            await self.execute_query(update_query, tuple(params))
+            
+            return {
+                'success': True,
+                'message': 'Tranzaksiya muvaffaqiyatli yangilandi'
+            }
+            
+        except Exception as e:
+            logging.error(f"Tranzaksiyani yangilashda xatolik: {e}")
+            return {'success': False, 'message': f'Xatolik: {str(e)}'}
 
     async def get_balance(self, user_id):
         """Foydalanuvchi balansini olish"""
@@ -1931,6 +2212,165 @@ class Database:
         VALUES (%s, %s, %s, %s, %s, %s)
         """
         return await self.execute_insert(query, (user_id, transaction_type, amount, category, currency, description))
+
+    # ============ KONTAKTLAR FUNKSIYALARI ============
+    
+    async def get_or_create_contact(self, user_id: int, name: str) -> dict:
+        """Kontaktni olish yoki yaratish"""
+        try:
+            # Avval mavjud kontaktni qidirish (case-insensitive)
+            query = "SELECT * FROM contacts WHERE user_id = %s AND LOWER(name) = LOWER(%s)"
+            result = await self.execute_one(query, (user_id, name))
+            
+            if result:
+                return {'id': result.get('id'), 'name': result.get('name'), 'is_new': False}
+            
+            # Yangi kontakt yaratish
+            insert_query = "INSERT INTO contacts (user_id, name) VALUES (%s, %s)"
+            contact_id = await self.execute_insert(insert_query, (user_id, name))
+            
+            return {'id': contact_id, 'name': name, 'is_new': True}
+        except Exception as e:
+            logging.error(f"Kontakt yaratishda xatolik: {e}")
+            return None
+    
+    async def get_user_contacts(self, user_id: int) -> list:
+        """Foydalanuvchi kontaktlarini olish"""
+        try:
+            query = """
+                SELECT c.*, 
+                    (SELECT COUNT(*) FROM debts WHERE contact_id = c.id AND status = 'active') as active_debts
+                FROM contacts c 
+                WHERE c.user_id = %s 
+                ORDER BY c.name ASC
+            """
+            return await self.execute_query(query, (user_id,))
+        except Exception as e:
+            logging.error(f"Kontaktlarni olishda xatolik: {e}")
+            return []
+    
+    async def get_contact_debts(self, contact_id: int) -> list:
+        """Kontaktning qarzlarini olish"""
+        try:
+            query = """
+                SELECT * FROM debts 
+                WHERE contact_id = %s 
+                ORDER BY created_at DESC
+            """
+            return await self.execute_query(query, (contact_id,))
+        except Exception as e:
+            logging.error(f"Kontakt qarzlarini olishda xatolik: {e}")
+            return []
+    
+    async def add_debt_with_contact(self, user_id: int, debt_type: str, amount: float, 
+                                    person_name: str, currency: str = 'UZS', 
+                                    due_date=None, description: str = None) -> int:
+        """Qarz qo'shish (kontakt bilan)"""
+        try:
+            # Kontaktni olish yoki yaratish
+            contact = await self.get_or_create_contact(user_id, person_name)
+            contact_id = contact.get('id') if contact else None
+            
+            # Qarzni qo'shish
+            query = """
+                INSERT INTO debts (user_id, contact_id, debt_type, amount, currency, person_name, due_date, description)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            debt_id = await self.execute_insert(query, (
+                user_id, contact_id, debt_type, amount, currency, person_name, due_date, description
+            ))
+            
+            # Kontakt balansini yangilash
+            if contact_id:
+                if debt_type == 'lent':
+                    await self.execute_query(
+                        "UPDATE contacts SET total_lent = total_lent + %s WHERE id = %s",
+                        (amount, contact_id)
+                    )
+                else:
+                    await self.execute_query(
+                        "UPDATE contacts SET total_borrowed = total_borrowed + %s WHERE id = %s",
+                        (amount, contact_id)
+                    )
+            
+            return debt_id
+        except Exception as e:
+            logging.error(f"Qarz qo'shishda xatolik: {e}")
+            return None
+    
+    async def update_contact_totals(self, contact_id: int):
+        """Kontaktning umumiy qarz balansini yangilash"""
+        try:
+            # Jami berilgan qarz
+            lent_query = """
+                SELECT COALESCE(SUM(amount - paid_amount), 0) as total 
+                FROM debts 
+                WHERE contact_id = %s AND debt_type = 'lent' AND status != 'paid'
+            """
+            lent_result = await self.execute_one(lent_query, (contact_id,))
+            total_lent = float(lent_result.get('total', 0)) if lent_result else 0
+            
+            # Jami olingan qarz
+            borrowed_query = """
+                SELECT COALESCE(SUM(amount - paid_amount), 0) as total 
+                FROM debts 
+                WHERE contact_id = %s AND debt_type = 'borrowed' AND status != 'paid'
+            """
+            borrowed_result = await self.execute_one(borrowed_query, (contact_id,))
+            total_borrowed = float(borrowed_result.get('total', 0)) if borrowed_result else 0
+            
+            # Kontaktni yangilash
+            await self.execute_query(
+                "UPDATE contacts SET total_lent = %s, total_borrowed = %s WHERE id = %s",
+                (total_lent, total_borrowed, contact_id)
+            )
+        except Exception as e:
+            logging.error(f"Kontakt balansini yangilashda xatolik: {e}")
+
+    # ============ FOYDALANUVCHI SOZLAMALARI ============
+    
+    async def get_user_settings(self, user_id: int) -> dict:
+        """Foydalanuvchi sozlamalarini olish"""
+        try:
+            query = "SELECT * FROM user_settings WHERE user_id = %s"
+            result = await self.execute_one(query, (user_id,))
+            
+            if result:
+                return {
+                    'require_debt_details': bool(result.get('require_debt_details', False)),
+                    'auto_save_transactions': bool(result.get('auto_save_transactions', True)),
+                    'language': result.get('language', 'uz')
+                }
+            
+            # Default sozlamalar
+            return {
+                'require_debt_details': False,
+                'auto_save_transactions': True,
+                'language': 'uz'
+            }
+        except Exception as e:
+            logging.error(f"Sozlamalarni olishda xatolik: {e}")
+            return {'require_debt_details': False, 'auto_save_transactions': True, 'language': 'uz'}
+    
+    async def update_user_setting(self, user_id: int, setting_name: str, value) -> bool:
+        """Foydalanuvchi sozlamasini yangilash"""
+        try:
+            # Avval sozlamalar mavjudligini tekshirish
+            existing = await self.execute_one(
+                "SELECT id FROM user_settings WHERE user_id = %s", (user_id,)
+            )
+            
+            if existing:
+                query = f"UPDATE user_settings SET {setting_name} = %s WHERE user_id = %s"
+                await self.execute_query(query, (value, user_id))
+            else:
+                query = f"INSERT INTO user_settings (user_id, {setting_name}) VALUES (%s, %s)"
+                await self.execute_insert(query, (user_id, value))
+            
+            return True
+        except Exception as e:
+            logging.error(f"Sozlamani yangilashda xatolik: {e}")
+            return False
 
 # Global database instance
 db = Database()

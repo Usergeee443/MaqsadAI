@@ -144,25 +144,33 @@ class FinancialModule:
                     logging.warning(f"Google Speech failed: {google_error}")
                     print(f"DEBUG: Google Speech failed: {google_error}")
             
-            # Whisper API orqali sinab ko'ramiz (fallback) - agar Google ishlamasa
+            # Whisper API - asosiy va eng ishonchli
+            whisper_text = None
             try:
                 whisper_text = await self._transcribe_with_whisper(audio_file_path)
                 print(f"DEBUG: Whisper transcription: {whisper_text}")
                 
                 if whisper_text and whisper_text.strip():
                     whisper_result = await self.process_ai_input_advanced(whisper_text, user_id)
-                    if whisper_result['success']:
-                        whisper_result['message'] += f"\n\n🔊 **Texnologiya:** OpenAI Whisper"
+                    
+                    # Agar tranzaksiya topilgan bo'lsa
+                    if whisper_result.get('success'):
                         return whisper_result
+                    
+                    # Tranzaksiya topilmadi, lekin matn aniqlandi - bu xato emas
+                    # Foydalanuvchiga eshitilgan matnni ko'rsatamiz
+                    return {
+                        "success": False,
+                        "message": f"🎤 **Eshitildi:** \"{whisper_text}\"\n\n❌ Moliyaviy tranzaksiya topilmadi.\n\nMasalan: \"100 ming ga ovqat oldim\" yoki \"500 000 qarz berdim\""
+                    }
             except Exception as whisper_error:
                 logging.warning(f"Whisper transcription failed: {whisper_error}")
                 print(f"DEBUG: Whisper failed: {whisper_error}")
             
-            # Agar barcha speech-to-text ishlamasa, xatolik qaytaramiz
-            logging.error("Barcha speech-to-text xizmatlari muvaffaqiyatsiz")
+            # Agar Whisper ham ishlamasa
             return {
                 "success": False,
-                "message": "❌ Audio aniq eshitilmadi. Iltimos, aniqroq gapiring yoki matn shaklida yuboring."
+                "message": "❌ Ovozli xabarni qayta ishlashda xatolik. Iltimos, qaytadan urinib ko'ring."
             }
 
         except Exception as e:
@@ -445,54 +453,66 @@ QOIDALAR:
     async def _extract_financial_data_with_gpt4(self, text: str) -> Dict[str, Any]:
         """Mistral bilan moliyaviy ma'lumotlarni ajratish - tez va arzon (PLUS tarif)"""
         try:
-            # System prompt - Mistral uchun optimallashtirilgan
-            system_prompt = """Sen tranzaksiya aniqlovchisan. JSON formatda javob ber.
+            # Bugungi sana va vaqt ma'lumotlari
+            from datetime import datetime
+            today = datetime.now()
+            current_date = today.strftime('%Y-%m-%d')
+            current_year = today.year
+            current_month = today.month
+            current_day = today.day
+            
+            # System prompt - soddalashtirilgan va optimallashtirilgan
+            system_prompt = f"""Sen tranzaksiya aniqlovchisan. JSON formatda javob ber.
 
-MUHIM QOIDALAR:
-1. TYPE aniqlash:
-   - "income" = daromad, oylik, ish haqi, maosh, tushdi, oldim (daromad), berdi, qarz olish
-   - "expense" = xarajat, sotib oldim, oldim (xarajat), ketdi, sarf qildim, to'ladim
-   - "debt" = qarz berish, qarz olish (faqat qarz bo'lsa)
+BUGUNGI SANGA: {current_date} ({current_year}-yil, {current_month}-oy, {current_day}-sana)
 
-2. VALYUTA aniqlash:
-   - "UZS" = so'm, sum, ming, million, mlrd (default)
-   - "USD" = dollar, $, usd, aqsh dollari
-   - "EUR" = evro, euro, €
-   - "RUB" = rubl, ruble, ₽, rossiya
-   - "TRY" = lira, turkiya lirasi, tl
-   - Agar valyuta ko'rsatilmagan bo'lsa, UZS deb qabul qil
+MUHIM: Agar xabarda ANIQ SUMMA bo'lmasa yoki oddiy so'z bo'lsa (ok, ha, yo'q, salom, rahmat, yaxshi), tranzaksiya TOPILMADI deb javob ber:
+{{"transactions":[],"total_confidence":0}}
 
-3. KATEGORIYALAR (faqat quyidagilardan birini ishlat):
-   - "ish haqi" = oylik, maosh, ish haqi, daromad (ishdan)
-   - "biznes" = biznes daromadi, savdo, sotish
-   - "ovqat" = ovqat, somsa, non, lavash, shashlik, kebab, pizza, burger, restoran, kafe, oziq-ovqat, taom, yegimlik, ichimlik, kofe, choy, gazak
-   - "transport" = taksi, avtobus, metro, mashina, benzin, yoqilg'i, transport
-   - "kiyim" = kiyim, ko'ylak, shim, poyabzal, oyoq kiyim
-   - "uy" = uy, kvartira, kommunal, elektr, gaz, suv, internet, telefon
-   - "sog'liq" = shifokor, dori, davolanish, sog'liq
-   - "ta'lim" = ta'lim, maktab, universitet, kurs, kitob
-   - "o'yin-kulgi" = kino, teatr, konsert, o'yin, sayr
-   - "boshqa" = boshqa barcha narsalar
+QOIDALAR:
+1. TYPE:
+   - "income" = daromad, oylik, ish haqi, maosh, tushdi, keldi
+   - "expense" = xarajat, sotib oldim, ketdi, sarfladim, to'ladim
+   - "debt_lent" = qarz berdim, qarz berish (men berdim)
+   - "debt_borrowed" = qarz oldim, qarz olish (men oldim)
 
-4. MISOLLAR (MUHIM - aniq tushunish uchun):
-   "80 ming ga somsa oldim" → {"transactions":[{"amount":80000,"type":"expense","category":"ovqat","currency":"UZS"}],"total_confidence":0.95}
-   "500 million oylik oldim" → {"transactions":[{"amount":500000000,"type":"income","category":"ish haqi","currency":"UZS"}],"total_confidence":0.95}
-   "100 dollar xarajat" → {"transactions":[{"amount":100,"type":"expense","category":"boshqa","currency":"USD"}],"total_confidence":0.95}
-   "50 evro transfer" → {"transactions":[{"amount":50,"type":"expense","category":"boshqa","currency":"EUR"}],"total_confidence":0.95}
-   "1000 rubl keldi" → {"transactions":[{"amount":1000,"type":"income","category":"boshqa","currency":"RUB"}],"total_confidence":0.95}
-   "200 lira sarfladim" → {"transactions":[{"amount":200,"type":"expense","category":"boshqa","currency":"TRY"}],"total_confidence":0.95}
-   "$50 oldim" → {"transactions":[{"amount":50,"type":"expense","category":"boshqa","currency":"USD"}],"total_confidence":0.95}
-   "taksi 20k" → {"transactions":[{"amount":20000,"type":"expense","category":"transport","currency":"UZS"}],"total_confidence":0.95}
-   "oylik tushdi 3 million" → {"transactions":[{"amount":3000000,"type":"income","category":"ish haqi","currency":"UZS"}],"total_confidence":0.95}
+2. VALYUTA: UZS (default), USD, EUR, RUB, TRY
 
-5. E'TIBOR BERING:
-   - "oldim" so'zi kontekstga qarab: "somsa oldim" = expense, "oylik oldim" = income
-   - Ovqat so'zlari: somsa, non, lavash, shashlik, pizza, burger, kofe, choy → "ovqat"
-   - Ish haqi so'zlari: oylik, maosh, ish haqi → "ish haqi"
-   - Transport so'zlari: taksi, avtobus, benzin → "transport"
-   - Valyuta aniqlamagan bo'lsa, UZS deb qabul qil
+3. KATEGORIYALAR:
+   - "ish haqi" = oylik, maosh
+   - "biznes" = savdo, do'kon
+   - "ovqat" = somsa, lavash, restoran, kafe
+   - "transport" = taksi, benzin
+   - "uy" = kvartira, kommunal
+   - "qarz" = qarz berish/olish
+   - "boshqa" = qolganlar
 
-FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"kategoriya","currency":"UZS/USD/EUR/RUB/TRY"}],"total_confidence":0.9}"""
+4. QARZ uchun qo'shimcha:
+   - "person_name" = kimga/kimdan (MAJBURIY qarz uchun!)
+   - "due_date" = qaytarish sanasi (YYYY-MM-DD formatida, MUHIM - sana tushunish qoidalari quyida)
+
+SANA TUSHUNISH QOIDALARI (MUHIM!):
+- "keyingi yil 31-dekabr" → {current_year + 1}-12-31
+- "keyingi yil" → {current_year + 1}-12-31 (yil oxiri)
+- "2 haftadan keyin" → bugundan 14 kun keyin (YYYY-MM-DD)
+- "keyingi oy oxrida" → keyingi oyning oxirgi kuni (YYYY-MM-DD)
+- "keyingi oy 15-sana" → keyingi oyning 15-sanasi (YYYY-MM-DD)
+- "3 oydan keyin" → 3 oy keyin (YYYY-MM-DD)
+- "31-dekabr" → agar hozir {current_month}-oy bo'lsa va 31-dekabr o'tgan bo'lsa, {current_year + 1}-12-31, aks holda {current_year}-12-31
+- "2026-yil 31-dekabr" → 2026-12-31
+- "2025-yil 31-dekabr" → 2025-12-31
+- Sana kiritilmagan bo'lsa → due_date bo'sh qoldiriladi
+
+MISOLLAR:
+"ok" → {{"transactions":[],"total_confidence":0}}
+"salom" → {{"transactions":[],"total_confidence":0}}
+"80k somsa" → {{"transactions":[{{"amount":80000,"type":"expense","category":"ovqat","currency":"UZS"}}]}}
+"oylik 3mln" → {{"transactions":[{{"amount":3000000,"type":"income","category":"ish haqi","currency":"UZS"}}]}}
+"Hasanga 500k qarz berdim" → {{"transactions":[{{"amount":500000,"type":"debt_lent","category":"qarz","currency":"UZS","person_name":"Hasan"}}]}}
+"Komildan 200k qarz oldim" → {{"transactions":[{{"amount":200000,"type":"debt_borrowed","category":"qarz","currency":"UZS","person_name":"Komil"}}]}}
+"Ali dan 100 000 sum qarz oldim keyingi yil 31-dekabrga qayttarishim kerak" → {{"transactions":[{{"amount":100000,"type":"debt_borrowed","category":"qarz","currency":"UZS","person_name":"Ali","due_date":"{current_year + 1}-12-31"}}]}}
+
+FORMAT: {{"transactions":[{{...}}],"total_confidence":0.9}}"""
 
             user_prompt = f'Message: "{text}"\n\nJSON:'
 
@@ -543,10 +563,28 @@ FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"ka
                 elif '```' in ai_response:
                     ai_response = ai_response.split('```')[1]
                 
+                # Agar bir nechta JSON obyekti bo'lsa, faqat birinchisini olish
+                # {"transactions":...} pattern ni topish
+                if ai_response.count('{"transactions"') > 1:
+                    # Faqat birinchi JSON obyektini olish
+                    first_json_end = ai_response.find('}', ai_response.find(']')) + 1
+                    if first_json_end > 0:
+                        ai_response = ai_response[:first_json_end]
+                
+                # Yangi qatorlardan keyin kelgan ortiqcha ma'lumotlarni olib tashlash
+                if '\n\n' in ai_response:
+                    ai_response = ai_response.split('\n\n')[0]
+                
                 # Agar AI "tushunmasligini" yozgan bo'lsa
                 if not ai_response or 'tushunish_e_madi' in ai_response.lower():
                     logging.info("AI tushunmadi")
                     return {"transactions": [], "total_confidence": 0, "error": "tushunish_e_madi"}
+                
+                # Faqat JSON qismini olish - { dan } gacha
+                json_start = ai_response.find('{')
+                json_end = ai_response.rfind('}') + 1
+                if json_start >= 0 and json_end > json_start:
+                    ai_response = ai_response[json_start:json_end]
                 
                 data = json.loads(ai_response)
                 
@@ -559,6 +597,18 @@ FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"ka
             except json.JSONDecodeError as e:
                 logging.error(f"JSON parse xatolik: {e}")
                 logging.error(f"AI javobi: {ai_response}")
+                
+                # Fallback - regex bilan birinchi JSON ni olishga harakat
+                try:
+                    import re
+                    json_pattern = r'\{"transactions":\s*\[.*?\]\s*(?:,\s*"total_confidence":\s*[\d.]+)?\}'
+                    match = re.search(json_pattern, ai_response, re.DOTALL)
+                    if match:
+                        data = json.loads(match.group())
+                        return data
+                except:
+                    pass
+                
                 return {"transactions": [], "total_confidence": 0}
                 
         except Exception as e:
@@ -598,8 +648,12 @@ FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"ka
                     
                 # Type validatsiya
                 trans_type = trans.get('type', '')
-                if trans_type not in ['income', 'expense', 'debt']:
+                if trans_type not in ['income', 'expense', 'debt', 'debt_lent', 'debt_borrowed']:
                     continue
+                
+                # person_name va due_date olish (qarzlar uchun)
+                person_name = trans.get('person_name', '')
+                due_date = trans.get('due_date', '')
                 
                 # Category validatsiya va to'g'rilash
                 category = trans.get('category', 'boshqa').lower().strip()
@@ -737,9 +791,11 @@ FORMAT: {"transactions":[{"amount":X,"type":"income/expense/debt","category":"ka
                     'amount': float(amount),
                     'type': trans_type,
                     'category': category,
-                    'currency': currency,  # Valyutani qo'shish
+                    'currency': currency,
                     'description': description,
-                    'confidence': trans_confidence
+                    'confidence': trans_confidence,
+                    'person_name': person_name,  # Qarz uchun
+                    'due_date': due_date  # Qarz qaytarish sanasi
                 })
             
             if not validated_transactions or data.get('error') == 'tushunish_e_madi':
@@ -998,44 +1054,128 @@ JSON formatida qaytaring:
             return await self._analyze_and_show_transactions(fallback_data, user_id, text)
 
     async def _show_single_transaction_confirmation(self, transaction_item: Dict[str, Any], user_id: int, original_text: str = "") -> Dict[str, Any]:
-        """Bitta aniq tranzaksiya uchun tasdiqlash"""
+        """Bitta aniq tranzaksiya uchun tasdiqlash - YANGI FORMAT"""
         try:
             trans = transaction_item['data']
-            
-            type_emoji = {
-                "income": "📈",
-                "expense": "📉", 
-                "debt": "💳"
-            }.get(trans.get('type'), "❓")
-
+            trans_type = trans.get('type', 'expense')
             currency = trans.get('currency', 'UZS')
             amount = trans.get('amount', 0)
-            amount_line = self._format_amount_with_sign(amount, trans.get('type', ''), currency)
-            
-            # Agar UZS bo'lmasa, so'mga o'girilgan qiymatni ham ko'rsatish
-            if currency != 'UZS':
-                # Kurslarni olish
-                from database import db
-                rates = await db.get_currency_rates()
-                rate = rates.get(currency, 1.0)
-                amount_uzs = amount * rate
-                amount_line += f" ({amount_uzs:,.0f} so'm)"
+            category = trans.get('category', 'boshqa')
+            person_name = trans.get('person_name', '')
+            due_date = trans.get('due_date', '')
             
             formatted_date = self._format_human_date(trans.get('transaction_time'))
-
-            message = "✅ Tranzaksiya aniqlandi\n\n"
-            message += f"{type_emoji} **{amount_line}**\n"
-            message += f"Kategoriya: {trans.get('category', 'boshqa')}\n"
-            message += f"Tavsif: {trans.get('description', 'Tavsif yoq')}\n"
-
+            
+            # Valyuta formatlash
+            currency_names = {'UZS': 'UZS', 'USD': 'USD', 'EUR': 'EUR', 'RUB': 'RUB', 'TRY': 'TRY'}
+            currency_display = currency_names.get(currency, 'UZS')
+            amount_formatted = f"{currency_display} {amount:,.0f}"
+            
             original_text_clean = (original_text or "").strip()
             if not original_text_clean:
                 original_text_clean = trans.get('original_text', '').strip()
-            if original_text_clean:
-                message += f"Izoh: \"{original_text_clean}\"\n"
-
-            message += f"Sana: {formatted_date}\n\n"
-            message += "Tranzaksiyani saqlashni xohlaysizmi?"
+            
+            # Yangi format bo'yicha xabar
+            if trans_type == 'income':
+                message = f"💰 **Kirim:**\n"
+                message += f"Sana: {formatted_date}\n\n"
+                message += f"Summa: {amount_formatted}\n"
+                message += f"Kategoriya: {category}\n"
+                if original_text_clean:
+                    message += f"Izoh: {original_text_clean}\n"
+                    
+            elif trans_type == 'expense':
+                message = f"💸 **Chiqim:**\n"
+                message += f"Sana: {formatted_date}\n\n"
+                message += f"Summa: {amount_formatted}\n"
+                message += f"Kategoriya: {category}\n"
+                if original_text_clean:
+                    message += f"Izoh: {original_text_clean}\n"
+                    
+            elif trans_type == 'debt_borrowed':
+                message = f"💳 **Qarz olish:**\n"
+                message += f"Olingan vaqt: {formatted_date}\n\n"
+                
+                # Kontakt ma'lumotlarini tekshirish va ko'rsatish
+                contact_info_text = ""
+                if person_name:
+                    contact = await db.get_or_create_contact(user_id, person_name)
+                    if contact and not contact.get('is_new'):
+                        # Mavjud kontakt
+                        contact_info_text = f"👤 **{person_name}** (Kontaktdagi shaxs)\n"
+                    else:
+                        # Yangi kontakt qo'shildi
+                        contact_info_text = f"👤 **{person_name}** (Yangi kontakt qo'shildi)\n"
+                    message += contact_info_text
+                
+                message += f"Summasi: {amount_formatted}\n"
+                if due_date:
+                    message += f"Qaytarish vaqti: {self._format_human_date(due_date)}\n"
+                if original_text_clean:
+                    message += f"Izoh: {original_text_clean}\n"
+                
+                # Ogohlantirishlar
+                warnings = []
+                if not person_name:
+                    warnings.append("⚠️ Ism kiritilmagan (keyinchalik tahrirlash mumkin)")
+                if not due_date:
+                    warnings.append("⚠️ Qaytarish sanasi ko'rsatilmagan (keyinchalik tahrirlash mumkin)")
+                
+                if warnings:
+                    message += f"\n{' | '.join(warnings)}\n"
+                    
+            elif trans_type == 'debt_lent':
+                message = f"💳 **Qarz berish:**\n"
+                message += f"Berilgan vaqt: {formatted_date}\n\n"
+                
+                # Kontakt ma'lumotlarini tekshirish va ko'rsatish
+                contact_info_text = ""
+                if person_name:
+                    contact = await db.get_or_create_contact(user_id, person_name)
+                    if contact and not contact.get('is_new'):
+                        # Mavjud kontakt
+                        contact_info_text = f"👤 **{person_name}** (Kontaktdagi shaxs)\n"
+                    else:
+                        # Yangi kontakt qo'shildi
+                        contact_info_text = f"👤 **{person_name}** (Yangi kontakt qo'shildi)\n"
+                    message += contact_info_text
+                
+                message += f"Summasi: {amount_formatted}\n"
+                if due_date:
+                    message += f"Qaytarish vaqti: {self._format_human_date(due_date)}\n"
+                if original_text_clean:
+                    message += f"Izoh: {original_text_clean}\n"
+                
+                # Ogohlantirishlar
+                warnings = []
+                if not person_name:
+                    warnings.append("⚠️ Ism kiritilmagan (keyinchalik tahrirlash mumkin)")
+                if not due_date:
+                    warnings.append("⚠️ Qaytarish sanasi ko'rsatilmagan (keyinchalik tahrirlash mumkin)")
+                
+                if warnings:
+                    message += f"\n{' | '.join(warnings)}\n"
+                    
+            else:  # Eski format uchun fallback (debt)
+                type_emoji = {"income": "💰", "expense": "💸", "debt": "💳"}.get(trans_type, "❓")
+                message = f"{type_emoji} **Tranzaksiya:**\n"
+                message += f"Sana: {formatted_date}\n\n"
+                message += f"Summa: {amount_formatted}\n"
+                message += f"Kategoriya: {category}\n"
+                if original_text_clean:
+                    message += f"Izoh: {original_text_clean}\n"
+            
+            # Qarz uchun qo'shimcha ma'lumotlar (tugmalar uchun)
+            extra_data = {}
+            if trans_type in ('debt_borrowed', 'debt_lent'):
+                missing_fields = []
+                if not person_name:
+                    missing_fields.append('person_name')
+                if not due_date:
+                    missing_fields.append('due_date')
+                extra_data['missing_fields'] = missing_fields
+                extra_data['has_person_name'] = bool(person_name)
+                extra_data['has_due_date'] = bool(due_date)
             
             return {
                 "success": True,
@@ -1044,7 +1184,9 @@ JSON formatida qaytaring:
                 "transaction_data": {
                     'transactions': [transaction_item],
                     'user_id': user_id
-                }
+                },
+                "auto_save": True,  # Avtomatik saqlash
+                **extra_data
             }
             
         except Exception as e:
@@ -1124,29 +1266,55 @@ JSON formatida qaytaring:
             for item in transaction_items:
                 trans = item['data']
                 try:
-                    currency = trans.get('currency', 'UZS')  # Valyutani olish
-                    transaction_id = await self.save_transaction(
+                    currency = trans.get('currency', 'UZS')
+                    person_name = trans.get('person_name', '')
+                    due_date = trans.get('due_date', '')
+                    trans_type = trans['type']
+                    
+                    # To'g'ridan-to'g'ri db.add_transaction ni chaqirish
+                    # Bu debt_lent/debt_borrowed ni to'g'ri qayta ishlaydi
+                    transaction_id = await db.add_transaction(
                         user_id=user_id,
+                        transaction_type=trans_type,  # Original type (debt_lent, debt_borrowed, income, expense)
                         amount=trans['amount'],
                         category=trans['category'],
-                        description=trans['description'],
-                        transaction_type=TransactionType(trans['type']),
-                        currency=currency  # Valyutani o'tkazish
+                        description=trans.get('description', ''),
+                        currency=currency,
+                        person_name=person_name,
+                        due_date=due_date
                     )
                     
+                    reminder_created = False
+                    reminder_date_str = None
                     if transaction_id:
+                        # Qarz uchun eslatma yaratish - faqat qaytarish sanasi bo'lsa
+                        if trans_type in ('debt_lent', 'debt_borrowed') and due_date:
+                            try:
+                                await db.execute_insert(
+                                    "INSERT INTO debt_reminders (user_id, transaction_id, reminder_date) VALUES (%s, %s, %s)",
+                                    (user_id, transaction_id, due_date)
+                                )
+                                reminder_created = True
+                                reminder_date_str = due_date
+                            except Exception as e:
+                                logging.error(f"Qarz eslatmasi yaratishda xatolik: {e}")
+                        
                         saved_transactions.append({
                             'id': transaction_id,
-                            'index': item['index'],
+                            'index': item.get('index', 1),
                             'amount': trans['amount'],
-                            'type': trans['type'],
+                            'type': trans_type,
                             'category': trans['category'],
-                            'currency': currency,  # Valyutani qo'shish
-                            'description': trans['description'],
-                            'confidence': trans.get('confidence', 0)
+                            'currency': currency,
+                            'description': trans.get('description', ''),
+                            'person_name': person_name,
+                            'due_date': due_date,
+                            'confidence': trans.get('confidence', 0),
+                            'reminder_created': reminder_created,
+                            'reminder_date': reminder_date_str
                         })
                     else:
-                        failed_transactions.append(item['index'])
+                        failed_transactions.append(item.get('index', 1))
                         
                 except Exception as e:
                     logging.error(f"Tranzaksiya {item['index']} saqlashda xatolik: {e}")
@@ -1187,9 +1355,12 @@ JSON formatida qaytaring:
                 message += f"#{trans['index']} {type_emoji} {amount_text} - {trans['category']}\n"
                 
                 # Jami hisobga qo'shish (valyutani so'mga o'girib)
-                from database import db
-                rates = await db.get_currency_rates()
-                rate = rates.get(currency, 1.0)
+                # db allaqachon fayl boshida import qilingan
+                try:
+                    rates = await db.get_currency_rates()
+                    rate = rates.get(currency, 1.0)
+                except:
+                    rate = 1.0
                 amount_uzs = trans['amount'] * rate
                 
                 if trans['type'] == 'income':
@@ -1233,21 +1404,27 @@ JSON formatida qaytaring:
         return await self.process_ai_input_advanced(text, user_id)
     
     async def save_transaction(self, user_id: int, amount: float, category: str, 
-                             description: str, transaction_type: TransactionType, currency: str = 'UZS') -> int:
-        """Tranzaksiyani ma'lumotlar bazasiga saqlash (valyuta bilan)"""
+                             description: str, transaction_type: TransactionType, 
+                             currency: str = 'UZS', person_name: str = None, 
+                             due_date: str = None) -> int:
+        """Tranzaksiyani ma'lumotlar bazasiga saqlash (valyuta va qarz ma'lumotlari bilan)"""
         try:
             # Valyutani to'g'ri formatda saqlash
             currency = currency.upper() if currency else 'UZS'
             if currency not in ['UZS', 'USD', 'EUR', 'RUB', 'TRY']:
                 currency = 'UZS'
             
-            query = """
-            INSERT INTO transactions (user_id, amount, category, currency, description, transaction_type, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, NOW())
-            """
-            transaction_id = await db.execute_insert(query, (
-                user_id, amount, category, currency, description, transaction_type.value
-            ))
+            # db.add_transaction orqali saqlash - bu qarzlarni ham to'g'ri qayta ishlaydi
+            transaction_id = await db.add_transaction(
+                user_id=user_id,
+                transaction_type=transaction_type.value,
+                amount=amount,
+                category=category,
+                description=description,
+                currency=currency,
+                person_name=person_name,
+                due_date=due_date
+            )
             return transaction_id
         except Exception as e:
             logging.error(f"Tranzaksiya saqlashda xatolik: {e}")
@@ -1358,55 +1535,67 @@ JSON formatida qaytaring:
             logging.error(f"So'nggi tranzaksiyalarni olishda xatolik: {e}")
             return []
 
-    def generate_transaction_buttons(self, transactions_data: Dict[str, Any]) -> list:
-        """Tranzaksiyalar uchun tugmalarni yaratish"""
+    def generate_transaction_buttons(self, transactions_data: Dict[str, Any], auto_saved: bool = True) -> list:
+        """Tranzaksiyalar uchun tugmalarni yaratish - YANGI FORMAT
+        
+        Args:
+            transactions_data: Tranzaksiya ma'lumotlari
+            auto_saved: Avtomatik saqlangan bo'lsa True (faqat O'chirish/Tahrirlash ko'rsatiladi)
+        """
         try:
             transactions = transactions_data.get('transactions', [])
             transaction_type = transactions_data.get('type', 'multiple_preview')
             
-            if transaction_type == 'single_confirmation':
-                return [
-                    [
-                        {"text": "💾 Saqlash", "callback_data": "trans_single"},
-                        {"text": "🗑️ Bekor qilish", "callback_data": "trans_cancel"}
+            if auto_saved:
+                # Avtomatik saqlangan - faqat O'chirish va Tahrirlash
+                if transaction_type == 'single_confirmation' or len(transactions) == 1:
+                    return [
+                        [
+                            {"text": "✏️ Tahrirlash", "callback_data": "trans_edit_1"},
+                            {"text": "🗑️ O'chirish", "callback_data": "trans_delete_1"}
+                        ]
                     ]
-                ]
-            
-            elif transaction_type == 'multiple_confirmed':
-                return [
-                    [
+                else:
+                    # Ko'p tranzaksiya uchun
+                    buttons = []
+                    for item in transactions:
+                        index = item.get('index', 1)
+                        buttons.append([
+                            {"text": f"✏️ #{index}", "callback_data": f"trans_edit_{index}"},
+                            {"text": f"🗑️ #{index}", "callback_data": f"trans_delete_{index}"}
+                        ])
+                    return buttons
+            else:
+                # Eski format - saqlash tugmalari bilan
+                if transaction_type == 'single_confirmation':
+                    return [
+                        [
+                            {"text": "💾 Saqlash", "callback_data": "trans_single"},
+                            {"text": "🗑️ Bekor qilish", "callback_data": "trans_cancel"}
+                        ]
+                    ]
+                
+                elif transaction_type == 'multiple_confirmed':
+                    return [
+                        [
+                            {"text": "✅ Hammasini saqlash", "callback_data": "trans_all"},
+                            {"text": "❌ Bekor qilish", "callback_data": "trans_cancel"}
+                        ]
+                    ]
+                
+                else:  # multiple_preview
+                    buttons = []
+                    for item in transactions:
+                        index = item['index']
+                        buttons.append([
+                            {"text": f"💾 #{index}", "callback_data": f"trans_save_{index}"},
+                            {"text": f"🗑️ #{index}", "callback_data": f"trans_delete_{index}"}
+                        ])
+                    buttons.append([
                         {"text": "✅ Hammasini saqlash", "callback_data": "trans_all"},
                         {"text": "❌ Bekor qilish", "callback_data": "trans_cancel"}
-                    ]
-                ]
-            
-            else:  # multiple_preview
-                buttons = []
-                
-                # Har bir tranzaksiya uchun alohida tugmalar
-                for item in transactions:
-                    index = item['index']
-                    status = item.get('status', 'confirmed')
-                    
-                    if status == 'confirmed':
-                        status_icon = "✅"
-                    elif status == 'suspected':
-                        status_icon = "⚠️"
-                    else:
-                        status_icon = "❓"
-                    
-                    buttons.append([
-                        {"text": f"💾 {status_icon} #{index}", "callback_data": f"trans_save_{index}"},
-                        {"text": f"🗑️ #{index}", "callback_data": f"trans_delete_{index}"}
                     ])
-                
-                # Umumiy tugmalar
-                buttons.append([
-                    {"text": "✅ Hammasini saqlash", "callback_data": "trans_all"},
-                    {"text": "❌ Hammasini bekor qilish", "callback_data": "trans_cancel"}
-                ])
-                
-                return buttons
+                    return buttons
             
         except Exception as e:
             logging.error(f"Tugmalar yaratishda xatolik: {e}")

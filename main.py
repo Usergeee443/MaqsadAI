@@ -387,6 +387,14 @@ class UserStates(StatesGroup):
     # Warehouse (Ombor) states
     waiting_for_product_info = State()
     waiting_for_warehouse_movement = State()
+    
+    # Qarz tahrirlash state'lar
+    waiting_for_debt_edit_name = State()
+    waiting_for_debt_edit_date = State()
+    
+    # Tranzaksiya tahrirlash state'lar
+    waiting_for_trans_edit_amount = State()
+    waiting_for_trans_edit_description = State()
 
 # Onboarding holatlari (sinovchilar uchun)
 class OnboardingState(StatesGroup):
@@ -518,6 +526,10 @@ def get_profile_menu(user_tariff='PLUS'):
         buttons.append([InlineKeyboardButton(text="📊 Tarif ma'lumotlari", callback_data="tariff_info")])
         buttons.append([InlineKeyboardButton(text="🧾 Obunani boshqarish", web_app=WebAppInfo(url=PAYMENT_PRO_WEBAPP_URL))])
         buttons.append([InlineKeyboardButton(text="📋 Batafsil", web_app=WebAppInfo(url="https://balansai-app.onrender.com/profile"))])
+    
+    # Sozlamalar tugmasi qo'shish
+    buttons.append([InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings")])
+    buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_main_menu")])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -966,9 +978,8 @@ def get_employee_profile_menu():
     return keyboard
 
 # Sozlamalar menyusi
-def get_settings_menu(user_tariff='NONE'):
+async def get_settings_menu(user_tariff='NONE', user_id=None):
     """Sozlamalar menyusini qaytaradi"""
-    # Til tanlash - 1 ta tugma (hozirgi til ko'rsatiladi)
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🌐 Til: O'zbek 🇺🇿", callback_data="settings_language")],
@@ -2367,6 +2378,151 @@ async def process_debt_person(message: types.Message, state: FSMContext):
     )
     await state.set_state(UserStates.waiting_for_amount)
 
+# Qarz ismni tahrirlash
+@dp.message(UserStates.waiting_for_debt_edit_name)
+async def process_debt_edit_name(message: types.Message, state: FSMContext):
+    """Qarz ismini tahrirlash"""
+    user_id = message.from_user.id
+    person_name = message.text.strip()
+    
+    if not person_name:
+        await message.answer("❌ Ism kiritilmadi. Qaytadan kiriting:")
+        return
+    
+    data = await state.get_data()
+    trans_id = data.get('editing_transaction_id')
+    
+    if not trans_id:
+        await message.answer("❌ Tranzaksiya topilmadi. Qaytadan urinib ko'ring.")
+        await state.clear()
+        return
+    
+    # Tranzaksiyani yangilash
+    update_result = await db.update_transaction(trans_id, user_id, person_name=person_name)
+    
+    if update_result.get('success'):
+        # Kontaktni yaratish/yangilash
+        contact = await db.get_or_create_contact(user_id, person_name)
+        
+        await message.answer(
+            f"✅ **Ism qo'shildi!**\n\n👤 {person_name}\n\n"
+            f"{'Kontakt qoshildi' if contact and contact.get('is_new') else 'Mavjud kontaktdagi shaxs'}",
+            parse_mode='Markdown'
+        )
+        await state.clear()
+    else:
+        await message.answer(f"❌ {update_result.get('message', 'Xatolik yuz berdi')}")
+        await state.clear()
+
+# Summa tahrirlash
+@dp.message(UserStates.waiting_for_trans_edit_amount)
+async def process_trans_edit_amount(message: types.Message, state: FSMContext):
+    """Tranzaksiya summasini tahrirlash"""
+    user_id = message.from_user.id
+    try:
+        amount = float(message.text.replace(',', '').replace(' ', ''))
+        if amount <= 0:
+            await message.answer("❌ Summa 0 dan katta bo'lishi kerak. Qaytadan kiriting:")
+            return
+        
+        data = await state.get_data()
+        trans_id = data.get('editing_transaction_id')
+        
+        if not trans_id:
+            await message.answer("❌ Tranzaksiya topilmadi. Qaytadan urinib ko'ring.")
+            await state.clear()
+            return
+        
+        # Database da UPDATE qilish
+        await db.execute_query(
+            "UPDATE transactions SET amount = %s WHERE id = %s AND user_id = %s",
+            (amount, trans_id, user_id)
+        )
+        
+        await message.answer(
+            f"✅ **Summa yangilandi!**\n\nYangi summa: {amount:,.0f} so'm",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_transaction")]
+            ])
+        )
+        await state.clear()
+        
+    except ValueError:
+        await message.answer("❌ Noto'g'ri summa format! Iltimos, raqam kiriting.")
+
+# Izoh tahrirlash
+@dp.message(UserStates.waiting_for_trans_edit_description)
+async def process_trans_edit_description(message: types.Message, state: FSMContext):
+    """Tranzaksiya izohini tahrirlash"""
+    user_id = message.from_user.id
+    description = message.text.strip()
+    
+    data = await state.get_data()
+    trans_id = data.get('editing_transaction_id')
+    
+    if not trans_id:
+        await message.answer("❌ Tranzaksiya topilmadi. Qaytadan urinib ko'ring.")
+        await state.clear()
+        return
+    
+    # Database da UPDATE qilish
+    await db.execute_query(
+        "UPDATE transactions SET description = %s WHERE id = %s AND user_id = %s",
+        (description, trans_id, user_id)
+    )
+    
+    await message.answer(
+        f"✅ **Izoh yangilandi!**\n\nYangi izoh: {description}",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_transaction")]
+        ])
+    )
+    await state.clear()
+
+# Qarz qaytarish sanasini tahrirlash
+@dp.message(UserStates.waiting_for_debt_edit_date)
+async def process_debt_edit_date(message: types.Message, state: FSMContext):
+    """Qarz qaytarish sanasini tahrirlash"""
+    user_id = message.from_user.id
+    due_date_str = message.text.strip()
+    
+    if not due_date_str:
+        await message.answer("❌ Sana kiritilmadi. Qaytadan kiriting:")
+        return
+    
+    # Sana formatini tekshirish va parse qilish
+    from datetime import datetime
+    try:
+        due_date = datetime.strptime(due_date_str, '%Y-%m-%d').date()
+        due_date_str = due_date.strftime('%Y-%m-%d')
+    except ValueError:
+        await message.answer("❌ Sana formati noto'g'ri. Iltimos, YYYY-MM-DD formatida kiriting (masalan: 2025-12-31):")
+        return
+    
+    data = await state.get_data()
+    trans_id = data.get('editing_transaction_id')
+    
+    if not trans_id:
+        await message.answer("❌ Tranzaksiya topilmadi. Qaytadan urinib ko'ring.")
+        await state.clear()
+        return
+    
+    # Tranzaksiyani yangilash
+    update_result = await db.update_transaction(trans_id, user_id, due_date=due_date_str)
+    
+    if update_result.get('success'):
+        await message.answer(
+            f"✅ **Qaytarish sanasi qo'shildi!**\n\n📅 {due_date.strftime('%d-%m-%Y')}\n\n"
+            f"✅ Eslatma yaratildi!",
+            parse_mode='Markdown'
+        )
+        await state.clear()
+    else:
+        await message.answer(f"❌ {update_result.get('message', 'Xatolik yuz berdi')}")
+        await state.clear()
+
 # Bekor qilish funksiyasi
 @dp.message(lambda message: message.text == "❌ Bekor qilish")
 async def cancel_operation(message: types.Message, state: FSMContext):
@@ -2624,15 +2780,7 @@ async def process_category(callback_query: CallbackQuery, state: FSMContext):
             f"📂 {category}\n",
             parse_mode="Markdown"
         )
-        # Qarzdorlik uchun eslatma yozuvi
-        if transaction_type == 'debt' and due_date:
-            try:
-                await db.execute_insert(
-                    "INSERT INTO debt_reminders (user_id, transaction_id, reminder_date) VALUES (%s, %s, %s)",
-                    (user_id, insert_id, due_date)
-                )
-            except Exception as e:
-                logging.error(f"Qarz eslatmasi yaratishda xatolik: {e}")
+        # Qarz eslatmalari endi save_confirmed_transactions da yaratiladi (faqat qaytarish sanasi bo'lsa)
 
         # Onboarding davomida bo'lsa: foydalanuvchini yana qarz menyusiga qaytaramiz
         st_data = await state.get_data()
@@ -2993,7 +3141,7 @@ async def settings_callback(callback_query: CallbackQuery):
     user_tariff = await get_user_tariff(user_id)
     
     text = "⚙️ **Sozlamalar**\n\nSozlamalarni tanlang:"
-    keyboard = get_settings_menu(user_tariff)
+    keyboard = await get_settings_menu(user_tariff, user_id)
     try:
         await callback_query.message.edit_caption(caption=text, reply_markup=keyboard, parse_mode='Markdown')
     except Exception:
@@ -3502,6 +3650,18 @@ async def process_onboarding_debt_amount(message: types.Message, state: FSMConte
     )
     await state.update_data(onboarding_debt_amount_msg_id=_msg.message_id)
     await state.set_state(UserStates.onboarding_waiting_for_debt_action)
+
+@dp.callback_query(lambda c: c.data == "back_to_transaction")
+async def back_to_transaction_callback(callback_query: CallbackQuery, state: FSMContext):
+    """Tranzaksiyaga qaytish"""
+    # Oddiy javob
+    await callback_query.answer("Bekor qilindi")
+    await state.clear()
+    try:
+        await callback_query.message.delete()
+    except:
+        pass
+    return
 
 @dp.callback_query(lambda c: c.data == "back_to_profile")
 async def back_to_profile_callback(callback_query: CallbackQuery):
@@ -4394,7 +4554,7 @@ async def back_to_duration_selection(callback_query: CallbackQuery, state: FSMCo
     await state.set_state(UserStates.waiting_for_subscription_duration)
     await callback_query.answer()
 
-@dp.callback_query(lambda c: not c.data.startswith("trans_") and not c.data.startswith("accept_employee_") and not c.data.startswith("reject_employee") and not c.data.startswith("leave_team") and not c.data.startswith("confirm_leave_team") and not c.data.startswith("biz_"))
+@dp.callback_query(lambda c: not c.data.startswith("trans_") and not c.data.startswith("accept_employee_") and not c.data.startswith("reject_employee") and not c.data.startswith("leave_team") and not c.data.startswith("confirm_leave_team") and not c.data.startswith("biz_") and not c.data.startswith("debt_add_") and not c.data.startswith("debt_edit_") and not c.data.startswith("debt_date_"))
 async def process_all_callbacks(callback_query: CallbackQuery, state: FSMContext):
     print(f"DEBUG: Non-transaction callback received: {callback_query.data}")
     # Avtomatik tarif muddatini tekshirish
@@ -5629,18 +5789,18 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         
         # Parallel ishlash uchun task'lar yaratamiz
         transaction_task = asyncio.create_task(financial_module.process_ai_input_advanced(text, user_id))
-        reminder_task = asyncio.create_task(ai_chat.detect_and_save_reminder(user_id, text))
+        # Qarzlar uchun eslatma avtomatik yaratilmaydi (faqat qaytarish sanasi bo'lsa save_confirmed_transactions da yaratiladi)
+        # Shuning uchun reminder_task ni o'chirib tashlaymiz
+        reminder_task = None
         
-        # Ikkalasini ham kutamiz
-        result, reminder_result = await asyncio.gather(transaction_task, reminder_task, return_exceptions=True)
+        # Faqat tranzaksiyani kutamiz
+        result = await transaction_task
+        reminder_result = None
         
         # Exception handling
         if isinstance(result, Exception):
             logging.error(f"Tranzaksiya aniqlashda xatolik: {result}")
             result = {'success': False}
-        if isinstance(reminder_result, Exception):
-            logging.error(f"Eslatma aniqlashda xatolik: {reminder_result}")
-            reminder_result = None
         
         # Debug logging
         logging.info(f"Transaction result: {result}")
@@ -5664,7 +5824,8 @@ async def process_financial_message(message: types.Message, state: FSMContext):
             if incremented and updated_package:
                 latest_summary = updated_package
         
-        usage_note = f"\n\n📦 Paket qoldiq: {format_plus_usage_display(latest_summary)} (text/voice)"
+        # Paket qoldiq xabari olib tashlandi - foydalanuvchi so'roviga binoan
+        usage_note = ""
         
         if has_transaction and has_reminder:
             # Ikkalasi ham bo'lsa - tranzaksiya va eslatma
@@ -5686,21 +5847,85 @@ async def process_financial_message(message: types.Message, state: FSMContext):
             else:
                 await message.answer(response_message, parse_mode='Markdown')
         elif has_transaction:
-            # Faqat tranzaksiya
-            transaction_type = result.get('type', '')
-            buttons = financial_module.generate_transaction_buttons({
-                'transactions': result['transaction_data'].get('transactions', []),
-                'type': transaction_type
-            })
+            # Faqat tranzaksiya - AVTOMATIK SAQLASH
+            transactions = result['transaction_data'].get('transactions', [])
             
-            response_message = (result.get('message') or '') + usage_note
-            if buttons:
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text=btn['text'], callback_data=btn['callback_data'])] 
-                    for row in buttons for btn in row
-                ])
-                await message.answer(response_message, parse_mode='Markdown', reply_markup=keyboard)
+            # Avtomatik saqlash
+            save_result = await financial_module.save_confirmed_transactions(transactions, user_id)
+            
+            if save_result.get('success'):
+                # Saqlangan - faqat O'chirish/Tahrirlash tugmalari
+                response_message = (result.get('message') or '') + "\n\n✅ **Avtomatik saqlandi!**"
+                
+                # Eslatma ma'lumotlarini qo'shish
+                saved_transactions = save_result.get('transactions', [])
+                if saved_transactions:
+                    for trans in saved_transactions:
+                        if trans.get('reminder_created') and trans.get('reminder_date'):
+                            from datetime import datetime
+                            try:
+                                reminder_date = datetime.strptime(trans['reminder_date'], '%Y-%m-%d').date()
+                                reminder_date_formatted = reminder_date.strftime('%d-%m-%Y')
+                                response_message += f"\n\n📌 **Eslatma qo'shildi!**\nQaytarish sanasida ({reminder_date_formatted}) eslatiladi."
+                            except:
+                                response_message += f"\n\n📌 **Eslatma qo'shildi!**\nQaytarish sanasida eslatiladi."
+                
+                response_message += usage_note
+                
+                # O'chirish va Tahrirlash tugmalarini yaratish
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+                
+                if len(saved_transactions) == 1:
+                    # Bitta tranzaksiya
+                    trans = saved_transactions[0]
+                    trans_type = trans.get('type', '')
+                    # Qarz uchun missing_fields ni aniqlash
+                    missing_fields = []
+                    if trans_type in ('debt_lent', 'debt_borrowed'):
+                        if not trans.get('person_name'):
+                            missing_fields.append('person_name')
+                        if not trans.get('due_date'):
+                            missing_fields.append('due_date')
+                    
+                    # Qarz uchun qo'shimcha tugmalar
+                    if trans_type in ('debt_lent', 'debt_borrowed') and missing_fields:
+                        additional_buttons = []
+                        if 'person_name' in missing_fields:
+                            additional_buttons.append(InlineKeyboardButton(text="👤 Ism qo'shish", callback_data="debt_add_name_1"))
+                        if 'due_date' in missing_fields:
+                            additional_buttons.append(InlineKeyboardButton(text="📅 Qaytarish sanasi", callback_data="debt_add_date_1"))
+                        
+                        if additional_buttons:
+                            keyboard.inline_keyboard.append(additional_buttons)
+                    
+                    keyboard.inline_keyboard.append([
+                        InlineKeyboardButton(text="✏️ Tahrirlash", callback_data="trans_edit_1"),
+                        InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_delete_1")
+                    ])
+                else:
+                    # Ko'p tranzaksiya
+                    for i, trans in enumerate(saved_transactions, 1):
+                        keyboard.inline_keyboard.append([
+                            InlineKeyboardButton(text=f"✏️ #{i}", callback_data=f"trans_edit_{i}"),
+                            InlineKeyboardButton(text=f"🗑️ #{i}", callback_data=f"trans_delete_{i}")
+                        ])
+                
+                # Tugmalarni yuborish (agar bo'sh bo'lsa ham - minimal tugmalar bo'lishi kerak)
+                if keyboard.inline_keyboard:
+                    await message.answer(response_message, parse_mode='Markdown', reply_markup=keyboard)
+                else:
+                    # Minimal tugmalar - har doim O'chirish va Tahrirlash bo'lishi kerak
+                    minimal_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="✏️ Tahrirlash", callback_data="trans_edit_1"),
+                         InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_delete_1")]
+                    ])
+                    await message.answer(response_message, parse_mode='Markdown', reply_markup=minimal_keyboard)
+                
+                # State ga saqlangan tranzaksiya ID larini saqlash (o'chirish uchun)
+                await state.update_data(saved_transaction_ids=saved_transactions)
             else:
+                # Saqlashda xatolik - eski usul
+                response_message = (result.get('message') or '') + usage_note
                 await message.answer(response_message, parse_mode='Markdown')
         elif has_reminder:
             # Faqat eslatma
@@ -6482,13 +6707,582 @@ async def process_income_date(message: types.Message, state: FSMContext):
 
 # ==================== TRANSACTION CONFIRMATION HANDLERS ====================
 
+@dp.callback_query(lambda c: c.data.startswith("debt_add_date_") or c.data.startswith("debt_add_name_"))
+async def handle_debt_add_callback(callback_query: CallbackQuery, state: FSMContext):
+    """Qarz qo'shimcha tugmalar uchun handler (debt_add_date_, debt_add_name_)"""
+    user_id = callback_query.from_user.id
+    callback_data = callback_query.data
+    
+    try:
+        # saved_transactions dan trans_id ni topish
+        data = await state.get_data()
+        saved_transactions = data.get('saved_transaction_ids', [])
+        
+        if not saved_transactions or len(saved_transactions) == 0:
+            await callback_query.answer("❌ Tranzaksiya topilmadi", show_alert=True)
+            return
+        
+        trans = saved_transactions[0]  # Bitta tranzaksiya bo'lgani uchun
+        trans_id = trans.get('id')
+        
+        if not trans_id:
+            await callback_query.answer("❌ Tranzaksiya ID topilmadi", show_alert=True)
+            return
+        
+        if callback_data.startswith("debt_add_date_"):
+            await state.update_data(editing_transaction_id=trans_id, editing_field='due_date', date_step='year')
+            
+            # Yil tanlash tugmalari
+            from datetime import datetime
+            current_year = datetime.now().year
+            year_buttons = []
+            for year in range(current_year, current_year + 3):
+                year_buttons.append(InlineKeyboardButton(text=str(year), callback_data=f"debt_date_year_{year}_{trans_id}"))
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                year_buttons,
+                [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="back_to_transaction")]
+            ])
+            
+            await callback_query.message.edit_text(
+                "📅 **Qaytarish sanasi qo'shish**\n\nYilni tanlang:",
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+            await callback_query.answer()
+        elif callback_data.startswith("debt_add_name_"):
+            await state.update_data(editing_transaction_id=trans_id, editing_field='person_name')
+            await callback_query.message.edit_text(
+                "👤 **Ism qo'shish**\n\nQarz olgan/bergan odamning ismini kiriting:",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="back_to_transaction")]
+                ])
+            )
+            await state.set_state(UserStates.waiting_for_debt_edit_name)
+            await callback_query.answer()
+    except Exception as e:
+        logging.error(f"debt_add callback handler xatolik: {e}")
+        await callback_query.answer("❌ Xatolik yuz berdi", show_alert=True)
+
+@dp.callback_query(lambda c: c.data.startswith("debt_date_"))
+async def handle_debt_date_callback(callback_query: CallbackQuery, state: FSMContext):
+    """Qarz sana tanlash tugmalari uchun handler"""
+    callback_data = callback_query.data
+    
+    try:
+        # Yil tanlash (debt_date_year_2025_123)
+        if callback_data.startswith("debt_date_year_"):
+            parts = callback_data.split("_")
+            year = int(parts[3])
+            trans_id = int(parts[4])
+            await state.update_data(editing_transaction_id=trans_id, editing_field='due_date', selected_year=year, date_step='month')
+            
+            # Oy tanlash tugmalari - faqat kelajak oylarni ko'rsatish
+            from datetime import datetime
+            current_date = datetime.now()
+            current_year = current_date.year
+            current_month = current_date.month
+            
+            month_names = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
+            month_buttons = []
+            
+            # Agar hozirgi yil bo'lsa, hozirgi oyni ham ko'rsatish (hozirgi oyning oxirigacha kunlar bor)
+            start_month = 1
+            if year == current_year:
+                start_month = current_month  # Hozirgi oyni ham ko'rsatish (chunki hozirgi oyning oxirigacha kunlar bor)
+            
+            # Oylarni qatorlarga bo'lish
+            for i in range(start_month - 1, 12, 3):
+                row = []
+                for j in range(3):
+                    month_num = i + j + 1
+                    if month_num <= 12:
+                        row.append(InlineKeyboardButton(text=month_names[i+j], callback_data=f"debt_date_month_{year}_{month_num}_{trans_id}"))
+                if row:
+                    month_buttons.append(row)
+            
+            if not month_buttons:
+                await callback_query.answer("❌ Bu yilda barcha oylar o'tgan!", show_alert=True)
+                return
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=month_buttons + [
+                [InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"debt_edit_date_{trans_id}"),
+                 InlineKeyboardButton(text="❌ Bekor qilish", callback_data="back_to_transaction")]
+            ])
+            
+            await callback_query.message.edit_text(
+                f"📅 **Qaytarish sanasi qo'shish**\n\nYil: {year}\n\nOyni tanlang:",
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+            await callback_query.answer()
+            return
+        
+        # Oy tanlash (debt_date_month_2025_12_123)
+        if callback_data.startswith("debt_date_month_"):
+            parts = callback_data.split("_")
+            year = int(parts[3])
+            month = int(parts[4])
+            trans_id = int(parts[5])
+            await state.update_data(editing_transaction_id=trans_id, editing_field='due_date', selected_year=year, selected_month=month, date_step='day')
+            
+            # Sana tanlash tugmalari - faqat kelajak kunlarni ko'rsatish
+            from datetime import datetime, date
+            from calendar import monthrange
+            current_date = datetime.now().date()
+            
+            days_in_month = monthrange(year, month)[1]
+            day_buttons = []
+            
+            # Agar hozirgi yil va oy bo'lsa, faqat bugundan keyingi kunlarni ko'rsatish
+            start_day = 1
+            if year == current_date.year and month == current_date.month:
+                start_day = current_date.day + 1
+            
+            # Kunlarni qatorlarga bo'lish
+            for i in range(start_day - 1, days_in_month, 7):
+                row = []
+                for j in range(7):
+                    day_num = i + j + 1
+                    if day_num <= days_in_month:
+                        row.append(InlineKeyboardButton(text=str(day_num), callback_data=f"debt_date_day_{year}_{month}_{day_num}_{trans_id}"))
+                if row:
+                    day_buttons.append(row)
+            
+            if not day_buttons:
+                await callback_query.answer("❌ Bu oyda barcha kunlar o'tgan!", show_alert=True)
+                return
+            
+            month_names = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
+            keyboard = InlineKeyboardMarkup(inline_keyboard=day_buttons + [
+                [InlineKeyboardButton(text="⬅️ Orqaga", callback_data=f"debt_date_year_{year}_{trans_id}"),
+                 InlineKeyboardButton(text="❌ Bekor qilish", callback_data="back_to_transaction")]
+            ])
+            
+            await callback_query.message.edit_text(
+                f"📅 **Qaytarish sanasi qo'shish**\n\nYil: {year}\nOy: {month_names[month-1]}\n\nSanani tanlang:",
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+            await callback_query.answer()
+            return
+        
+        # Sana tanlash (debt_date_day_2025_12_31_123)
+        if callback_data.startswith("debt_date_day_"):
+            parts = callback_data.split("_")
+            year = int(parts[3])
+            month = int(parts[4])
+            day = int(parts[5])
+            trans_id = int(parts[6])
+            
+            # Sana yaratish va saqlash
+            from datetime import date
+            due_date = date(year, month, day)
+            due_date_str = due_date.strftime('%Y-%m-%d')
+            
+            # Tranzaksiyani yangilash
+            update_result = await db.update_transaction(trans_id, callback_query.from_user.id, due_date=due_date_str)
+            
+            if update_result.get('success'):
+                # Eslatma yaratish
+                try:
+                    await db.execute_insert(
+                        "INSERT INTO debt_reminders (user_id, transaction_id, reminder_date) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE reminder_date = %s",
+                        (callback_query.from_user.id, trans_id, due_date_str, due_date_str)
+                    )
+                except Exception as e:
+                    logging.error(f"Eslatma yaratishda xatolik: {e}")
+                
+                # Tranzaksiya ma'lumotlarini olish
+                trans_query = """
+                    SELECT t.*, d.person_name as debt_person_name
+                    FROM transactions t
+                    LEFT JOIN debts d ON d.user_id = t.user_id 
+                        AND ABS(d.amount - t.amount) < 0.01 
+                        AND d.debt_type = t.debt_direction
+                        AND ABS(TIMESTAMPDIFF(SECOND, d.created_at, t.created_at)) < 60
+                    WHERE t.id = %s AND t.user_id = %s
+                    LIMIT 1
+                """
+                trans = await db.execute_one(trans_query, (trans_id, callback_query.from_user.id))
+                
+                if trans:
+                    # Qarz xabarini yaratish
+                    month_names = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
+                    due_date_formatted = f"{day}-{month_names[month-1]}, {year}"
+                    
+                    trans_type = trans.get('transaction_type', '')
+                    debt_direction = trans.get('debt_direction', '')
+                    amount = float(trans.get('amount', 0))
+                    currency = trans.get('currency', 'UZS')
+                    person_name_raw = trans.get('description', '').split('ga')[0].strip() if 'ga' in trans.get('description', '') else trans.get('debt_person_name', '')
+                    created_at = trans.get('created_at')
+                    
+                    # Markdown escape funksiyasi
+                    def escape_markdown(text):
+                        if not text:
+                            return ''
+                        text = str(text)
+                        # Markdown special karakterlarni escape qilish
+                        return text.replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]').replace('(', '\\(').replace(')', '\\)')
+                    
+                    person_name = escape_markdown(person_name_raw) if person_name_raw else ''
+                    
+                    # Created_at ni formatlash
+                    if created_at:
+                        if isinstance(created_at, str):
+                            from datetime import datetime
+                            created_at = datetime.strptime(created_at.split('.')[0], '%Y-%m-%d %H:%M:%S')
+                        created_at_str = created_at.strftime('%d-%m-%Y')
+                    else:
+                        created_at_str = "Noma'lum"
+                    
+                    # Valyuta formatlash
+                    currency_names = {'UZS': 'so\'m', 'USD': 'USD', 'EUR': 'EUR', 'RUB': 'RUB', 'TRY': 'TRY'}
+                    currency_display = currency_names.get(currency, currency)
+                    amount_formatted = f"{amount:,.0f} {currency_display}"
+                    
+                    # Xabar yaratish
+                    if debt_direction == 'lent':
+                        message = f"💳 **Qarz berish:**\n"
+                        message += f"Berilgan vaqt: {created_at_str}\n\n"
+                        if person_name:
+                            message += f"👤 **{person_name}**\n"
+                        message += f"Summasi: {amount_formatted}\n"
+                        message += f"Qaytarish vaqti: {due_date_formatted}\n"
+                        if trans.get('description'):
+                            description = escape_markdown(trans.get('description', ''))
+                            message += f"Izoh: {description}\n"
+                    elif debt_direction == 'borrowed':
+                        message = f"💳 **Qarz olish:**\n"
+                        message += f"Olingan vaqt: {created_at_str}\n\n"
+                        if person_name:
+                            message += f"👤 **{person_name}**\n"
+                        message += f"Summasi: {amount_formatted}\n"
+                        message += f"Qaytarish vaqti: {due_date_formatted}\n"
+                        if trans.get('description'):
+                            description = escape_markdown(trans.get('description', ''))
+                            message += f"Izoh: {description}\n"
+                    else:
+                        message = f"💳 **Qarz:**\n"
+                        message += f"Vaqt: {created_at_str}\n\n"
+                        if person_name:
+                            message += f"👤 **{person_name}**\n"
+                        message += f"Summasi: {amount_formatted}\n"
+                        message += f"Qaytarish vaqti: {due_date_formatted}\n"
+                    
+                    message += f"\n📌 **Eslatma qo'shildi!**\nQaytarish sanasida ({due_date_formatted}) eslatiladi."
+                    
+                    # Tugmalar - O'chirish va Tahrirlash
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [
+                            InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"trans_edit_{trans_id}"),
+                            InlineKeyboardButton(text="🗑️ O'chirish", callback_data=f"trans_delete_{trans_id}")
+                        ]
+                    ])
+                    
+                    await callback_query.message.edit_text(
+                        message,
+                        parse_mode='Markdown',
+                        reply_markup=keyboard
+                    )
+                    await callback_query.answer("✅ Sana qo'shildi!")
+                else:
+                    month_names = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr']
+                    due_date_formatted = f"{day}-{month_names[month-1]}, {year}"
+                    await callback_query.message.edit_text(
+                        f"✅ **Qaytarish sanasi qo'shildi!**\n\n📅 Sana: {due_date_formatted}\n\n📌 **Eslatma qo'shildi!**\nQaytarish sanasida ({due_date_formatted}) eslatiladi.",
+                        parse_mode='Markdown',
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_transaction")]
+                        ])
+                    )
+                    await callback_query.answer("✅ Sana qo'shildi!")
+            else:
+                await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+            return
+            
+    except Exception as e:
+        logging.error(f"debt_date callback handler xatolik: {e}")
+        await callback_query.answer("❌ Xatolik yuz berdi", show_alert=True)
+
 @dp.callback_query(lambda c: c.data.startswith("trans_"))
 async def handle_transaction_callback(callback_query: CallbackQuery, state: FSMContext):
     """Tranzaksiya tugmalari uchun umumiy handler"""
     print(f"DEBUG: Transaction callback received: {callback_query.data}")
     user_id = callback_query.from_user.id
+    callback_data = callback_query.data
     
     try:
+        # O'chirish tugmasi - avtomatik saqlangan tranzaksiya uchun
+        if callback_data.startswith("trans_delete_"):
+            index = int(callback_data.split("_")[2])
+            data = await state.get_data()
+            saved_transactions = data.get('saved_transaction_ids', [])
+            
+            # Tranzaksiyani o'chirish
+            if saved_transactions:
+                for trans in saved_transactions:
+                    if trans.get('index') == index or (len(saved_transactions) == 1 and index == 1):
+                        trans_id = trans.get('id')
+                        if trans_id:
+                            try:
+                                # Database funksiyasidan foydalanish (debts va balansni ham yangilaydi)
+                                delete_result = await db.delete_transaction(trans_id, user_id)
+                                
+                                if delete_result.get('success'):
+                                    trans_type = delete_result.get('transaction_type')
+                                    amount = delete_result.get('amount', 0)
+                                    currency = delete_result.get('currency', 'UZS')
+                                    
+                                    # Valyuta formatlash
+                                    currency_names = {'UZS': "so'm", 'USD': "dollar", 'EUR': "evro", 'RUB': "rubl", 'TRY': "lira"}
+                                    currency_symbols = {'UZS': "", 'USD': "🇺🇸", 'EUR': "🇪🇺", 'RUB': "🇷🇺", 'TRY': "🇹🇷"}
+                                    currency_name = currency_names.get(currency, currency)
+                                    currency_symbol = currency_symbols.get(currency, "💰")
+                                    
+                                    if currency != 'UZS':
+                                        amount_text = f"{currency_symbol} {amount:,.2f} {currency_name}"
+                                    else:
+                                        amount_text = f"{amount:,.0f} so'm"
+                                    
+                                    type_names = {
+                                        'income': 'Kirim',
+                                        'expense': 'Chiqim',
+                                        'debt': 'Qarz'
+                                    }
+                                    type_name = type_names.get(trans_type, 'Tranzaksiya')
+                                    
+                                    await callback_query.message.edit_text(
+                                        f"🗑️ **{type_name} o'chirildi!**\n\n"
+                                        f"Summa: {amount_text}\n\n"
+                                        f"Balans yangilandi.",
+                                        parse_mode='Markdown'
+                                    )
+                                    await callback_query.answer("✅ O'chirildi va balans yangilandi!")
+                                    await state.clear()
+                                    return
+                                else:
+                                    await callback_query.answer(f"❌ {delete_result.get('message', 'Xatolik')}", show_alert=True)
+                                    return
+                            except Exception as e:
+                                logging.error(f"Tranzaksiya o'chirishda xatolik: {e}")
+                                await callback_query.answer("❌ O'chirishda xatolik yuz berdi", show_alert=True)
+                                return
+            
+            await callback_query.answer("❌ Tranzaksiya topilmadi", show_alert=True)
+            return
+        
+        # Tahrirlash tugmasi
+        if callback_data.startswith("trans_edit_"):
+            # Callback data format: trans_edit_{index} yoki trans_edit_{trans_id}
+            parts = callback_data.split("_")
+            if len(parts) >= 3:
+                try:
+                    trans_id_or_index = int(parts[2])
+                    trans_id = None
+                    
+                    # Avval database dan to'g'ridan-to'g'ri tekshiramiz (trans_id bo'lishi mumkin)
+                    trans_query = """
+                        SELECT * FROM transactions WHERE id = %s AND user_id = %s
+                    """
+                    trans = await db.execute_one(trans_query, (trans_id_or_index, user_id))
+                    
+                    if trans:
+                        # Database da topildi - bu trans_id
+                        trans_id = trans_id_or_index
+                    else:
+                        # Database da topilmadi - saved_transactions dan qidiramiz (index bo'lishi mumkin)
+                        data = await state.get_data()
+                        saved_transactions = data.get('saved_transaction_ids', [])
+                        for trans_item in saved_transactions:
+                            if trans_item.get('index') == trans_id_or_index or (len(saved_transactions) == 1 and trans_id_or_index == 1):
+                                trans_id = trans_item.get('id')
+                                break
+                        
+                        if trans_id:
+                            # saved_transactions dan topildi - endi database dan olamiz
+                            trans = await db.execute_one(trans_query, (trans_id, user_id))
+                        else:
+                            await callback_query.answer("❌ Tranzaksiya topilmadi", show_alert=True)
+                            return
+                    
+                    if not trans:
+                        await callback_query.answer("❌ Tranzaksiya topilmadi", show_alert=True)
+                        return
+                        
+                except ValueError:
+                    await callback_query.answer("❌ Noto'g'ri tranzaksiya ID", show_alert=True)
+                    return
+            else:
+                await callback_query.answer("❌ Noto'g'ri format", show_alert=True)
+                return
+            
+            trans_type = trans.get('transaction_type', '')
+            debt_direction = trans.get('debt_direction', '')
+            
+            # Tahrirlash menyusini yaratish
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+            
+            if trans_type == 'debt' or debt_direction:
+                # Qarz uchun tahrirlash imkoniyatlari
+                keyboard.inline_keyboard.append([InlineKeyboardButton(text="👤 Ismni tahrirlash", callback_data=f"debt_edit_name_{trans_id}")])
+                keyboard.inline_keyboard.append([InlineKeyboardButton(text="📅 Qaytarish sanasini tahrirlash", callback_data=f"debt_edit_date_{trans_id}")])
+            elif trans_type in ('income', 'expense'):
+                # Kirim/Chiqim uchun tahrirlash imkoniyatlari
+                keyboard.inline_keyboard.append([InlineKeyboardButton(text="💰 Summani tahrirlash", callback_data=f"trans_edit_amount_{trans_id}")])
+                keyboard.inline_keyboard.append([InlineKeyboardButton(text="📝 Izohni tahrirlash", callback_data=f"trans_edit_description_{trans_id}")])
+            
+            keyboard.inline_keyboard.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_transaction")])
+            
+            trans_type_names = {
+                'income': 'Kirim',
+                'expense': 'Chiqim',
+                'debt': 'Qarz'
+            }
+            trans_type_name = trans_type_names.get(trans_type, trans_type)
+            
+            await callback_query.message.edit_text(
+                f"✏️ **Tranzaksiyani tahrirlash**\n\nTur: {trans_type_name}\n\nQaysi ma'lumotni tahrirlamoqchisiz?",
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+            await state.update_data(editing_transaction_id=trans_id)
+            await callback_query.answer()
+            return
+        
+        # Qarz ism qo'shish
+        if callback_data.startswith("debt_edit_name_"):
+            trans_id = int(callback_data.split("_")[3])
+            await state.update_data(editing_transaction_id=trans_id, editing_field='person_name')
+            await callback_query.message.edit_text(
+                "👤 **Ism qo'shish**\n\nQarz olgan/bergan odamning ismini kiriting:",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="back_to_transaction")]
+                ])
+            )
+            await state.set_state(UserStates.waiting_for_debt_edit_name)
+            await callback_query.answer()
+            return
+        
+        # Qarz qaytarish sanasi tahrirlash
+        if callback_data.startswith("debt_edit_date_"):
+            trans_id = int(callback_data.split("_")[3])
+            await state.update_data(editing_transaction_id=trans_id, editing_field='due_date', date_step='year')
+            
+            # Yil tanlash tugmalari
+            from datetime import datetime
+            current_year = datetime.now().year
+            year_buttons = []
+            for year in range(current_year, current_year + 3):
+                year_buttons.append(InlineKeyboardButton(text=str(year), callback_data=f"debt_date_year_{year}_{trans_id}"))
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                year_buttons,
+                [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="back_to_transaction")]
+            ])
+            
+            await callback_query.message.edit_text(
+                "📅 **Qaytarish sanasini tahrirlash**\n\nYilni tanlang:",
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+            await callback_query.answer()
+            return
+        
+        # Summa tahrirlash
+        if callback_data.startswith("trans_edit_amount_"):
+            trans_id = int(callback_data.split("_")[3])
+            await state.update_data(editing_transaction_id=trans_id, editing_field='amount')
+            await callback_query.message.edit_text(
+                "💰 **Summani tahrirlash**\n\nYangi summani kiriting:",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="back_to_transaction")]
+                ])
+            )
+            await state.set_state(UserStates.waiting_for_trans_edit_amount)
+            await callback_query.answer()
+            return
+        
+        # Izoh tahrirlash
+        if callback_data.startswith("trans_edit_description_"):
+            trans_id = int(callback_data.split("_")[3])
+            await state.update_data(editing_transaction_id=trans_id, editing_field='description')
+            await callback_query.message.edit_text(
+                "📝 **Izohni tahrirlash**\n\nYangi izohni kiriting:",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="back_to_transaction")]
+                ])
+            )
+            await state.set_state(UserStates.waiting_for_trans_edit_description)
+            await callback_query.answer()
+            return
+        
+        # Qarz qo'shimcha tugmalar (debt_add_date_1, debt_add_name_1 formatlari)
+        if callback_data.startswith("debt_add_date_"):
+            # saved_transactions dan trans_id ni topish
+            data = await state.get_data()
+            saved_transactions = data.get('saved_transaction_ids', [])
+            
+            if saved_transactions and len(saved_transactions) >= 1:
+                trans = saved_transactions[0]  # Bitta tranzaksiya bo'lgani uchun
+                trans_id = trans.get('id')
+                
+                if trans_id:
+                    await state.update_data(editing_transaction_id=trans_id, editing_field='due_date', date_step='year')
+                    
+                    # Yil tanlash tugmalari
+                    from datetime import datetime
+                    current_year = datetime.now().year
+                    year_buttons = []
+                    for year in range(current_year, current_year + 3):
+                        year_buttons.append(InlineKeyboardButton(text=str(year), callback_data=f"debt_date_year_{year}_{trans_id}"))
+                    
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        year_buttons,
+                        [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="back_to_transaction")]
+                    ])
+                    
+                    await callback_query.message.edit_text(
+                        "📅 **Qaytarish sanasi qo'shish**\n\nYilni tanlang:",
+                        parse_mode='Markdown',
+                        reply_markup=keyboard
+                    )
+                    await callback_query.answer()
+                    return
+            
+            await callback_query.answer("❌ Tranzaksiya topilmadi", show_alert=True)
+            return
+        
+        if callback_data.startswith("debt_add_name_"):
+            # saved_transactions dan trans_id ni topish
+            data = await state.get_data()
+            saved_transactions = data.get('saved_transaction_ids', [])
+            
+            if saved_transactions and len(saved_transactions) >= 1:
+                trans = saved_transactions[0]  # Bitta tranzaksiya bo'lgani uchun
+                trans_id = trans.get('id')
+                
+                if trans_id:
+                    await state.update_data(editing_transaction_id=trans_id, editing_field='person_name')
+                    await callback_query.message.edit_text(
+                        "👤 **Ism qo'shish**\n\nQarz olgan/bergan odamning ismini kiriting:",
+                        parse_mode='Markdown',
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="back_to_transaction")]
+                        ])
+                    )
+                    await state.set_state(UserStates.waiting_for_debt_edit_name)
+                    await callback_query.answer()
+                    return
+            
+            await callback_query.answer("❌ Tranzaksiya topilmadi", show_alert=True)
+            return
+        
         # State ni tekshirish
         current_state = await state.get_state()
         print(f"DEBUG: Current state: {current_state}")
