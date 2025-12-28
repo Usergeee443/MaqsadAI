@@ -382,7 +382,12 @@ QOIDALAR:
 - Raqamlarni aniq yozing (ming = 1 000, million = 1 000 000, milliard = 1 000 000 000)
 - MUHIM: SUMNALARNI HECH QACHON YO'QOTMANG! Agar transkriptda summa bo'lsa, uni to'g'ri yozing
 - Agar summa "ming", "million" kabi so'zlarda bo'lsa, uni raqamga o'giring (masalan: "yigirma besh ming" → "25 ming")
-- So'm, dollor, euro kabi valyutalarni to'g'ri yozing
+- So'm, dollor, euro, rubl, lira kabi valyutalarni to'g'ri yozing:
+  * so'm, som, sum → "so'm"
+  * dollar, dollor, usd, $ → "dollar"
+  * euro, evro, eur, € → "euro" yoki "evro"
+  * rubl, rub, рубль → "rubl"
+  * lira, try → "lira"
 - Moliyaviy harakatlarni aniq ifoda eting (ishlab topdim, sarfladim, qarz oldim, investitsiya qildim)
 - Biznes atamalarini to'g'rilash (do'kon, filial, savdo, sotish, sotib olish, reklama)
 - Emotsional ohangni saqlang, lekin keraksiz takrorlarni kamaytiring
@@ -422,6 +427,25 @@ Chiqish: "200 ming so'mga sovg'a oldim" (summani saqlang!)
 
 Kirish: "yigirma ming so'mga non oldim"
 Chiqish: "20 ming so'mga non oldim" (summani saqlang!)
+
+VALYUTA MISOLLARI:
+Kirish: "ellik dollar xarajat"
+Chiqish: "50 dollar xarajat"
+
+Kirish: "yuz euro kirim"
+Chiqish: "100 euro kirim"
+
+Kirish: "ikki yuz rubl tushdi"
+Chiqish: "200 rubl tushdi"
+
+Kirish: "ming lira xarajat"
+Chiqish: "1000 lira xarajat"
+
+Kirish: "50 dollor sotib oldim"
+Chiqish: "50 dollar sotib oldim"
+
+Kirish: "yuz evro qarz berdim"
+Chiqish: "100 euro qarz berdim"
 
 Faqat yaxshilangan matnni bering:"""
                     },
@@ -512,6 +536,13 @@ QOIDALAR:
    - "debt_borrowed" = qarz oldim, qarz olish (men oldim)
 
 2. VALYUTA: UZS (default), USD, EUR, RUB, TRY
+   - UZS: so'm, som, sum, so'mga, somga, sumga, so'mdan, somdan, sumdan
+   - USD: dollar, dollor, usd, $, dollar, dollor, dollarga, dollordan, dollardan
+   - EUR: euro, evro, eur, €, euroga, evroga, eurodan, evrodan
+   - RUB: rubl, rub, рубль, rublga, rubga, rubldan, rubdan
+   - TRY: lira, try, liraga, liradan
+   - Agar valyuta aytilmagan bo'lsa → UZS (default)
+   - Agar valyuta aytilgan bo'lsa → to'g'ri aniqlash (masalan: "50 dollar" → USD, "100 euro" → EUR)
 
 3. KATEGORIYALAR:
    - "ish haqi" = oylik, maosh
@@ -549,6 +580,19 @@ MISOLLAR:
 "sovg'a uchun ichimlik sotib oldim" → {{"transactions":[],"total_confidence":0}} (summa yo'q)
 "yigirma besh ming so'mga ichimlik sotib oldim" → {{"transactions":[{{"amount":25000,"type":"expense","category":"ovqat","currency":"UZS","description":"ichimlik"}}]}}
 "ikki yuz ming so'mga sovg'a oldim" → {{"transactions":[{{"amount":200000,"type":"expense","category":"boshqa","currency":"UZS","description":"sovg'a"}}]}}
+
+VALYUTA MISOLLARI:
+"50 dollar xarajat" → {{"transactions":[{{"amount":50,"type":"expense","category":"boshqa","currency":"USD"}}]}}
+"100 dollar kirim" → {{"transactions":[{{"amount":100,"type":"income","category":"boshqa","currency":"USD"}}]}}
+"200 euro sotib oldim" → {{"transactions":[{{"amount":200,"type":"expense","category":"boshqa","currency":"EUR"}}]}}
+"5000 rubl tushdi" → {{"transactions":[{{"amount":5000,"type":"income","category":"boshqa","currency":"RUB"}}]}}
+"1000 lira xarajat" → {{"transactions":[{{"amount":1000,"type":"expense","category":"boshqa","currency":"TRY"}}]}}
+"$50 xarajat" → {{"transactions":[{{"amount":50,"type":"expense","category":"boshqa","currency":"USD"}}]}}
+"€100 kirim" → {{"transactions":[{{"amount":100,"type":"income","category":"boshqa","currency":"EUR"}}]}}
+"50 dollor xarajat" → {{"transactions":[{{"amount":50,"type":"expense","category":"boshqa","currency":"USD"}}]}}
+"100 evro kirim" → {{"transactions":[{{"amount":100,"type":"income","category":"boshqa","currency":"EUR"}}]}}
+"200 dollar qarz berdim" → {{"transactions":[{{"amount":200,"type":"debt_lent","category":"qarz","currency":"USD","person_name":"Noma'lum"}}]}}
+"50 euro qarz oldim" → {{"transactions":[{{"amount":50,"type":"debt_borrowed","category":"qarz","currency":"EUR","person_name":"Noma'lum"}}]}}
 
 FORMAT: {{"transactions":[{{...}}],"total_confidence":0.9}}"""
 
@@ -1292,22 +1336,29 @@ JSON formatida qaytaring:
                 
                 message += "\n"
             
-            # Tugmalar uchun ma'lumot
-            buttons_data = {
-                'confirmed_count': len(confirmed),
-                'suspected_count': len(suspected), 
-                'unclear_count': len(unclear),
-                'total_count': len(all_transactions),
-                'transactions': all_transactions,
-                'user_id': user_id,
-                'original_text': original_text
-            }
+            # Avtomatik saqlash uchun transaction_data qaytarish
+            # Barcha tranzaksiyalarni avtomatik saqlash (confirmed, suspected, unclear)
+            # Lekin faqat aniq tranzaksiyalar (confirmed) bo'lsa, ularni saqlash
+            transactions_to_save = confirmed if confirmed else all_transactions
             
             return {
                 "success": True,
                 "type": "multiple_preview",
                 "message": message,
-                "buttons_data": buttons_data
+                "transaction_data": {
+                    'transactions': transactions_to_save,
+                    'user_id': user_id
+                },
+                "auto_save": True,  # Barcha tranzaksiyalar avtomatik saqlanadi
+                "buttons_data": {
+                    'confirmed_count': len(confirmed),
+                    'suspected_count': len(suspected), 
+                    'unclear_count': len(unclear),
+                    'total_count': len(all_transactions),
+                    'transactions': all_transactions,
+                    'user_id': user_id,
+                    'original_text': original_text
+                }
             }
             
         except Exception as e:
