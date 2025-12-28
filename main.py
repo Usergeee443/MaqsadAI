@@ -2825,11 +2825,11 @@ async def reports_menu(message: types.Message, state: FSMContext):
         return
     
     try:
-    # Ko'p valyutali balans ma'lumotlarini olish
-    multi_balance = await db.get_balance_multi_currency(user_id)
-    total_uzs = multi_balance.get('total_uzs', {})
-    by_currency = multi_balance.get('by_currency', {})
-    
+        # Ko'p valyutali balans ma'lumotlarini olish
+        multi_balance = await db.get_balance_multi_currency(user_id)
+        total_uzs = multi_balance.get('total_uzs', {})
+        by_currency = multi_balance.get('by_currency', {})
+        
         # Eng oxirgi 3 ta tranzaksiyani olish
         recent_query = """
             SELECT 
@@ -2848,152 +2848,12 @@ async def reports_menu(message: types.Message, state: FSMContext):
         recent_transactions = await db.execute_query(recent_query, (user_id,))
         
         # Xabarni yaratish
-        message_text = "📊 **Hisobotlar**\n\n"
-        
-        # 1. Umumiy balans (barcha valyutalar so'mga o'girilgan)
-        total_balance = total_uzs.get('balance', 0)
-        total_income = total_uzs.get('income', 0)
-        total_expense = total_uzs.get('expense', 0)
-        
-        message_text += "💰 **Umumiy balans (so'mda)**\n"
-        message_text += f"💵 Jami balans: {total_balance:,.0f} so'm\n"
-        message_text += f"📈 Jami kirim: {total_income:,.0f} so'm\n"
-        message_text += f"📉 Jami chiqim: {total_expense:,.0f} so'm\n\n"
-        
-        # 2. Har bir valyuta uchun alohida ko'rsatish
-    if by_currency:
-            message_text += "💱 **Valyutalar bo'yicha:**\n"
-        currency_symbols = {'UZS': "🇺🇿", 'USD': "🇺🇸", 'EUR': "🇪🇺", 'RUB': "🇷🇺", 'TRY': "🇹🇷"}
-        currency_names = {'UZS': "so'm", 'USD': "dollar", 'EUR': "evro", 'RUB': "rubl", 'TRY': "lira"}
-            
-            for curr, data in sorted(by_currency.items()):
-            symbol = currency_symbols.get(curr, "💰")
-            name = currency_names.get(curr, curr)
-            balance = data.get('balance', 0)
-                income = data.get('income', 0)
-                expense = data.get('expense', 0)
-                
-                message_text += f"{symbol} **{curr}** ({name}):\n"
-                message_text += f"   💵 Balans: {balance:,.2f} {name}\n"
-                message_text += f"   📈 Kirim: {income:,.2f} {name}\n"
-                message_text += f"   📉 Chiqim: {expense:,.2f} {name}\n\n"
-        
-        # 3. Jami olingan va berilgan qarzlar
-        total_lent = total_uzs.get('lent', 0)
-        total_borrowed = total_uzs.get('borrowed', 0)
-        
-        message_text += "💳 **Qarzlar:**\n"
-        message_text += f"💸 Berilgan qarz: {total_lent:,.0f} so'm\n"
-        message_text += f"💰 Olingan qarz: {total_borrowed:,.0f} so'm\n\n"
-        
-        # 4. Eng oxirgi 3 ta tranzaksiya
-        if recent_transactions:
-            message_text += "📋 **Oxirgi tranzaksiyalar:**\n"
-            for i, trans in enumerate(recent_transactions, 1):
-                trans_type = trans.get('transaction_type', '')
-                amount = float(trans.get('amount', 0) or 0)
-                currency = trans.get('currency', 'UZS') or 'UZS'
-                category = trans.get('category', 'Noma\'lum')
-                description = trans.get('description', '')
-                debt_direction = trans.get('debt_direction', '')
-                created_at = trans.get('created_at')
-                
-                # Tranzaksiya turi emoji
-                if trans_type == 'income':
-                    type_emoji = "📈"
-                    type_text = "Kirim"
-                elif trans_type == 'expense':
-                    type_emoji = "📉"
-                    type_text = "Chiqim"
-                elif trans_type == 'debt':
-                    if debt_direction == 'lent':
-                        type_emoji = "💸"
-                        type_text = "Qarz berish"
-                    elif debt_direction == 'borrowed':
-                        type_emoji = "💰"
-                        type_text = "Qarz olish"
-                    else:
-                        type_emoji = "💳"
-                        type_text = "Qarz"
-                else:
-                    type_emoji = "💳"
-                    type_text = "Tranzaksiya"
-                
-                # Sana formatlash
-                date_text = ""
-                if created_at:
-                    try:
-                        from datetime import datetime
-                        if isinstance(created_at, str):
-                            date_obj = datetime.strptime(created_at, '%Y-%m-%d %H:%M:%S')
-                        else:
-                            date_obj = created_at
-                        date_text = date_obj.strftime('%d.%m.%Y %H:%M')
-                    except:
-                        date_text = str(created_at)[:16]
-                
-                # Valyuta nomi
-                currency_names = {'UZS': "so'm", 'USD': "dollar", 'EUR': "evro", 'RUB': "rubl", 'TRY': "lira"}
-                currency_name = currency_names.get(currency, currency)
-                
-                message_text += f"{i}. {type_emoji} {type_text}\n"
-                message_text += f"   💵 {amount:,.2f} {currency_name}\n"
-                message_text += f"   📂 {category}\n"
-                
-                # Description dan shaxs nomini ajratish (qarz bo'lsa)
-                if description and trans_type == 'debt':
-                    # Description format: "Ali ga 100000 so'm berildi" yoki "Ali dan 50000 so'm olindi"
-                    # Yoki oddiy: "Ali"
-                    desc_parts = description.split()
-                    if desc_parts:
-                        # Birinchi so'z shaxs nomi bo'lishi mumkin
-                        possible_name = desc_parts[0]
-                        if len(possible_name) < 30 and not any(char.isdigit() for char in possible_name):
-                            message_text += f"   👤 {possible_name}\n"
-                
-                if description:
-                    # Izoh juda uzun bo'lsa, qisqartirish
-                    desc_short = description[:50] + "..." if len(description) > 50 else description
-                    message_text += f"   📝 {desc_short}\n"
-                
-                message_text += f"   📅 {date_text}\n\n"
-        else:
-            message_text += "📋 **Oxirgi tranzaksiyalar:**\n"
-            message_text += "❌ Hozircha tranzaksiyalar yo'q.\n\n"
-    
-    # Mini app uchun tugma (Plus va Pro tariflar uchun)
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-    
-    if user_tariff in ('PLUS', 'PRO'):
-        keyboard.inline_keyboard.append([
-            InlineKeyboardButton(
-                text="📱 To'liq ko'rish", 
-                web_app=WebAppInfo(url="https://balansai-app.onrender.com")
-            )
-        ])
-    
-    keyboard.inline_keyboard.append([
-        InlineKeyboardButton(text="💱 Valyuta kurslari", callback_data="currency_rates")
-    ])
-    
-        # Markdown formatida xatolik bo'lishi mumkin, shuning uchun HTML ga o'girish yoki escape qilish
-        # Ma'lumotlarni escape qilish
-        import re
-        # Markdown maxsus belgilarini escape qilish
-        def escape_markdown(text):
-            if not text:
-                return ""
-            # Markdown maxsus belgilarini escape qilish
-            special_chars = ['*', '_', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-            for char in special_chars:
-                text = text.replace(char, f'\\{char}')
-            return text
-        
-        # Xabarni qayta formatlash - faqat kerakli qismlarni bold qilish
-        safe_message = "📊 <b>Hisobotlar</b>\n\n"
+        # Markdown formatida xatolik bo'lishi mumkin, shuning uchun HTML ga o'girish
+        safe_message = "<b>📊 Hisobotlar</b>\n\n"
         
         # 1. Umumiy balans (kirim/chiqim ko'rsatilmaydi)
-        safe_message += "💰 <b>Umumiy balans (so'mda)</b>\n"
+        total_balance = total_uzs.get('balance', 0)
+        safe_message += "<b>💰 Umumiy balans (so'mda)</b>\n"
         safe_message += f"💵 Jami balans: {total_balance:,.0f} so'm\n\n"
         
         # 2. Valyutalar (kirim/chiqim ko'rsatilmaydi)
@@ -3011,6 +2871,8 @@ async def reports_menu(message: types.Message, state: FSMContext):
             safe_message += "\n"
         
         # 3. Qarzlar
+        total_lent = total_uzs.get('lent', 0)
+        total_borrowed = total_uzs.get('borrowed', 0)
         safe_message += "💳 <b>Qarzlar:</b>\n"
         safe_message += f"💸 Berilgan qarz: {total_lent:,.0f} so'm\n"
         safe_message += f"💰 Olingan qarz: {total_borrowed:,.0f} so'm\n\n"
@@ -3079,9 +2941,24 @@ async def reports_menu(message: types.Message, state: FSMContext):
             safe_message += "📋 <b>Oxirgi tranzaksiyalar:</b>\n"
             safe_message += "❌ Hozircha tranzaksiyalar yo'q.\n\n"
         
-    await message.answer(
+        # Mini app uchun tugma (Plus va Pro tariflar uchun)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+        
+        if user_tariff in ('PLUS', 'PRO'):
+            keyboard.inline_keyboard.append([
+                InlineKeyboardButton(
+                    text="📱 To'liq ko'rish", 
+                    web_app=WebAppInfo(url="https://balansai-app.onrender.com")
+                )
+            ])
+        
+        keyboard.inline_keyboard.append([
+            InlineKeyboardButton(text="💱 Valyuta kurslari", callback_data="currency_rates")
+        ])
+        
+        await message.answer(
             safe_message,
-        reply_markup=keyboard,
+            reply_markup=keyboard,
             parse_mode="HTML"
         )
         
@@ -6331,8 +6208,8 @@ async def process_audio_with_financial_module(message: types.Message, state: FSM
                                         response_message += f"\n\n📌 **Eslatma qo'shildi!**\nQaytarish sanasida eslatiladi."
                         
                         # O'chirish va Tahrirlash tugmalarini yaratish (text kabi)
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-                
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+                        
                         if len(saved_transactions) == 1:
                             # Bitta tranzaksiya
                             trans = saved_transactions[0]
@@ -6356,14 +6233,14 @@ async def process_audio_with_financial_module(message: types.Message, state: FSM
                                 if additional_buttons:
                                     keyboard.inline_keyboard.append(additional_buttons)
                             
-                        keyboard.inline_keyboard.append([
+                            keyboard.inline_keyboard.append([
                                 InlineKeyboardButton(text="✏️ Tahrirlash", callback_data="trans_edit_1"),
                                 InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_delete_1")
-                        ])
+                            ])
                         else:
                             # Ko'p tranzaksiya
                             for i, trans in enumerate(saved_transactions, 1):
-                keyboard.inline_keyboard.append([
+                                keyboard.inline_keyboard.append([
                                     InlineKeyboardButton(text=f"✏️ #{i}", callback_data=f"trans_edit_{i}"),
                                     InlineKeyboardButton(text=f"🗑️ #{i}", callback_data=f"trans_delete_{i}")
                                 ])
@@ -6381,10 +6258,10 @@ async def process_audio_with_financial_module(message: types.Message, state: FSM
                         
                         # State ga saqlangan tranzaksiya ID larini saqlash
                         await state.update_data(saved_transaction_ids=saved_transactions)
-            else:
+                    else:
                         # Saqlashda xatolik
                         await message.answer(audio_result.get('message', '❌ Saqlashda xatolik yuz berdi.'), parse_mode='Markdown')
-        else:
+                else:
                     # transaction_data mavjud, lekin transactions bo'sh
                     logging.warning(f"DEBUG: transaction_data mavjud, lekin transactions bo'sh")
                     await message.answer(audio_result.get('message', '❌ Tranzaksiya topilmadi.'), parse_mode='Markdown')
