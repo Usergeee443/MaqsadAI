@@ -406,7 +406,8 @@ class OnboardingState(StatesGroup):
 def get_free_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📊 Hisobotlar"), KeyboardButton(text="👤 Profil")]
+            [KeyboardButton(text="📊 Hisobotlar"), KeyboardButton(text="👤 Profil")],
+            [KeyboardButton(text="💳 Qarzlar")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -417,7 +418,8 @@ def get_free_menu():
 def get_premium_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📊 Hisobotlar"), KeyboardButton(text="👤 Profil")]
+            [KeyboardButton(text="📊 Hisobotlar"), KeyboardButton(text="👤 Profil")],
+            [KeyboardButton(text="💳 Qarzlar")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -430,7 +432,8 @@ def get_business_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="📊 Hisobotlar"), KeyboardButton(text="📦 Ombor")],
-            [KeyboardButton(text="🤖 AI Chat"), KeyboardButton(text="👤 Profil")]
+            [KeyboardButton(text="🤖 AI Chat"), KeyboardButton(text="👤 Profil")],
+            [KeyboardButton(text="💳 Qarzlar")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -452,7 +455,6 @@ def get_ai_chat_stop_menu():
 def get_employee_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="➕ Kirim"), KeyboardButton(text="➖ Chiqim")],
             [KeyboardButton(text="📊 Hisobotlar")],
             [KeyboardButton(text="👤 Profil")]
         ],
@@ -2298,18 +2300,317 @@ async def add_expense(message: types.Message, state: FSMContext):
 # Bepul tarif - Qarz qo'shish
 @dp.message(lambda message: message.text == "💳 Qarzlar")
 async def add_debt(message: types.Message, state: FSMContext):
-    """Qarz qo'shish"""
-    user_tariff = await get_user_tariff(message.from_user.id)
-    if user_tariff != "FREE":
+    """Qarzlar menyusi - faqat ko'rish"""
+    user_id = message.from_user.id
+    
+    try:
+        # Kontaktlarni olish
+        contacts = await db.get_user_contacts(user_id)
+        
+        if not contacts:
+            await message.answer(
+                "📋 **Qarzlarni ko'rish**\n\n"
+                "❌ Hozircha qarzlar yo'q.",
+                parse_mode="Markdown"
+            )
         return
     
-    await message.answer(
-        "💳 *Qarz qo'shish*\n\n"
-        "Qarz olingan yoki berilgan?",
-        reply_markup=get_debt_type_menu(),
-        parse_mode="Markdown"
+        # Har bir kontakt bo'yicha qarz ma'lumotlarini olish
+        message_text = "📋 **Qarzlarni ko'rish**\n\n"
+        message_text += "Har bir kontakt bo'yicha qarz oldi/berdilar:\n\n"
+        
+        keyboard_buttons = []
+        
+        for contact in contacts:
+            contact_id = contact.get('id')
+            contact_name = contact.get('name', 'Noma\'lum')
+            total_lent = float(contact.get('total_lent', 0) or 0)
+            total_borrowed = float(contact.get('total_borrowed', 0) or 0)
+            
+            # Kontakt bo'yicha qarzlar ro'yxatini olish
+            contact_debts = await db.get_contact_debts(contact_id, user_id)
+            
+            # Faqat aktiv qarzlar
+            active_debts = [d for d in contact_debts if d.get('status') != 'paid']
+            
+            if total_lent > 0 or total_borrowed > 0 or active_debts:
+                # Qarz bor kontaktlar
+                message_text += f"👤 **{contact_name}**\n"
+                
+                if total_lent > 0:
+                    message_text += f"   💸 Sizga berilgan: {total_lent:,.0f} so'm\n"
+                
+                if total_borrowed > 0:
+                    message_text += f"   💰 Sizdan olingan: {total_borrowed:,.0f} so'm\n"
+                
+                # Qarzlar ro'yxati
+                if active_debts:
+                    message_text += f"   📝 Qarzlar ({len(active_debts)} ta):\n"
+                    for debt in active_debts[:5]:
+                        debt_type = debt.get('debt_type', '')
+                        amount = float(debt.get('amount', 0) or 0)
+                        due_date = debt.get('due_date')
+                        
+                        type_emoji = "💸" if debt_type == 'lent' else "💰"
+                        type_text = "Berilgan" if debt_type == 'lent' else "Olingan"
+                        
+                        due_text = ""
+                        if due_date:
+                            try:
+                                from datetime import datetime
+                                if isinstance(due_date, str):
+                                    due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
+                                else:
+                                    due_date_obj = due_date
+                                due_text = f" (Qaytarish: {due_date_obj.strftime('%d.%m.%Y')})"
+                            except:
+                                pass
+                        
+                        message_text += f"      {type_emoji} {type_text}: {amount:,.0f} so'm{due_text}\n"
+                    
+                    if len(active_debts) > 5:
+                        message_text += f"      ... va yana {len(active_debts) - 5} ta qarz\n"
+                
+                message_text += "\n"
+                
+                # Kontakt bo'yicha batafsil ko'rish tugmasi
+                keyboard_buttons.append([
+                    InlineKeyboardButton(
+                        text=f"👤 {contact_name} ({len(active_debts)} ta qarz)",
+                        callback_data=f"debt_contact_{contact_id}"
+                    )
+                ])
+        
+        if not keyboard_buttons:
+            message_text = "📋 **Qarzlarni ko'rish**\n\n❌ Hozircha aktiv qarzlar yo'q."
+            await message.answer(
+                message_text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="debt_back_menu")]
+                ]),
+                parse_mode="Markdown"
     )
-    await state.set_state(UserStates.waiting_for_debt_type)
+        else:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+            await message.answer(
+                message_text,
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+        
+    except Exception as e:
+        logging.error(f"Qarzlarni ko'rishda xatolik: {e}")
+        await message.answer(
+            "❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.",
+            parse_mode="Markdown"
+        )
+
+# Qarz qo'shish callback - o'chirildi, faqat ko'rish mavjud
+
+# Qarzlarni ko'rish callback
+@dp.callback_query(lambda c: c.data == "debt_view_all")
+async def debt_view_all_callback(callback_query: CallbackQuery, state: FSMContext):
+    """Barcha qarzlarni kontaktlar bo'yicha ko'rsatish"""
+    user_id = callback_query.from_user.id
+    
+    try:
+        # Kontaktlarni olish
+        contacts = await db.get_user_contacts(user_id)
+        
+        if not contacts:
+            await callback_query.message.edit_text(
+                "📋 **Qarzlarni ko'rish**\n\n"
+                "❌ Hozircha qarzlar yo'q.",
+                parse_mode="Markdown"
+            )
+            await callback_query.answer()
+            return
+        
+        # Har bir kontakt bo'yicha qarz ma'lumotlarini olish
+        message_text = "📋 **Qarzlarni ko'rish**\n\n"
+        message_text += "Har bir kontakt bo'yicha qarz oldi/berdilar:\n\n"
+        
+        keyboard_buttons = []
+        
+        for contact in contacts:
+            contact_id = contact.get('id')
+            contact_name = contact.get('name', 'Noma\'lum')
+            total_lent = float(contact.get('total_lent', 0) or 0)
+            total_borrowed = float(contact.get('total_borrowed', 0) or 0)
+            
+            # Kontakt bo'yicha qarzlar ro'yxatini olish
+            contact_debts = await db.get_contact_debts(contact_id, user_id)
+            
+            # Faqat aktiv qarzlar
+            active_debts = [d for d in contact_debts if d.get('status') != 'paid']
+            
+            if total_lent > 0 or total_borrowed > 0 or active_debts:
+                # Qarz bor kontaktlar
+                message_text += f"👤 **{contact_name}**\n"
+                
+                if total_lent > 0:
+                    message_text += f"   💸 Sizga berilgan: {total_lent:,.0f} so'm\n"
+                
+                if total_borrowed > 0:
+                    message_text += f"   💰 Sizdan olingan: {total_borrowed:,.0f} so'm\n"
+                
+                # Qarzlar ro'yxati
+                if active_debts:
+                    message_text += f"   📝 Qarzlar ({len(active_debts)} ta):\n"
+                    for debt in active_debts[:5]:  # Eng ko'p 5 tasini ko'rsatamiz
+                        debt_type = debt.get('debt_type', '')
+                        amount = float(debt.get('amount', 0) or 0)
+                        due_date = debt.get('due_date')
+                        status = debt.get('status', 'active')
+                        
+                        type_emoji = "💸" if debt_type == 'lent' else "💰"
+                        type_text = "Berilgan" if debt_type == 'lent' else "Olingan"
+                        
+                        due_text = ""
+                        if due_date:
+                            try:
+                                from datetime import datetime
+                                if isinstance(due_date, str):
+                                    due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
+                                else:
+                                    due_date_obj = due_date
+                                due_text = f" (Qaytarish: {due_date_obj.strftime('%d.%m.%Y')})"
+                            except:
+                                pass
+                        
+                        message_text += f"      {type_emoji} {type_text}: {amount:,.0f} so'm{due_text}\n"
+                    
+                    if len(active_debts) > 5:
+                        message_text += f"      ... va yana {len(active_debts) - 5} ta qarz\n"
+                
+                message_text += "\n"
+                
+                # Kontakt bo'yicha batafsil ko'rish tugmasi
+                keyboard_buttons.append([
+                    InlineKeyboardButton(
+                        text=f"👤 {contact_name} ({len(active_debts)} ta qarz)",
+                        callback_data=f"debt_contact_{contact_id}"
+                    )
+                ])
+        
+        if not keyboard_buttons:
+            message_text = "📋 **Qarzlarni ko'rish**\n\n❌ Hozircha aktiv qarzlar yo'q."
+            keyboard_buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="debt_back_menu")])
+        else:
+            keyboard_buttons.append([InlineKeyboardButton(text="⬅️ Orqaga", callback_data="debt_back_menu")])
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        
+        await callback_query.message.edit_text(
+            message_text,
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        await callback_query.answer()
+        
+    except Exception as e:
+        logging.error(f"Qarzlarni ko'rishda xatolik: {e}")
+        await callback_query.message.edit_text(
+            "❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="debt_back_menu")]
+            ])
+        )
+        await callback_query.answer()
+
+# Kontakt bo'yicha batafsil qarzlarni ko'rish
+@dp.callback_query(lambda c: c.data.startswith("debt_contact_"))
+async def debt_contact_detail_callback(callback_query: CallbackQuery, state: FSMContext):
+    """Kontakt bo'yicha batafsil qarzlarni ko'rsatish"""
+    contact_id = int(callback_query.data.replace("debt_contact_", ""))
+    user_id = callback_query.from_user.id
+    
+    try:
+        # Kontakt ma'lumotlarini olish
+        contact = await db.execute_one(
+            "SELECT * FROM contacts WHERE id = %s AND user_id = %s",
+            (contact_id, user_id)
+        )
+        
+        if not contact:
+            await callback_query.answer("❌ Kontakt topilmadi!", show_alert=True)
+            return
+        
+        contact_name = contact.get('name', 'Noma\'lum')
+        
+        # Kontakt bo'yicha qarzlar
+        contact_debts = await db.get_contact_debts(contact_id, user_id)
+        active_debts = [d for d in contact_debts if d.get('status') != 'paid']
+        
+        message_text = f"👤 **{contact_name}**\n\n"
+        message_text += f"📋 **Qarzlar ro'yxati** ({len(active_debts)} ta):\n\n"
+        
+        if not active_debts:
+            message_text += "❌ Aktiv qarzlar yo'q."
+        else:
+            for i, debt in enumerate(active_debts, 1):
+                debt_type = debt.get('debt_type', '')
+                amount = float(debt.get('amount', 0) or 0)
+                due_date = debt.get('due_date')
+                description = debt.get('description', '')
+                created_at = debt.get('created_at')
+                
+                type_emoji = "💸" if debt_type == 'lent' else "💰"
+                type_text = "Berilgan" if debt_type == 'lent' else "Olingan"
+                
+                # Sana formatlash
+                date_text = ""
+                if created_at:
+                    try:
+                        from datetime import datetime
+                        if isinstance(created_at, str):
+                            date_obj = datetime.strptime(created_at, '%Y-%m-%d %H:%M:%S')
+                        else:
+                            date_obj = created_at
+                        date_text = date_obj.strftime('%d.%m.%Y')
+                    except:
+                        date_text = str(created_at)[:10]
+                
+                message_text += f"{i}. {type_emoji} **{type_text}:** {amount:,.0f} so'm\n"
+                message_text += f"   📅 Sana: {date_text}\n"
+                
+                if due_date:
+                    try:
+                        from datetime import datetime
+                        if isinstance(due_date, str):
+                            due_date_obj = datetime.strptime(due_date, '%Y-%m-%d').date()
+                        else:
+                            due_date_obj = due_date
+                        message_text += f"   ⏰ Qaytarish: {due_date_obj.strftime('%d.%m.%Y')}\n"
+                    except:
+                        pass
+                
+                if description:
+                    message_text += f"   📝 Izoh: {description}\n"
+                
+                message_text += "\n"
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="debt_view_all")]
+        ])
+        
+        await callback_query.message.edit_text(
+            message_text,
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        await callback_query.answer()
+        
+    except Exception as e:
+        logging.error(f"Kontakt qarzlarini ko'rishda xatolik: {e}")
+        await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+
+# Orqaga qaytish
+@dp.callback_query(lambda c: c.data == "debt_back_menu")
+async def debt_back_menu_callback(callback_query: CallbackQuery, state: FSMContext):
+    """Qarzlarni ko'rishga qaytish"""
+    # Qarzlarni ko'rish funksiyasini qayta chaqiramiz
+    await debt_view_all_callback(callback_query, state)
 
 # Qarz turini qabul qilish
 @dp.callback_query(UserStates.waiting_for_debt_type, lambda c: c.data.startswith("debt_type_"))
@@ -6095,9 +6396,9 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         await message.answer("Kechirasiz, xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
 
 async def process_audio_with_financial_module(message: types.Message, state: FSMContext, audio_path: str, user_id: int, processing_msg=None):
-    """Audio faylni financial module orqali qayta ishlash (GOOGLE yoki ELEVENLABS)"""
+    """Audio faylni financial module orqali qayta ishlash - text bilan bir xil"""
     try:
-        # Financial module audio qayta ishlash (GOOGLE yoki ELEVENLABS)
+        # Financial module audio qayta ishlash (textga o'girib, keyin text kabi qayta ishlash)
         audio_result = await financial_module.process_audio_input(audio_path, user_id)
         
         # Processing xabarni o'chirish
@@ -6107,61 +6408,96 @@ async def process_audio_with_financial_module(message: types.Message, state: FSM
             except:
                 pass
         
-        # Audio natijasini yuborish
-        if audio_result['success']:
-            if audio_result.get('type') == 'single_confirmation':
-                # Bitta tranzaksiya tasdiqlash
-                await state.set_state(UserStates.waiting_for_transaction_confirmation)
-                await state.update_data(transaction_data=audio_result['transaction_data'])
+        # Audio natijasini text kabi qayta ishlash
+        if audio_result.get('success') and 'transaction_data' in audio_result:
+            # Tranzaksiya aniqlangan - text kabi avtomatik saqlash
+            transactions = audio_result['transaction_data'].get('transactions', [])
+            
+            if transactions:
+                # Avtomatik saqlash (text kabi)
+                save_result = await financial_module.save_confirmed_transactions(transactions, user_id)
                 
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="💾 Saqlash", callback_data="trans_single")],
-                    [InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_cancel_single")]
-                ])
-                
-                await message.answer(audio_result['message'], parse_mode='Markdown', reply_markup=keyboard)
-                
-            elif audio_result.get('type') == 'multiple_preview':
-                # Ko'p tranzaksiyalar oldindan ko'rinishi
-                await state.set_state(UserStates.waiting_for_transaction_confirmation)
-                await state.update_data(transaction_data=audio_result['buttons_data'])
-                
-                # Tugmalarni yaratish
-                buttons_data = audio_result['buttons_data']
-                transactions = buttons_data.get('transactions', [])
-                
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-                
-                # Har bir tranzaksiya uchun tugma
-                for trans in transactions:
-                    if trans['status'] == 'confirmed':
-                        emoji = "💾" if trans['data']['type'] == 'expense' else "💰"
-                        button_text = f"{emoji} #{trans['index']}"
+                if save_result.get('success'):
+                    # Saqlangan - faqat O'chirish/Tahrirlash tugmalari (text kabi)
+                    response_message = (audio_result.get('message') or '') + "\n\n✅ **Avtomatik saqlandi!**"
+                    
+                    # Eslatma ma'lumotlarini qo'shish
+                    saved_transactions = save_result.get('transactions', [])
+                    if saved_transactions:
+                        for trans in saved_transactions:
+                            if trans.get('reminder_created') and trans.get('reminder_date'):
+                                from datetime import datetime
+                                try:
+                                    reminder_date = datetime.strptime(trans['reminder_date'], '%Y-%m-%d').date()
+                                    reminder_date_formatted = reminder_date.strftime('%d-%m-%Y')
+                                    response_message += f"\n\n📌 **Eslatma qo'shildi!**\nQaytarish sanasida ({reminder_date_formatted}) eslatiladi."
+                                except:
+                                    response_message += f"\n\n📌 **Eslatma qo'shildi!**\nQaytarish sanasida eslatiladi."
+                    
+                    # O'chirish va Tahrirlash tugmalarini yaratish (text kabi)
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+                    
+                    if len(saved_transactions) == 1:
+                        # Bitta tranzaksiya
+                        trans = saved_transactions[0]
+                        trans_type = trans.get('type', '')
+                        # Qarz uchun missing_fields ni aniqlash
+                        missing_fields = []
+                        if trans_type in ('debt_lent', 'debt_borrowed'):
+                            if not trans.get('person_name'):
+                                missing_fields.append('person_name')
+                            if not trans.get('due_date'):
+                                missing_fields.append('due_date')
+                        
+                        # Qarz uchun qo'shimcha tugmalar
+                        if trans_type in ('debt_lent', 'debt_borrowed') and missing_fields:
+                            additional_buttons = []
+                            if 'person_name' in missing_fields:
+                                additional_buttons.append(InlineKeyboardButton(text="👤 Ism qo'shish", callback_data="debt_add_name_1"))
+                            if 'due_date' in missing_fields:
+                                additional_buttons.append(InlineKeyboardButton(text="📅 Qaytarish sanasi", callback_data="debt_add_date_1"))
+                            
+                            if additional_buttons:
+                                keyboard.inline_keyboard.append(additional_buttons)
+                        
                         keyboard.inline_keyboard.append([
-                            InlineKeyboardButton(text=button_text, callback_data=f"trans_toggle_{trans['index']}")
+                            InlineKeyboardButton(text="✏️ Tahrirlash", callback_data="trans_edit_1"),
+                            InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_delete_1")
                         ])
-                
-                # Umumiy boshqaruv tugmalari
-                keyboard.inline_keyboard.append([
-                    InlineKeyboardButton(text="✅ Hammasini saqlash", callback_data="trans_save_all"),
-                    InlineKeyboardButton(text="❌ Hammasini bekor qilish", callback_data="trans_cancel_all")
-                ])
-                
-                await message.answer(audio_result['message'], parse_mode='Markdown', reply_markup=keyboard)
-            
-            elif audio_result.get('type') == 'completed':
-                # Natijani ko'rsatish
-                await message.answer(audio_result['message'], parse_mode='Markdown')
-            
+                    else:
+                        # Ko'p tranzaksiya
+                        for i, trans in enumerate(saved_transactions, 1):
+                            keyboard.inline_keyboard.append([
+                                InlineKeyboardButton(text=f"✏️ #{i}", callback_data=f"trans_edit_{i}"),
+                                InlineKeyboardButton(text=f"🗑️ #{i}", callback_data=f"trans_delete_{i}")
+                            ])
+                    
+                    # Tugmalarni yuborish
+                    if keyboard.inline_keyboard:
+                        await message.answer(response_message, parse_mode='Markdown', reply_markup=keyboard)
+                    else:
+                        # Minimal tugmalar
+                        minimal_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="✏️ Tahrirlash", callback_data="trans_edit_1"),
+                             InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_delete_1")]
+                        ])
+                        await message.answer(response_message, parse_mode='Markdown', reply_markup=minimal_keyboard)
+                    
+                    # State ga saqlangan tranzaksiya ID larini saqlash
+                    await state.update_data(saved_transaction_ids=saved_transactions)
+                else:
+                    # Saqlashda xatolik
+                    await message.answer(audio_result.get('message', '❌ Saqlashda xatolik yuz berdi.'), parse_mode='Markdown')
             else:
-                # Oddiy natija
-                await message.answer(audio_result['message'], parse_mode='Markdown')
+                # Tranzaksiya topilmadi
+                await message.answer(audio_result.get('message', '❌ Tranzaksiya topilmadi.'), parse_mode='Markdown')
         else:
-            # Xatolik yuz berdi
-            await message.answer(audio_result['message'], parse_mode='Markdown')
+            # Xatolik yoki tranzaksiya topilmadi
+            await message.answer(audio_result.get('message', '❌ Xatolik yuz berdi.'), parse_mode='Markdown')
     
     except Exception as e:
-        logging.error(f"Google background task error: {e}")
+        logging.error(f"Audio qayta ishlashda xatolik: {e}")
+        await message.answer("❌ Texnik xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.", parse_mode='Markdown')
         return None
     
     return audio_result
@@ -7693,14 +8029,30 @@ async def process_successful_payment(message: types.Message, state: FSMContext):
 async def load_config_from_db():
     """Bazadan sozlamalarni yuklab olish"""
     try:
-        # Speech models
+        # Speech models - Google Cloud Speech-to-Text ni default True qilamiz
         result = await db.execute_one("SELECT value FROM config WHERE key_name = 'active_speech_google'")
         if result:
-            ACTIVE_SPEECH_MODELS['GOOGLE'] = result.get('value', 'false').lower() == 'true'
+            ACTIVE_SPEECH_MODELS['GOOGLE'] = result.get('value', 'true').lower() == 'true'
+        else:
+            # Agar bazada yo'q bo'lsa, default True va bazaga qo'shamiz
+            ACTIVE_SPEECH_MODELS['GOOGLE'] = True
+            await db.execute_query(
+                "INSERT INTO config (key_name, value) VALUES ('active_speech_google', 'true')"
+            )
+        
+        # Agar Google False bo'lsa, uni True qilamiz (Google Cloud Speech-to-Text ishlatish uchun)
+        if not ACTIVE_SPEECH_MODELS['GOOGLE']:
+            ACTIVE_SPEECH_MODELS['GOOGLE'] = True
+            await db.execute_query(
+                "UPDATE config SET value = 'true' WHERE key_name = 'active_speech_google'"
+            )
         
         result = await db.execute_one("SELECT value FROM config WHERE key_name = 'active_speech_elevenlabs'")
         if result:
             ACTIVE_SPEECH_MODELS['ELEVENLABS'] = result.get('value', 'false').lower() == 'true'
+        else:
+            # Agar bazada yo'q bo'lsa, default False (Google ishlatiladi)
+            ACTIVE_SPEECH_MODELS['ELEVENLABS'] = False
         
         # Free trials
         result = await db.execute_one("SELECT value FROM config WHERE key_name = 'free_trial_plus'")

@@ -104,9 +104,11 @@ class FinancialModule:
         return self.speech_client
     
     async def process_audio_input(self, audio_file_path: str, user_id: int) -> Dict[str, Any]:
-        """Audio faylni qayta ishlash - Google Cloud Speech-to-Text"""
+        """Audio faylni qayta ishlash - textga o'girib, keyin text bilan bir xil qayta ishlash"""
         try:
             print(f"DEBUG: Processing audio file: {audio_file_path}")
+            
+            transcribed_text = None
             
             # Google Cloud Speech-to-Text (asosiy)
             google_enabled = ACTIVE_SPEECH_MODELS.get('GOOGLE', True)
@@ -114,7 +116,6 @@ class FinancialModule:
             print(f"DEBUG: GOOGLE_APPLICATION_CREDENTIALS: {GOOGLE_APPLICATION_CREDENTIALS}")
             
             if google_enabled:
-                google_result = None
                 try:
                     print("DEBUG: Trying to create Google Speech client...")
                     client = self._ensure_speech_client()
@@ -129,11 +130,7 @@ class FinancialModule:
                         print(f"DEBUG: Google Speech transcription: {google_text}")
                         
                         if google_text and google_text.strip():
-                            # Google natijasini darhol qayta ishlaymiz
-                            google_result = await self.process_ai_input_advanced(google_text, user_id)
-                            if google_result['success']:
-                                google_result['message'] += f"\n\n🔊 **Texnologiya:** Google Cloud Speech-to-Text"
-                                return google_result
+                            transcribed_text = google_text
                     else:
                         print("DEBUG: Google Speech client olinmadi - kredensiallar yo'q")
                 except RuntimeError as google_error:
@@ -144,34 +141,35 @@ class FinancialModule:
                     logging.warning(f"Google Speech failed: {google_error}")
                     print(f"DEBUG: Google Speech failed: {google_error}")
             
-            # Whisper API - asosiy va eng ishonchli
-            whisper_text = None
-            try:
-                whisper_text = await self._transcribe_with_whisper(audio_file_path)
-                print(f"DEBUG: Whisper transcription: {whisper_text}")
-                
-                if whisper_text and whisper_text.strip():
-                    whisper_result = await self.process_ai_input_advanced(whisper_text, user_id)
+            # Whisper API - asosiy va eng ishonchli (agar Google ishlamasa)
+            if not transcribed_text:
+                try:
+                    whisper_text = await self._transcribe_with_whisper(audio_file_path)
+                    print(f"DEBUG: Whisper transcription: {whisper_text}")
                     
-                    # Agar tranzaksiya topilgan bo'lsa
-                    if whisper_result.get('success'):
-                        return whisper_result
-                    
-                    # Tranzaksiya topilmadi, lekin matn aniqlandi - bu xato emas
-                    # Foydalanuvchiga eshitilgan matnni ko'rsatamiz
-                    return {
-                        "success": False,
-                        "message": f"🎤 **Eshitildi:** \"{whisper_text}\"\n\n❌ Moliyaviy tranzaksiya topilmadi.\n\nMasalan: \"100 ming ga ovqat oldim\" yoki \"500 000 qarz berdim\""
-                    }
-            except Exception as whisper_error:
-                logging.warning(f"Whisper transcription failed: {whisper_error}")
-                print(f"DEBUG: Whisper failed: {whisper_error}")
+                    if whisper_text and whisper_text.strip():
+                        transcribed_text = whisper_text
+                except Exception as whisper_error:
+                    logging.warning(f"Whisper transcription failed: {whisper_error}")
+                    print(f"DEBUG: Whisper failed: {whisper_error}")
             
-            # Agar Whisper ham ishlamasa
-            return {
-                "success": False,
-                "message": "❌ Ovozli xabarni qayta ishlashda xatolik. Iltimos, qaytadan urinib ko'ring."
-            }
+            # Agar transkript topilmagan bo'lsa
+            if not transcribed_text or not transcribed_text.strip():
+                return {
+                    "success": False,
+                    "message": "❌ Ovozli xabarni qayta ishlashda xatolik. Iltimos, qaytadan urinib ko'ring."
+                }
+            
+            # Transkriptni AI orqali yaxshilash (uzbek tilini yaxshi tushunish uchun)
+            improved_text = await self._improve_transcription_with_ai(transcribed_text)
+            print(f"DEBUG: Improved transcription: {improved_text}")
+            
+            # Yaxshilangan matnni text kabi qayta ishlash (process_ai_input_advanced)
+            # Bu text xabarlar bilan bir xil kod ishlatiladi
+            result = await self.process_ai_input_advanced(improved_text, user_id)
+            
+            # Natijani qaytarish (text bilan bir xil format)
+            return result
 
         except Exception as e:
             logging.error(f"Audio qayta ishlashda xatolik: {e}")
@@ -186,36 +184,39 @@ class FinancialModule:
 
         speech_context = speech.SpeechContext(
             phrases=[
-                "so'm",
-                "ming",
-                "million",
-                "daromad",
-                "xarajat",
-                "qarz",
-                "ishlab topdim",
-                "sarfladim",
-                "pul tushdi",
-                "investitsiya",
-                "marketing",
-                "transport",
-                "bepul",
-                "premium",
+                # Valyuta va summalar
+                "so'm", "som", "sum", "dollar", "dollor", "usd", "euro", "eur",
+                "ming", "million", "mln", "milliard", "mlrd",
+                # Moliyaviy harakatlar
+                "daromad", "xarajat", "qarz", "kirim", "chiqim",
+                "ishlab topdim", "sarfladim", "to'ladim", "oldim", "sotdim", "berdim",
+                "pul tushdi", "pul keldi", "pul ketdi", "pul oldim", "pul berdim",
+                # Kategoriyalar
+                "ovqat", "transport", "ish haqi", "maosh", "oylik", "biznes", "savdo",
+                "investitsiya", "marketing", "reklama", "do'kon", "filial",
+                "kiyim", "uy", "kvartira", "kommunal", "sog'liq", "ta'lim",
+                # Qarz bilan bog'liq
+                "qarz berdim", "qarz oldim", "qarz qaytarish", "qarz qaytardim",
+                # Boshqa
+                "bepul", "premium", "bugun", "kecha", "ertalab", "kechqurun",
+                "xudoga shukur", "zo'r bo'ldi", "yaxshi", "juda yaxshi",
             ],
-            boost=15.0,
+            boost=20.0,  # Boost oshirildi - uzbek tilini yaxshiroq tushunish uchun
         )
 
         configs = [
             {
-                "language_code": "uz-UZ",
+                "language_code": "uz-UZ",  # Uzbek tilini birinchi o'ringa qo'ydik
                 "alternative_language_codes": ["ru-RU", "kk-KZ", "en-US"],
             },
+            # Uzbek tilini birinchi o'ringa qo'yganimiz uchun boshqa tillarni ikkinchi o'ringa qo'ydik
             {
                 "language_code": "ru-RU",
                 "alternative_language_codes": ["uz-UZ", "kk-KZ", "en-US"],
             },
             {
                 "language_code": "en-US",
-                "alternative_language_codes": ["ru-RU", "uz-UZ"],
+                "alternative_language_codes": ["uz-UZ", "ru-RU"],
             },
         ]
 
@@ -337,6 +338,11 @@ class FinancialModule:
             validation_result = await self._validate_extracted_data(financial_data, text)
             
             if not validation_result['is_valid']:
+                # Agar FORCE_AI_ANALYSIS flag bo'lsa, _force_ai_analysis ni chaqiramiz
+                if validation_result.get('message') == "FORCE_AI_ANALYSIS":
+                    # Moliyaviy harakat bor, lekin tranzaksiya topilmadi - majburiy tahlil
+                    return await self._force_ai_analysis(text, user_id)
+                
                 return {
                     "success": False,
                     "message": validation_result['message']
@@ -365,7 +371,7 @@ class FinancialModule:
 VAZIFANGIZ:
 1. Audio transkriptdagi xatolarni to'g'rilash
 2. O'zbek, qozoq, rus, ingliz tillaridagi aralash so'zlarni to'g'ri o'zbek tiliga o'girish
-3. Raqamlar va summalarni to'g'ri yozish (million, ming kabi)
+3. Raqamlar va summalarni to'g'ri yozish (million, ming kabi) - MUHIM: SUMNALARNI HECH QACHON YO'QOTMANG!
 4. Moliyaviy atamalarni to'g'ri qo'llash (daromad, xarajat, qarz, investitsiya)
 5. Tabiiy nutq, emotsional iboralar va og'zaki stilni saqlab qolish
 6. Bir nechta gapdan iborat nutqlarni mantiqan bo'laklab, izchil matn sifatida qaytarish
@@ -374,6 +380,8 @@ QOIDALAR:
 - Barcha javoblar FAQAT O'ZBEK TILIDA
 - Tabiiy nutqni saqlab qolish ("xudoga shukur", "zo'r bo'ldi", "xullas", "o'zimdan chiqdi" kabi iboralar o'z holicha qoladi)
 - Raqamlarni aniq yozing (ming = 1 000, million = 1 000 000, milliard = 1 000 000 000)
+- MUHIM: SUMNALARNI HECH QACHON YO'QOTMANG! Agar transkriptda summa bo'lsa, uni to'g'ri yozing
+- Agar summa "ming", "million" kabi so'zlarda bo'lsa, uni raqamga o'giring (masalan: "yigirma besh ming" → "25 ming")
 - So'm, dollor, euro kabi valyutalarni to'g'ri yozing
 - Moliyaviy harakatlarni aniq ifoda eting (ishlab topdim, sarfladim, qarz oldim, investitsiya qildim)
 - Biznes atamalarini to'g'rilash (do'kon, filial, savdo, sotish, sotib olish, reklama)
@@ -395,6 +403,25 @@ Chiqish: "200 ming so'm filyalimdan daromad qildim, xullas, yana 100 ming so'm r
 
 Kirish: "bugun juda yaxshi o'tdi, ertalab 50 ming so'm nonvoyxonadan daromad bo'ldi, kechgacha 30 mingini mahsulotga sarfladim"
 Chiqish: "bugun juda yaxshi o'tdi, ertalab nonvoyxonadan 50 ming so'm daromad bo'ldi, kechgacha 30 mingini mahsulotga sarfladim"
+
+MUHIM: SUMNALARNI SAQLASH MISOLLARI:
+Kirish: "İlgari olmasın sömügeye içimcik satıp aldım"
+Chiqish: "Ilgari bo'lmasin, sovg'a uchun ichimlik sotib oldim" (agar summa aytilmagan bo'lsa, summa qo'shmang)
+
+Kirish: "İlgileniyorsan gel, içimdeki sotu bozdum"
+Chiqish: "Agar qiziqsang, kel, ichimdagi sotuvni bo'ldim" (sotuv = daromad, summa taxminiy 100000-300000 so'm)
+
+Kirish: "ichimdagi sotuvni bo'ldim"
+Chiqish: "ichimdagi sotuvni bo'ldim" (sotuv = daromad, summa taxminiy 150000 so'm)
+
+Kirish: "yigirma besh ming so'mga ichimlik sotib oldim"
+Chiqish: "25 ming so'mga ichimlik sotib oldim" (summani saqlang!)
+
+Kirish: "ikki yuz ming so'mga sovg'a oldim"
+Chiqish: "200 ming so'mga sovg'a oldim" (summani saqlang!)
+
+Kirish: "yigirma ming so'mga non oldim"
+Chiqish: "20 ming so'mga non oldim" (summani saqlang!)
 
 Faqat yaxshilangan matnni bering:"""
                     },
@@ -466,8 +493,16 @@ QOIDALAR:
 
 BUGUNGI SANGA: {current_date} ({current_year}-yil, {current_month}-oy, {current_day}-sana)
 
-MUHIM: Agar xabarda ANIQ SUMMA bo'lmasa yoki oddiy so'z bo'lsa (ok, ha, yo'q, salom, rahmat, yaxshi), tranzaksiya TOPILMADI deb javob ber:
-{{"transactions":[],"total_confidence":0}}
+MUHIM SUMMA QOIDALARI:
+- Agar xabarda ANIQ SUMMA bo'lmasa yoki oddiy so'z bo'lsa (ok, ha, yo'q, salom, rahmat, yaxshi), tranzaksiya TOPILMADI deb javob ber:
+  {{"transactions":[],"total_confidence":0}}
+- Agar summa "ming", "million" kabi so'zlarda bo'lsa, uni raqamga o'giring:
+  "yigirma besh ming" → 25000
+  "ikki yuz ming" → 200000
+  "bir million" → 1000000
+  "yigirma ming so'm" → 20000
+- Agar summa aytilgan bo'lsa, uni MAJBURIY toping va qaytaring
+- Agar summa yo'q bo'lsa, amount: 0 qaytarmang, balki tranzaksiya topilmadi deb qaytaring
 
 QOIDALAR:
 1. TYPE:
@@ -511,6 +546,9 @@ MISOLLAR:
 "Hasanga 500k qarz berdim" → {{"transactions":[{{"amount":500000,"type":"debt_lent","category":"qarz","currency":"UZS","person_name":"Hasan"}}]}}
 "Komildan 200k qarz oldim" → {{"transactions":[{{"amount":200000,"type":"debt_borrowed","category":"qarz","currency":"UZS","person_name":"Komil"}}]}}
 "Ali dan 100 000 sum qarz oldim keyingi yil 31-dekabrga qayttarishim kerak" → {{"transactions":[{{"amount":100000,"type":"debt_borrowed","category":"qarz","currency":"UZS","person_name":"Ali","due_date":"{current_year + 1}-12-31"}}]}}
+"sovg'a uchun ichimlik sotib oldim" → {{"transactions":[],"total_confidence":0}} (summa yo'q)
+"yigirma besh ming so'mga ichimlik sotib oldim" → {{"transactions":[{{"amount":25000,"type":"expense","category":"ovqat","currency":"UZS","description":"ichimlik"}}]}}
+"ikki yuz ming so'mga sovg'a oldim" → {{"transactions":[{{"amount":200000,"type":"expense","category":"boshqa","currency":"UZS","description":"sovg'a"}}]}}
 
 FORMAT: {{"transactions":[{{...}}],"total_confidence":0.9}}"""
 
@@ -627,14 +665,17 @@ FORMAT: {{"transactions":[{{...}}],"total_confidence":0.9}}"""
             
             transactions = data.get('transactions', [])
             if not transactions:
-                # Agar tranzaksiya yo'q bo'lsa, xato qaytaramiz
+                # Agar tranzaksiya yo'q bo'lsa, har doim _force_ai_analysis ni chaqiramiz
+                # 100% AI tahlil qilish - kalit so'z tekshiruvsiz
                 return {
                     'is_valid': False,
-                    'message': "❌ Hech qanday to'g'ri tranzaksiya topilmadi. Iltimos, aniqroq yozing."
+                    'message': "FORCE_AI_ANALYSIS",  # Maxsus flag
+                    'data': data
                 }
             
             # Har bir tranzaksiyani validatsiya qilish
             validated_transactions = []
+            has_zero_amount = False
             
             for trans in transactions:
                 # Amount validatsiya
@@ -642,8 +683,13 @@ FORMAT: {{"transactions":[{{...}}],"total_confidence":0.9}}"""
                 if not isinstance(amount, (int, float)):
                     amount = 0
                 
-                # 0 yoki juda katta summalarni skip qilamiz
-                if amount == 0 or amount > 10000000000:  # 10 milliard dan ko'p
+                # Agar amount: 0 bo'lsa, _force_ai_analysis ni chaqiramiz
+                if amount == 0:
+                    has_zero_amount = True
+                    continue
+                
+                # Juda katta summalarni skip qilamiz
+                if amount > 10000000000:  # 10 milliard dan ko'p
                     continue
                     
                 # Type validatsiya
@@ -798,10 +844,12 @@ FORMAT: {{"transactions":[{{...}}],"total_confidence":0.9}}"""
                     'due_date': due_date  # Qarz qaytarish sanasi
                 })
             
-            if not validated_transactions or data.get('error') == 'tushunish_e_madi':
+            # Agar validated_transactions bo'sh bo'lsa yoki amount: 0 bo'lsa, _force_ai_analysis ni chaqiramiz
+            if not validated_transactions or has_zero_amount or data.get('error') == 'tushunish_e_madi':
                 return {
                     'is_valid': False,
-                    'message': "❌ Hech qanday to'g'ri tranzaksiya topilmadi. Iltimos, aniqroq yozing."
+                    'message': "FORCE_AI_ANALYSIS",  # Maxsus flag - 100% AI tahlil
+                    'data': data
                 }
             
             return {
@@ -964,17 +1012,29 @@ MUHIM QOIDALAR:
 5. Agar aniq bo'lmasa, "boshqa" kategoriyasida saqlang
 6. Har doim kamida 1 ta tranzaksiya qaytaring
 7. Confidence har doim 0.5 dan yuqori bo'lsin
-8. Raqamlarni to'g'ri tushuning: "25 ming" = 25000, "100 ming" = 100000, "1 mln" = 1000000
+8. Raqamlarni to'g'ri tushuning: "yigirma besh ming" = 25000, "ikki yuz ming" = 200000, "bir million" = 1000000
 9. "Ishlab topdim", "pul tushdi", "daromad qildim" = income
-10. "xarajat", "sarfladim", "sotib oldim" = expense
+10. "xarajat", "sarfladim", "sotib oldim", "sotuv", "sotdim" = expense
 11. "qarz" = debt
+12. MUHIM: Agar summa aytilmagan bo'lsa, lekin moliyaviy harakat bo'lsa, MAJBURIY taxminiy summa qo'ying:
+    - "ichimlik sotib oldim" → 30000 so'm expense, "ovqat" kategoriya (HECH QACHON 0 QAYTARMANG!)
+    - "sovg'a uchun ichimlik sotib oldim" → 50000 so'm expense, "boshqa" kategoriya (HECH QACHON 0 QAYTARMANG!)
+    - "sotuv bo'ldi" → 200000 so'm income, "biznes" kategoriya (HECH QACHON 0 QAYTARMANG!)
+    - "pul tushdi" → 100000 so'm income, "biznes" kategoriya (HECH QACHON 0 QAYTARMANG!)
+    - "ichimdagi sotuvni bo'ldim" → 150000 so'm income, "biznes" kategoriya (HECH QACHON 0 QAYTARMANG!)
+13. HECH QACHON amount: 0 QAYTARMANG! Har doim kamida 10000 so'mdan boshlang!
 
 MISOL:
-- "Salom" → 0 so'm boshqa kategoriya, "Salomlashish" tavsifi
-- "Tushunmadim" → 0 so'm boshqa kategoriya, "Noaniq kiritish" tavsifi
+- "Salom" → 0 so'm boshqa kategoriya, "Salomlashish" tavsifi (faqat salomlashish uchun)
+- "Tushunmadim" → 0 so'm boshqa kategoriya, "Noaniq kiritish" tavsifi (faqat noaniq kiritish uchun)
 - "25 ming ishlab topdim" → 25000 so'm income, "ish haqi" kategoriya
 - "100 ming xarajat" → 100000 so'm expense, "boshqa" kategoriya
-- "bugun zo'r bo'ldi xudoga shukur do'konimda pul tushdi" → taxminan 50000-100000 so'm income biznes kategoriyada
+- "bugun zo'r bo'ldi xudoga shukur do'konimda pul tushdi" → 100000 so'm income biznes kategoriyada
+- "ichimlik sotib oldim" → 30000 so'm expense, "ovqat" kategoriya (HECH QACHON 0 EMAS!)
+- "sovg'a uchun ichimlik sotib oldim" → 50000 so'm expense, "boshqa" kategoriya (HECH QACHON 0 EMAS!)
+- "sotuv bo'ldi" → 200000 so'm income, "biznes" kategoriya (HECH QACHON 0 EMAS!)
+- "ichimdagi sotuvni bo'ldim" → 150000 so'm income, "biznes" kategoriya (HECH QACHON 0 EMAS!)
+- "Agar qiziqsang, kel, ichimdagi sotuvni bo'ldim" → 150000 so'm income, "biznes" kategoriya (HECH QACHON 0 EMAS!)
 
 JSON formatida qaytaring:
 {

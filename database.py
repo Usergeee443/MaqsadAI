@@ -525,8 +525,8 @@ class Database:
             # Boshlang'ich qiymatlarni qo'shish
             await self.execute_query("""
                 INSERT IGNORE INTO config (key_name, value) VALUES
-                ('active_speech_google', 'false'),
-                ('active_speech_elevenlabs', 'true'),
+                ('active_speech_google', 'true'),  # Google Cloud Speech-to-Text default True
+                ('active_speech_elevenlabs', 'false'),  # ElevenLabs default False
                 ('active_speech_whisper', 'false'),
                 ('free_trial_plus', 'true'),
                 ('free_trial_pro', 'true'),
@@ -2249,15 +2249,67 @@ class Database:
             logging.error(f"Kontaktlarni olishda xatolik: {e}")
             return []
     
-    async def get_contact_debts(self, contact_id: int) -> list:
-        """Kontaktning qarzlarini olish"""
+    async def get_contact_debts(self, contact_id: int, user_id: int = None) -> list:
+        """Kontaktning qarzlarini olish (debts va transactions jadvallaridan)"""
         try:
+            debts_list = []
+            
+            # 1. debts jadvalidan qarzlar
             query = """
                 SELECT * FROM debts 
                 WHERE contact_id = %s 
                 ORDER BY created_at DESC
             """
-            return await self.execute_query(query, (contact_id,))
+            debts_from_table = await self.execute_query(query, (contact_id,))
+            for debt in debts_from_table:
+                debt['source'] = 'debts_table'
+                debts_list.append(debt)
+            
+            # 2. transactions jadvalidan qarzlar (person_name bo'yicha)
+            if user_id:
+                # Kontakt nomini olish
+                contact = await self.execute_one(
+                    "SELECT name FROM contacts WHERE id = %s",
+                    (contact_id,)
+                )
+                if contact:
+                    contact_name = contact.get('name', '')
+                    if contact_name:
+                        # transactions jadvalidan qarzlar
+                        transactions_query = """
+                            SELECT id, user_id, transaction_type, amount, currency, 
+                                   person_name, due_date, description, created_at
+                            FROM transactions 
+                            WHERE user_id = %s 
+                            AND person_name = %s 
+                            AND transaction_type IN ('debt_lent', 'debt_borrowed')
+                            ORDER BY created_at DESC
+                        """
+                        transactions_debts = await self.execute_query(
+                            transactions_query, 
+                            (user_id, contact_name)
+                        )
+                        for trans in transactions_debts:
+                            # Formatni debts jadvali bilan moslashtirish
+                            debt_item = {
+                                'id': trans.get('id'),
+                                'user_id': trans.get('user_id'),
+                                'debt_type': 'lent' if trans.get('transaction_type') == 'debt_lent' else 'borrowed',
+                                'amount': trans.get('amount'),
+                                'currency': trans.get('currency', 'UZS'),
+                                'person_name': trans.get('person_name'),
+                                'due_date': trans.get('due_date'),
+                                'description': trans.get('description', ''),
+                                'status': 'active',  # transactions jadvalidan olingan qarzlar har doim active
+                                'created_at': trans.get('created_at'),
+                                'source': 'transactions_table'
+                            }
+                            debts_list.append(debt_item)
+            
+            # Sana bo'yicha tartiblash
+            debts_list.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+            
+            return debts_list
         except Exception as e:
             logging.error(f"Kontakt qarzlarini olishda xatolik: {e}")
             return []
