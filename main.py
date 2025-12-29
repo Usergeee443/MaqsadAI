@@ -406,8 +406,7 @@ class OnboardingState(StatesGroup):
 def get_free_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📊 Hisobotlar"), KeyboardButton(text="👤 Profil")],
-            [KeyboardButton(text="💳 Qarzlar")]
+            [KeyboardButton(text="📊 Hisobotlar"), KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -418,8 +417,7 @@ def get_free_menu():
 def get_premium_menu():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📊 Hisobotlar"), KeyboardButton(text="👤 Profil")],
-            [KeyboardButton(text="💳 Qarzlar")]
+            [KeyboardButton(text="📊 Hisobotlar"), KeyboardButton(text="👤 Profil")]
         ],
         resize_keyboard=True,
         one_time_keyboard=False
@@ -510,11 +508,14 @@ def get_transaction_confirmation_keyboard(buttons_data: dict):
 
 # Profil menyusi
 def get_profile_menu(user_tariff='PLUS'):
-    """Profil menyusini qaytaradi - faqat Batafsil va Sozlamalar"""
+    """Profil menyusini qaytaradi - Batafsil, Sozlamalar va Yordam"""
     buttons = [
         [
             InlineKeyboardButton(text="📋 Batafsil", web_app=WebAppInfo(url="https://balansai-app.onrender.com/profile")),
             InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings")
+        ],
+        [
+            InlineKeyboardButton(text="📖 Yordam", callback_data="help_menu")
         ]
     ]
     
@@ -2214,29 +2215,45 @@ async def process_source(callback_query: CallbackQuery, state: FSMContext):
 @dp.message(Command("help"))
 async def help_command(message: types.Message):
     """Yordam komandasi"""
-    help_text = """
-🤖 *Balans AI - Moliyaviy yordamchi*
+    help_text = get_help_text()
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_profile")]
+    ])
+    await message.answer(help_text, parse_mode="HTML", reply_markup=keyboard)
 
-📊 *Asosiy funksiyalar:*
-• Moliyaviy ma'lumotlarni kiritish
+def get_help_text():
+    """Yordam matnini qaytaradi"""
+    return """
+<b>📖 Balans AI - Yordam</b>
+
+<b>🤖 Asosiy funksiyalar:</b>
+• Moliyaviy ma'lumotlarni kiritish (matn yoki ovoz)
 • Hisobotlar va tahlillar
-• AI yordamchi maslahatlari (Premium)
+• AI yordamchi maslahatlari (Premium tariflar)
 
-💰 *Moliyaviy ma'lumotlar:*
-• Bepul: Qo'lda kiritish
-• Premium: AI yordamida avtomatik
+<b>💰 Moliyaviy ma'lumotlar:</b>
+• <b>Kirim:</b> "100 ming tushdi", "Ish haqi 500k"
+• <b>Chiqim:</b> "Taksi 50k", "Ovqat 30 ming"
+• <b>Qarz:</b> "Ali 200k qarz berdim", "Vali 100k qarz oldim"
 
-📊 *Hisobotlar:*
+<b>📊 Hisobotlar:</b>
 • Balans ma'lumotlari
-• Kategoriyalar bo'yicha tahlil
-• Oylik tendensiya
+• Valyutalar bo'yicha tahlil
+• Qarzlar ro'yxati
 • So'nggi tranzaksiyalar
 
-*Buyruqlar:*
+<b>🎯 Qanday ishlatish:</b>
+1. Matn yoki ovozli xabar yuboring
+2. AI avtomatik aniqlaydi va saqlaydi
+3. Hisobotlar bo'limida ko'ring
+
+<b>📱 Buyruqlar:</b>
 /start - Botni qayta ishga tushirish
-/help - Yordam
+/help - Yordam sahifasi
+
+<b>💡 Maslahat:</b>
+Tabiiy til bilan yozing yoki gapiring. AI tushunadi va saqlaydi!
     """
-    await message.answer(help_text, parse_mode="Markdown")
 
 # Tezkor balans komandasi
 # /balance va /balans buyruqlari olib tashlandi - endi 📊 Hisobotlar tugmasi orqali ko'rish mumkin
@@ -3206,15 +3223,15 @@ async def profile_handler(message: Message, state: FSMContext):
 @dp.callback_query(lambda c: c.data == "settings")
 async def settings_callback(callback_query: CallbackQuery):
     """Sozlamalar menyusini ko'rsatish"""
-    user_id = callback_query.from_user.id
-    user_tariff = await get_user_tariff(user_id)
-    
-    text = "⚙️ **Sozlamalar**\n\nSozlamalarni tanlang:"
-    keyboard = await get_settings_menu(user_tariff, user_id)
+    text = "🚧 <b>Tez orada</b>"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📖 Yordam", callback_data="help_menu")],
+        [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_profile")]
+    ])
     try:
-        await callback_query.message.edit_caption(caption=text, reply_markup=keyboard, parse_mode='Markdown')
+        await callback_query.message.edit_caption(caption=text, reply_markup=keyboard, parse_mode='HTML')
     except Exception:
-        await callback_query.message.edit_text(text, reply_markup=keyboard, parse_mode='Markdown')
+        await callback_query.message.edit_text(text, reply_markup=keyboard, parse_mode='HTML')
     await callback_query.answer()
 
 @dp.callback_query(lambda c: c.data == "settings_language")
@@ -3233,6 +3250,46 @@ async def settings_language_callback(callback_query: CallbackQuery):
         await callback_query.message.edit_caption(caption=text, reply_markup=keyboard, parse_mode='Markdown')
     except Exception:
         await callback_query.message.edit_text(text, reply_markup=keyboard, parse_mode='Markdown')
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "help_menu")
+async def help_menu_callback(callback_query: CallbackQuery):
+    """Yordam sahifasini ko'rsatish"""
+    help_text = get_help_text()
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_profile")]
+    ])
+    try:
+        await callback_query.message.edit_caption(caption=help_text, reply_markup=keyboard, parse_mode='HTML')
+    except Exception:
+        await callback_query.message.edit_text(help_text, reply_markup=keyboard, parse_mode='HTML')
+    await callback_query.answer()
+
+@dp.callback_query(lambda c: c.data == "back_to_profile")
+async def back_to_profile_callback(callback_query: CallbackQuery):
+    """Profilga qaytish"""
+    user_id = callback_query.from_user.id
+    user_tariff = await get_user_tariff(user_id)
+    
+    # Profil ma'lumotlarini qayta yuklash
+    user_data = await db.get_user_data(user_id)
+    if not user_data:
+        await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+        return
+    
+    display_name = user_data.get('name', 'Xojayin')
+    profile_text = f"👤 <b>Profil</b>\n\n"
+    profile_text += f"👋 Salom, {display_name}!\n\n"
+    profile_text += f"💳 <b>Tarif:</b> {TARIFFS.get(user_data['tariff'], 'Nomalum')}\n"
+    
+    if user_data['tariff'] in ['PRO', 'MAX'] and user_data.get('tariff_expires_at'):
+        profile_text += f"⏰ <b>Faol bo'lish muddati:</b> {user_data['tariff_expires_at'].strftime('%d.%m.%Y %H:%M')}\n"
+    
+    keyboard = get_profile_menu(user_tariff)
+    try:
+        await callback_query.message.edit_caption(caption=profile_text, reply_markup=keyboard, parse_mode='HTML')
+    except Exception:
+        await callback_query.message.edit_text(profile_text, reply_markup=keyboard, parse_mode='HTML')
     await callback_query.answer()
 
 @dp.callback_query(lambda c: c.data == "profile_stats")

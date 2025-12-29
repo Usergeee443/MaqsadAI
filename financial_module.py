@@ -544,14 +544,106 @@ QOIDALAR:
    - Agar valyuta aytilmagan bo'lsa → UZS (default)
    - Agar valyuta aytilgan bo'lsa → to'g'ri aniqlash (masalan: "50 dollar" → USD, "100 euro" → EUR)
 
-3. KATEGORIYALAR:
-   - "ish haqi" = oylik, maosh
-   - "biznes" = savdo, do'kon
-   - "ovqat" = somsa, lavash, restoran, kafe
-   - "transport" = taksi, benzin
-   - "uy" = kvartira, kommunal
-   - "qarz" = qarz berish/olish
-   - "boshqa" = qolganlar
+3. KATEGORIYALAR (MUHIM - ANIQ AJRATISH!):
+
+KIRIM KATEGORIYALARI:
+   - "Ish haqi" = oylik, maosh, ish haqi, maosh tushdi, oylik tushdi
+   - "Bonus" = bonus, mukofot, qo'shimcha to'lov, qo'shimcha maosh
+   - "Mukofot" = mukofot, sovrin, rag'batlantirish
+   - "Biznes" = savdo, do'kon, biznes daromadi, do'kon daromadi
+   - "Savdo" = mahsulot sotildi, xizmat ko'rsatildi, sotuv bo'ldi
+   - "Do'kon" = do'kon daromadi, do'konimdan, magazindan
+   - "Investitsiya" = investitsiya, depozit, foiz, bank foizi
+   - "Depozit" = depozit, bank depoziti, omonat
+   - "Foiz" = foiz, bank foizi, kredit foizi
+   - "Dividend" = dividend, aksiya daromadi, aktsiya
+   - "Sotuv" = sotuv, mahsulot sotildi, xizmat sotildi
+   - "Ijaradan daromad" = ijaraga berildi, kvartira ijarasi, uy ijarasi
+   - "Kvartira ijarasi" = kvartira ijarasi, uy ijarasi
+   - "Grant" = grant, yordam, subsidiya, davlat yordami
+   - "Yordam" = yordam, qo'llab-quvvatlash, moliyaviy yordam
+   - "Sovg'a" = sovg'a, hadya, tortiq
+   - "Hadyalar" = hadya, sovg'a, tortiq
+   - "Loyiha" = loyiha, loyiha daromadi, loyiha to'lovi
+   - "Freelance" = freelance, masofadan ish, remote work
+   - "Konsultatsiya" = konsultatsiya, maslahat, tavsiya
+   - "Trening" = trening, o'qitish, dars berish
+   - "Kurs" = kurs, o'qitish, dars
+   - "Dars" = dars, o'qitish, tutor
+   - "Tavsiya" = tavsiya, referal, taklif
+   - "Komissiya" = komissiya, vositachilik
+   - "Boshqa" = qolganlar, boshqa daromad
+
+CHIQIM KATEGORIYALARI:
+   - "Ovqat" = somsa, lavash, restoran, kafe, oshxona, non, sut, go'sht, sabzavot, meva
+   - "Restoran" = restoran, oshxona, taom, kechki ovqat
+   - "Kafe" = kafe, qahvaxona, ichimlik
+   - "Fastfood" = fastfood, tez ovqat, burger, pizza
+   - "Non" = non, nonvoyxona, non sotib oldim
+   - "Sut" = sut, sut mahsulotlari
+   - "Go'sht" = go'sht, go'sht mahsulotlari
+   - "Transport" = taksi, benzin, yoqilg'i, metro, avtobus, mashina, transport
+   - "Taksi" = taksi, yandex, uber, taxi
+   - "Benzin" = benzin, yoqilg'i, neft mahsulotlari
+   - "Yoqilg'i" = yoqilg'i, benzin, dizel
+   - "Metro" = metro, metro bileti
+   - "Avtobus" = avtobus, avtobus bileti
+   - "Kiyim" = kiyim, poyabzal, aksessuar, libos
+   - "Poyabzal" = poyabzal, tufli, botinka
+   - "Aksessuar" = aksessuar, sumka, soat, ko'zoynak
+   - "Uy" = kvartira, uy, mebel, uy-ro'zg'or buyumlari
+   - "Kvartira" = kvartira, uy, turar joy
+   - "Mebel" = mebel, stol, stul, divan
+   - "Uy-ro'zg'or" = uy-ro'zg'or buyumlari, idish-tovoq, mebel
+   - "Kommunal" = elektr, suv, gaz, issiqlik, kommunal to'lovlar
+   - "Elektr" = elektr, elektr energiyasi
+   - "Suv" = suv, suv to'lovi
+   - "Gaz" = gaz, gaz to'lovi
+   - "Issiqlik" = issiqlik, isitish
+   - "Sog'liq" = dori, shifokor, klinika, tibbiy xizmat, davolanish
+   - "Dori" = dori, dori-darmon, farmatsevtika
+   - "Shifokor" = shifokor, doktor, tibbiy konsultatsiya
+   - "Klinika" = klinika, shifoxona, tibbiy markaz
+   - "Tibbiy xizmat" = tibbiy xizmat, operatsiya, tekshiruv
+   - "Ta'lim" = maktab, universitet, kurs, kitob, darslik, o'qish
+   - "Maktab" = maktab, maktab to'lovi, o'quv materiallari
+   - "Universitet" = universitet, oliy ta'lim, stipendiya
+   - "Kurs" = kurs, o'qish, trening
+   - "Kitob" = kitob, darslik, adabiyot
+   - "Darslik" = darslik, o'quv materiallari
+   - "O'yin-kulgi" = kino, teatr, konsert, o'yin, sayr, ko'ngilochar
+   - "Kino" = kino, kinoteatr, film
+   - "Teatr" = teatr, spektakl
+   - "Konsert" = konsert, musiqiy tadbir
+   - "O'yin" = o'yin, video o'yin, kompyuter o'yini
+   - "Sayr" = sayr, dam olish, ko'ngilochar
+   - "Sayohat" = sayohat, samolyot, mehmonxona, turizm, dam olish
+   - "Samolyot" = samolyot, avia bileti, parvoz
+   - "Mehmonxona" = mehmonxona, hotel, turar joy
+   - "Turizm" = turizm, sayohat, dam olish
+   - "Viza" = viza, vizoviy to'lov
+   - "Kredit" = kredit, qarz to'lovi, foiz, bank krediti
+   - "Qarz to'lovi" = qarz to'lovi, kredit to'lovi
+   - "Foiz" = foiz, bank foizi, kredit foizi
+   - "Internet" = internet, wi-fi, aloqa, internet provayder
+   - "Telefon" = telefon, sim-karta, mobil aloqa, telefon to'lovi
+   - "Mobil aloqa" = mobil aloqa, telefon, sim-karta
+   - "Wi-Fi" = wi-fi, internet, aloqa
+   - "Sog'liqni saqlash" = sport, fitnes, masaj, parikmaxona, salon
+   - "Sport" = sport, fitnes, sport anjomlari, sport klublari
+   - "Fitnes" = fitnes, sport zali, trenajyor
+   - "Masaj" = masaj, masaj xizmati
+   - "Parikmaxona" = parikmaxona, soch kesish, soch bo'yash
+   - "Salon" = salon, go'zallik salon, kosmetika
+   - "Kitob" = kitob, jurnal, gazeta, adabiyot
+   - "Jurnal" = jurnal, gazeta, nashr
+   - "Gazeta" = gazeta, jurnal, nashr
+   - "Sovg'a" = sovg'a, hadya, tortiq
+   - "Hadyalar" = hadya, sovg'a, tortiq
+   - "Tug'ilgan kun" = tug'ilgan kun, bayram, tadbir
+   - "To'y" = to'y, nikoh, marosim
+   - "Tadbir" = tadbir, bayram, marosim
+   - "Boshqa" = qolganlar, boshqa xarajatlar
 
 4. QARZ uchun qo'shimcha:
    - "person_name" = kimga/kimdan (MAJBURIY qarz uchun!)
@@ -569,17 +661,40 @@ SANA TUSHUNISH QOIDALARI (MUHIM!):
 - "2025-yil 31-dekabr" → 2025-12-31
 - Sana kiritilmagan bo'lsa → due_date bo'sh qoldiriladi
 
-MISOLLAR:
+MISOLLAR (KATEGORIYALAR ANIQ AJRATILISHI KERAK!):
 "ok" → {{"transactions":[],"total_confidence":0}}
 "salom" → {{"transactions":[],"total_confidence":0}}
-"80k somsa" → {{"transactions":[{{"amount":80000,"type":"expense","category":"ovqat","currency":"UZS"}}]}}
-"oylik 3mln" → {{"transactions":[{{"amount":3000000,"type":"income","category":"ish haqi","currency":"UZS"}}]}}
-"Hasanga 500k qarz berdim" → {{"transactions":[{{"amount":500000,"type":"debt_lent","category":"qarz","currency":"UZS","person_name":"Hasan"}}]}}
-"Komildan 200k qarz oldim" → {{"transactions":[{{"amount":200000,"type":"debt_borrowed","category":"qarz","currency":"UZS","person_name":"Komil"}}]}}
-"Ali dan 100 000 sum qarz oldim keyingi yil 31-dekabrga qayttarishim kerak" → {{"transactions":[{{"amount":100000,"type":"debt_borrowed","category":"qarz","currency":"UZS","person_name":"Ali","due_date":"{current_year + 1}-12-31"}}]}}
+"80k somsa" → {{"transactions":[{{"amount":80000,"type":"expense","category":"Ovqat","currency":"UZS"}}]}}
+"restoranda 200k" → {{"transactions":[{{"amount":200000,"type":"expense","category":"Restoran","currency":"UZS"}}]}}
+"kafeda 50k" → {{"transactions":[{{"amount":50000,"type":"expense","category":"Kafe","currency":"UZS"}}]}}
+"oylik 3mln" → {{"transactions":[{{"amount":3000000,"type":"income","category":"Ish haqi","currency":"UZS"}}]}}
+"bonus 500k tushdi" → {{"transactions":[{{"amount":500000,"type":"income","category":"Bonus","currency":"UZS"}}]}}
+"do'konimdan 2mln daromad" → {{"transactions":[{{"amount":2000000,"type":"income","category":"Do'kon","currency":"UZS"}}]}}
+"taksi 50k" → {{"transactions":[{{"amount":50000,"type":"expense","category":"Taksi","currency":"UZS"}}]}}
+"benzin 300k" → {{"transactions":[{{"amount":300000,"type":"expense","category":"Benzin","currency":"UZS"}}]}}
+"kiyim 500k" → {{"transactions":[{{"amount":500000,"type":"expense","category":"Kiyim","currency":"UZS"}}]}}
+"poyabzal 400k" → {{"transactions":[{{"amount":400000,"type":"expense","category":"Poyabzal","currency":"UZS"}}]}}
+"kvartira 5mln" → {{"transactions":[{{"amount":5000000,"type":"expense","category":"Kvartira","currency":"UZS"}}]}}
+"mebel 2mln" → {{"transactions":[{{"amount":2000000,"type":"expense","category":"Mebel","currency":"UZS"}}]}}
+"elektr 200k" → {{"transactions":[{{"amount":200000,"type":"expense","category":"Elektr","currency":"UZS"}}]}}
+"dori 100k" → {{"transactions":[{{"amount":100000,"type":"expense","category":"Dori","currency":"UZS"}}]}}
+"shifokor 300k" → {{"transactions":[{{"amount":300000,"type":"expense","category":"Shifokor","currency":"UZS"}}]}}
+"maktab 2mln" → {{"transactions":[{{"amount":2000000,"type":"expense","category":"Maktab","currency":"UZS"}}]}}
+"kitob 50k" → {{"transactions":[{{"amount":50000,"type":"expense","category":"Kitob","currency":"UZS"}}]}}
+"kino 50k" → {{"transactions":[{{"amount":50000,"type":"expense","category":"Kino","currency":"UZS"}}]}}
+"sayohat 3mln" → {{"transactions":[{{"amount":3000000,"type":"expense","category":"Sayohat","currency":"UZS"}}]}}
+"samolyot 2mln" → {{"transactions":[{{"amount":2000000,"type":"expense","category":"Samolyot","currency":"UZS"}}]}}
+"kredit 1mln" → {{"transactions":[{{"amount":1000000,"type":"expense","category":"Kredit","currency":"UZS"}}]}}
+"internet 100k" → {{"transactions":[{{"amount":100000,"type":"expense","category":"Internet","currency":"UZS"}}]}}
+"telefon 50k" → {{"transactions":[{{"amount":50000,"type":"expense","category":"Telefon","currency":"UZS"}}]}}
+"fitnes 300k" → {{"transactions":[{{"amount":300000,"type":"expense","category":"Fitnes","currency":"UZS"}}]}}
+"parikmaxona 100k" → {{"transactions":[{{"amount":100000,"type":"expense","category":"Parikmaxona","currency":"UZS"}}]}}
+"Hasanga 500k qarz berdim" → {{"transactions":[{{"amount":500000,"type":"debt_lent","category":"Qarz berish","currency":"UZS","person_name":"Hasan"}}]}}
+"Komildan 200k qarz oldim" → {{"transactions":[{{"amount":200000,"type":"debt_borrowed","category":"Qarz olish","currency":"UZS","person_name":"Komil"}}]}}
+"Ali dan 100 000 sum qarz oldim keyingi yil 31-dekabrga qayttarishim kerak" → {{"transactions":[{{"amount":100000,"type":"debt_borrowed","category":"Qarz olish","currency":"UZS","person_name":"Ali","due_date":"{current_year + 1}-12-31"}}]}}
 "sovg'a uchun ichimlik sotib oldim" → {{"transactions":[],"total_confidence":0}} (summa yo'q)
-"yigirma besh ming so'mga ichimlik sotib oldim" → {{"transactions":[{{"amount":25000,"type":"expense","category":"ovqat","currency":"UZS","description":"ichimlik"}}]}}
-"ikki yuz ming so'mga sovg'a oldim" → {{"transactions":[{{"amount":200000,"type":"expense","category":"boshqa","currency":"UZS","description":"sovg'a"}}]}}
+"yigirma besh ming so'mga ichimlik sotib oldim" → {{"transactions":[{{"amount":25000,"type":"expense","category":"Ovqat","currency":"UZS","description":"ichimlik"}}]}}
+"ikki yuz ming so'mga sovg'a oldim" → {{"transactions":[{{"amount":200000,"type":"expense","category":"Sovg'a","currency":"UZS","description":"sovg'a"}}]}}
 
 VALYUTA MISOLLARI:
 "50 dollar xarajat" → {{"transactions":[{{"amount":50,"type":"expense","category":"boshqa","currency":"USD"}}]}}

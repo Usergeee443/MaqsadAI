@@ -64,10 +64,30 @@ PLUS_PACKAGES = {
     }
 }
 
-# Kategoriyalar
+# Kategoriyalar - kengaytirilgan (10x ko'p)
 CATEGORIES = {
-    'income': ['Ish haqi', 'Biznes', 'Investitsiya', 'Boshqa'],
-    'expense': ['Ovqat', 'Transport', 'Kiyim', 'Uy', 'Sogʻliq', 'Taʼlim', 'Oʻyin-kulgi', 'Boshqa'],
+    'income': [
+        'Ish haqi', 'Bonus', 'Mukofot', 'Biznes', 'Savdo', 'Do\'kon', 
+        'Investitsiya', 'Depozit', 'Foiz', 'Dividend', 'Sotuv', 
+        'Ijaradan daromad', 'Kvartira ijarasi', 'Grant', 'Yordam', 
+        'Sovg\'a', 'Hadyalar', 'Loyiha', 'Freelance', 'Konsultatsiya',
+        'Trening', 'Kurs', 'Dars', 'Tavsiya', 'Komissiya', 'Boshqa'
+    ],
+    'expense': [
+        'Ovqat', 'Restoran', 'Kafe', 'Fastfood', 'Non', 'Sut', 'Go\'sht',
+        'Transport', 'Taksi', 'Benzin', 'Yoqilg\'i', 'Metro', 'Avtobus',
+        'Kiyim', 'Poyabzal', 'Aksessuar', 'Uy', 'Kvartira', 'Mebel', 
+        'Uy-ro\'zg\'or', 'Kommunal', 'Elektr', 'Suv', 'Gaz', 'Issiqlik',
+        'Sog\'liq', 'Dori', 'Shifokor', 'Klinika', 'Tibbiy xizmat',
+        'Ta\'lim', 'Maktab', 'Universitet', 'Kurs', 'Kitob', 'Darslik',
+        'O\'yin-kulgi', 'Kino', 'Teatr', 'Konsert', 'O\'yin', 'Sayr',
+        'Sayohat', 'Samolyot', 'Mehmonxona', 'Turizm', 'Viza',
+        'Kredit', 'Qarz to\'lovi', 'Foiz', 'Internet', 'Telefon', 
+        'Mobil aloqa', 'Wi-Fi', 'Sog\'liqni saqlash', 'Sport', 'Fitnes',
+        'Masaj', 'Parikmaxona', 'Salon', 'Kitob', 'Jurnal', 'Gazeta',
+        'Sovg\'a', 'Hadyalar', 'Tug\'ilgan kun', 'To\'y', 'Tadbir',
+        'Boshqa'
+    ],
     'debt': ['Qarz berish', 'Qarz olish']
 }
 
