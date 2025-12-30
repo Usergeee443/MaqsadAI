@@ -6056,8 +6056,18 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         elif has_reminder:
             # Faqat eslatma
             reminder_msg = reminder_result.get('message', '')
+            reminder_id = reminder_result.get('id')
             response_message = reminder_msg + usage_note
-            await message.answer(response_message, parse_mode='Markdown')
+            
+            # Eslatma uchun tugmalar (avtomatik saqlash, tahrirlash, o'chirish)
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+            if reminder_id:
+                keyboard.inline_keyboard.append([
+                    InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"reminder_edit_{reminder_id}"),
+                    InlineKeyboardButton(text="🗑️ O'chirish", callback_data=f"reminder_delete_{reminder_id}")
+                ])
+            
+            await message.answer(response_message, parse_mode='Markdown', reply_markup=keyboard if keyboard.inline_keyboard else None)
         else:
             # Hech narsa aniqlanmadi - aniq xabar
             await message.answer(
@@ -6104,13 +6114,19 @@ async def process_financial_message(message: types.Message, state: FSMContext):
             financial_result = await financial_module.process_ai_input_advanced(text, user_id)
             has_transaction = financial_result.get('success') and 'transaction_data' in financial_result
             
-            # 2. Eslatmani aniqlashga harakat qilamiz (ai_chat.generate_response ichida ham chaqiriladi, lekin bu yerda ham tekshiramiz)
-            reminder_result = None
-            if not has_transaction:
-                # Eslatma aniqlash uchun AI chat dan foydalanamiz
-                reminder_result = await ai_chat.detect_and_save_reminder(user_id, text)
-            
+            # 2. Eslatmani aniqlashga harakat qilamiz (har doim tekshiramiz, hatto tranzaksiya aniqlangan bo'lsa ham)
+            reminder_result = await ai_chat.detect_and_save_reminder(user_id, text)
             has_reminder = reminder_result is not None
+            
+            # Agar eslatma aniqlangan bo'lsa va tranzaksiya ham aniqlangan bo'lsa, eslatma ustunlik qiladi
+            if has_reminder and has_transaction:
+                # Eslatma kalit so'zlari bor bo'lsa, tranzaksiyani bekor qilamiz
+                reminder_keywords = ['eslatasan', 'eslat', 'kerak', 'borishim', 'ketishim', 'uchrashuv', 'meeting', 'dars']
+                text_lower = text.lower()
+                if any(keyword in text_lower for keyword in reminder_keywords):
+                    # Eslatma ustunlik qiladi - tranzaksiyani bekor qilamiz
+                    has_transaction = False
+                    financial_result = {'success': False}
             
             # 3. Agar tranzaksiya yoki eslatma aniqlangan bo'lsa, ularni ko'rsatamiz
             if has_transaction:
@@ -6144,7 +6160,17 @@ async def process_financial_message(message: types.Message, state: FSMContext):
             elif has_reminder:
                 # Faqat eslatma aniqlangan
                 reminder_msg = reminder_result.get('message', '')
-                await message.answer(reminder_msg, parse_mode='Markdown')
+                reminder_id = reminder_result.get('id')
+                
+                # Eslatma uchun tugmalar (avtomatik saqlash, tahrirlash, o'chirish)
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+                if reminder_id:
+                    keyboard.inline_keyboard.append([
+                        InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"reminder_edit_{reminder_id}"),
+                        InlineKeyboardButton(text="🗑️ O'chirish", callback_data=f"reminder_delete_{reminder_id}")
+                    ])
+                
+                await message.answer(reminder_msg, parse_mode='Markdown', reply_markup=keyboard if keyboard.inline_keyboard else None)
                 return
             
             # 4. Agar hech narsa aniqlanmagan bo'lsa, AI chat javob beradi
@@ -7308,11 +7334,12 @@ async def handle_transaction_callback(callback_query: CallbackQuery, state: FSMC
             trans_type_name = trans_type_names.get(trans_type, trans_type)
             
             await callback_query.message.edit_text(
-                f"✏️ **Tranzaksiyani tahrirlash**\n\nTur: {trans_type_name}\n\nQaysi ma'lumotni tahrirlamoqchisiz?",
+                "🚧 **Tez orada**\n\nBu funksiya tez orada qo'shiladi.",
                 parse_mode='Markdown',
-                reply_markup=keyboard
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_transaction")]
+                ])
             )
-            await state.update_data(editing_transaction_id=trans_id)
             await callback_query.answer()
             return
         
@@ -7358,34 +7385,7 @@ async def handle_transaction_callback(callback_query: CallbackQuery, state: FSMC
         
         # Summa tahrirlash
         if callback_data.startswith("trans_edit_amount_"):
-            # Callback data format: trans_edit_amount_{trans_id}
-            parts = callback_data.split("_")
-            if len(parts) >= 4:
-                try:
-                    trans_id = int(parts[3])
-                    # Database dan tekshiramiz
-                    trans_query = "SELECT * FROM transactions WHERE id = %s AND user_id = %s"
-                    trans = await db.execute_one(trans_query, (trans_id, user_id))
-                    if not trans:
-                        await callback_query.answer("❌ Tranzaksiya topilmadi", show_alert=True)
-                        return
-                except (ValueError, IndexError):
-                    await callback_query.answer("❌ Noto'g'ri format", show_alert=True)
-                    return
-            else:
-                # saved_transactions dan trans_id ni topish
-                data = await state.get_data()
-                saved_transactions = data.get('saved_transaction_ids', [])
-                editing_trans_id = data.get('editing_transaction_id')
-                if editing_trans_id:
-                    trans_id = editing_trans_id
-                elif saved_transactions and len(saved_transactions) >= 1:
-                    trans = saved_transactions[0]
-                    trans_id = trans.get('id')
-                else:
-                    await callback_query.answer("❌ Tranzaksiya topilmadi", show_alert=True)
-                    return
-            
+            trans_id = int(callback_data.split("_")[3])
             await state.update_data(editing_transaction_id=trans_id, editing_field='amount')
             await callback_query.message.edit_text(
                 "💰 **Summani tahrirlash**\n\nYangi summani kiriting:",
@@ -7400,34 +7400,7 @@ async def handle_transaction_callback(callback_query: CallbackQuery, state: FSMC
         
         # Izoh tahrirlash
         if callback_data.startswith("trans_edit_description_"):
-            # Callback data format: trans_edit_description_{trans_id}
-            parts = callback_data.split("_")
-            if len(parts) >= 4:
-                try:
-                    trans_id = int(parts[3])
-                    # Database dan tekshiramiz
-                    trans_query = "SELECT * FROM transactions WHERE id = %s AND user_id = %s"
-                    trans = await db.execute_one(trans_query, (trans_id, user_id))
-                    if not trans:
-                        await callback_query.answer("❌ Tranzaksiya topilmadi", show_alert=True)
-                        return
-                except (ValueError, IndexError):
-                    await callback_query.answer("❌ Noto'g'ri format", show_alert=True)
-                    return
-            else:
-                # saved_transactions dan trans_id ni topish
-                data = await state.get_data()
-                saved_transactions = data.get('saved_transaction_ids', [])
-                editing_trans_id = data.get('editing_transaction_id')
-                if editing_trans_id:
-                    trans_id = editing_trans_id
-                elif saved_transactions and len(saved_transactions) >= 1:
-                    trans = saved_transactions[0]
-                    trans_id = trans.get('id')
-                else:
-                    await callback_query.answer("❌ Tranzaksiya topilmadi", show_alert=True)
-                    return
-            
+            trans_id = int(callback_data.split("_")[3])
             await state.update_data(editing_transaction_id=trans_id, editing_field='description')
             await callback_query.message.edit_text(
                 "📝 **Izohni tahrirlash**\n\nYangi izohni kiriting:",
@@ -7437,6 +7410,38 @@ async def handle_transaction_callback(callback_query: CallbackQuery, state: FSMC
                 ])
             )
             await state.set_state(UserStates.waiting_for_trans_edit_description)
+            await callback_query.answer()
+            return
+        
+        # Eslatma tahrirlash
+        if callback_data.startswith("reminder_edit_"):
+            reminder_id = int(callback_data.split("_")[2])
+            await callback_query.message.edit_text(
+                "🚧 **Tez orada**\n\nBu funksiya tez orada qo'shiladi.",
+                parse_mode='Markdown',
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⬅️ Orqaga", callback_data="back_to_transaction")]
+                ])
+            )
+            await callback_query.answer()
+            return
+        
+        # Eslatma o'chirish
+        if callback_data.startswith("reminder_delete_"):
+            reminder_id = int(callback_data.split("_")[2])
+            # Database dan eslatmani o'chirish
+            try:
+                await db.execute_query(
+                    "DELETE FROM reminders WHERE id = %s AND user_id = %s",
+                    (reminder_id, user_id)
+                )
+                await callback_query.message.edit_text(
+                    "✅ **Eslatma o'chirildi!**",
+                    parse_mode='Markdown'
+                )
+            except Exception as e:
+                logging.error(f"Eslatma o'chirishda xatolik: {e}")
+                await callback_query.answer("❌ Eslatma o'chirishda xatolik yuz berdi", show_alert=True)
             await callback_query.answer()
             return
         

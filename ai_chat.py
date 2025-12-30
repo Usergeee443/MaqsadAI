@@ -963,17 +963,38 @@ XABAR: "{message}"
 BUGUNGI SANGA: {current_date} ({current_weekday})
 HOZIRGI VAQT: {current_time}
 
-MUHIM QOIDA: Agar xabarda vaqt (08:00, 12:00, soat 8) VA/YOKI sana (ertaga, bugun, keyin) VA/YOKI joy (Makrab, bank, do'kon) bo'lsa VA "borish", "ketish", "meeting", "uchrashuv", "dars" kabi so'zlar bo'lsa, bu ES LATMA!
+MUHIM QOIDALAR (ESLATMA ANIQLASH UCHUN - MUHIM!):
+1. Agar xabarda vaqt (08:00, 12:00, 20:00, soat 8, 11:00 da, 20:00 da) VA/YOKI sana (ertaga, bugun, keyin, yarim, oy oxiri) VA/YOKI joy (Makrab, bank, do'kon, duxtir, shifokor, Dastuchi) bo'lsa VA "borish", "ketish", "meeting", "uchrashuv", "dars", "eslatasan", "eslat", "kerak", "ko'rishisim", "ko'rishish" kabi so'zlar bo'lsa, bu ESLATMA!
+2. "Bugun 20:00 da Dastuchi bilan ko'rishisim kerak esalatasan" → ESLATMA! (vaqt + joy + "ko'rishisim" + "eslatasan" + "kerak")
+3. "Ertaga 11:00 da Duxtirga borishim kerak eslatasan" → ESLATMA! (vaqt + joy + "borishim" + "eslatasan")
+4. "Ertaga 12:00 da meeting bor" → ESLATMA! (sana + vaqt + "meeting")
+5. "Ertaga 12:00 da meeting bo" → ESLATMA! (sana + vaqt + "meeting" - to'liq yozilmagan bo'lsa ham)
+6. "Har dushanba 19:00 darsim bor" → ESLATMA! (takrorlanuvchi + vaqt + "darsim")
+7. "28-dekabr mijoz bilan uchrashuv" → ESLATMA! (sana + "uchrashuv")
+8. "100 000 so'mga non oldim" → ESLATMA EMAS! (faqat tranzaksiya, eslatma yo'q)
+9. "Ertaga 11:00 da Duxtirga borishim kerak" → ESLATMA! (vaqt + joy + "borishim" + "kerak")
+10. MUHIM: Agar xabarda "eslatasan", "eslat", "kerak", "ko'rishisim", "ko'rishish", "borishim", "ketishim" kabi so'zlar bo'lsa, bu ESLATMA!
+11. MUHIM: Agar xabarda vaqt (masalan: 20:00, 12:00) VA shaxs ismi (masalan: Dastuchi) VA "ko'rishish", "ko'rishisim", "uchrashuv", "meeting" kabi so'zlar bo'lsa, bu ESLATMA!
+12. MUHIM: Agar xabarda "meeting" so'zi bo'lsa, bu ESLATMA! (hatto to'liq yozilmagan bo'lsa ham: "meeting bo", "meeting bor")
 
 MISOL XABARLAR VA JAVOBI:
 
 1. "Ertaga 12:00 da meeting bor" 
 → {{"has_reminder": true, "reminder_type": "meeting", "title": "Meeting", "date": "{tomorrow_str}", "time": "12:00", "location": null, "person_name": null}}
 
-2. "Ertaga 08:00 Makrabga borishim kerak eslatasan"
+2. "Ertaga 12:00 da meeting bo"
+→ {{"has_reminder": true, "reminder_type": "meeting", "title": "Meeting", "date": "{tomorrow_str}", "time": "12:00", "location": null, "person_name": null}}
+
+3. "Bugun 20:00 da Dastuchi bilan ko'rishisim kerak esalatasan"
+→ {{"has_reminder": true, "reminder_type": "meeting", "title": "Dastuchi bilan ko'rishish", "date": "{current_date}", "time": "20:00", "location": null, "person_name": "Dastuchi"}}
+
+4. "Ertaga 08:00 Makrabga borishim kerak eslatasan"
 → {{"has_reminder": true, "reminder_type": "task", "title": "Makrabga borish", "date": "{tomorrow_str}", "time": "08:00", "location": "Makrab", "person_name": null}}
 
-3. "100 000 so'mga non oldim"
+5. "Ertaga 11:00 da Duxtirga borishim kerak eslatasan"
+→ {{"has_reminder": true, "reminder_type": "task", "title": "Duxtirga borish", "date": "{tomorrow_str}", "time": "11:00", "location": "Duxtir", "person_name": null}}
+
+6. "100 000 so'mga non oldim"
 → {{"has_reminder": false}}
 
 AGAR ES LATMA BOR BO'LSA, QUYIDAGI JSON QAYTARING:
@@ -1016,24 +1037,32 @@ FAQAT JSON QAYTARING, HECH QANDAY IZOH YOZMA."""
                 response = await self.openai_client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
-                        {"role": "system", "content": "Sen DONA AI - eslatmalarni aniqlash yordamchisisiz. Xabardan sana, vaqt, joy, shaxs va vazifani aniqlab, JSON formatida qaytarasan. Faqat JSON qaytarasan. Agar xabarda 'ertaga', 'bugun', 'borishim', 'ketishim', 'meeting', vaqt yoki joy bo'lsa, bu ES LATMA."},
+                        {"role": "system", "content": "Sen DONA AI - eslatmalarni aniqlash yordamchisisiz. Xabardan sana, vaqt, joy, shaxs va vazifani aniqlab, JSON formatida qaytarasan. Faqat JSON qaytarasan. MUHIM: Agar xabarda 'ertaga', 'bugun', 'borishim', 'ketishim', 'ko'rishisim', 'ko'rishish', 'meeting', 'eslatasan', 'eslat', 'kerak', vaqt (masalan: 20:00, 12:00) yoki joy (masalan: Dastuchi, Duxtir) bo'lsa, bu ESLATMA! Har doim has_reminder: true qaytarasan."},
                         {"role": "user", "content": reminder_prompt}
                     ],
-                    max_tokens=400,
+                    max_tokens=500,
                     temperature=0.1
                 )
                 ai_response = response.choices[0].message.content
                 logger.info(f"Reminder AI response: {ai_response}")
+                print(f"DEBUG: Reminder AI response: {ai_response}")
             except Exception as e:
-                logger.warning(f"Error calling OpenAI for reminder: {e}")
+                logger.error(f"Error calling OpenAI for reminder: {e}")
+                print(f"DEBUG: Error calling OpenAI for reminder: {e}")
                 # Xatolik bo'lsa ham None qaytaramiz, lekin xatolikni log qilamiz
                 ai_response = None
+                import traceback
+                logger.error(f"Reminder detection traceback: {traceback.format_exc()}")
             
             if not ai_response:
+                logger.warning(f"Reminder AI response is None for message: {message}")
+                print(f"DEBUG: Reminder AI response is None for message: {message}")
                 return None
             
             # JSON ni parse qilish
             import json
+            print(f"DEBUG: Parsing reminder AI response: {ai_response[:200]}")
+            
             if "```json" in ai_response:
                 ai_response = ai_response.split("```json")[1].split("```")[0].strip()
             elif "```" in ai_response:
@@ -1048,9 +1077,11 @@ FAQAT JSON QAYTARING, HECH QANDAY IZOH YOZMA."""
                 result = json.loads(ai_response)
                 
                 logger.info(f"Parsed reminder result: {result}")
+                print(f"DEBUG: Parsed reminder result: {result}")
                 
                 if not result.get('has_reminder'):
                     logger.info(f"Reminder not detected - has_reminder is False: {result}")
+                    print(f"DEBUG: Reminder not detected - has_reminder is False: {result}")
                     return None
                 
                 # Sana aniqlash
@@ -1162,10 +1193,16 @@ FAQAT JSON QAYTARING, HECH QANDAY IZOH YOZMA."""
                 
             except Exception as e:
                 logger.error(f"Error parsing reminder JSON: {e}, response: {ai_response}")
+                print(f"DEBUG: Error parsing reminder JSON: {e}, response: {ai_response}")
+                import traceback
+                logger.error(f"Reminder JSON parse traceback: {traceback.format_exc()}")
                 return None
                 
         except Exception as e:
             logger.error(f"Error detecting reminder: {e}")
+            print(f"DEBUG: Error detecting reminder: {e}")
+            import traceback
+            logger.error(f"Reminder detection error traceback: {traceback.format_exc()}")
             return None
     
     async def detect_and_save_transaction(self, message: str, user_id: int) -> Optional[Dict]:
