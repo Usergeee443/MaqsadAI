@@ -7358,7 +7358,34 @@ async def handle_transaction_callback(callback_query: CallbackQuery, state: FSMC
         
         # Summa tahrirlash
         if callback_data.startswith("trans_edit_amount_"):
-            trans_id = int(callback_data.split("_")[3])
+            # Callback data format: trans_edit_amount_{trans_id}
+            parts = callback_data.split("_")
+            if len(parts) >= 4:
+                try:
+                    trans_id = int(parts[3])
+                    # Database dan tekshiramiz
+                    trans_query = "SELECT * FROM transactions WHERE id = %s AND user_id = %s"
+                    trans = await db.execute_one(trans_query, (trans_id, user_id))
+                    if not trans:
+                        await callback_query.answer("❌ Tranzaksiya topilmadi", show_alert=True)
+                        return
+                except (ValueError, IndexError):
+                    await callback_query.answer("❌ Noto'g'ri format", show_alert=True)
+                    return
+            else:
+                # saved_transactions dan trans_id ni topish
+                data = await state.get_data()
+                saved_transactions = data.get('saved_transaction_ids', [])
+                editing_trans_id = data.get('editing_transaction_id')
+                if editing_trans_id:
+                    trans_id = editing_trans_id
+                elif saved_transactions and len(saved_transactions) >= 1:
+                    trans = saved_transactions[0]
+                    trans_id = trans.get('id')
+                else:
+                    await callback_query.answer("❌ Tranzaksiya topilmadi", show_alert=True)
+                    return
+            
             await state.update_data(editing_transaction_id=trans_id, editing_field='amount')
             await callback_query.message.edit_text(
                 "💰 **Summani tahrirlash**\n\nYangi summani kiriting:",
@@ -7373,7 +7400,34 @@ async def handle_transaction_callback(callback_query: CallbackQuery, state: FSMC
         
         # Izoh tahrirlash
         if callback_data.startswith("trans_edit_description_"):
-            trans_id = int(callback_data.split("_")[3])
+            # Callback data format: trans_edit_description_{trans_id}
+            parts = callback_data.split("_")
+            if len(parts) >= 4:
+                try:
+                    trans_id = int(parts[3])
+                    # Database dan tekshiramiz
+                    trans_query = "SELECT * FROM transactions WHERE id = %s AND user_id = %s"
+                    trans = await db.execute_one(trans_query, (trans_id, user_id))
+                    if not trans:
+                        await callback_query.answer("❌ Tranzaksiya topilmadi", show_alert=True)
+                        return
+                except (ValueError, IndexError):
+                    await callback_query.answer("❌ Noto'g'ri format", show_alert=True)
+                    return
+            else:
+                # saved_transactions dan trans_id ni topish
+                data = await state.get_data()
+                saved_transactions = data.get('saved_transaction_ids', [])
+                editing_trans_id = data.get('editing_transaction_id')
+                if editing_trans_id:
+                    trans_id = editing_trans_id
+                elif saved_transactions and len(saved_transactions) >= 1:
+                    trans = saved_transactions[0]
+                    trans_id = trans.get('id')
+                else:
+                    await callback_query.answer("❌ Tranzaksiya topilmadi", show_alert=True)
+                    return
+            
             await state.update_data(editing_transaction_id=trans_id, editing_field='description')
             await callback_query.message.edit_text(
                 "📝 **Izohni tahrirlash**\n\nYangi izohni kiriting:",

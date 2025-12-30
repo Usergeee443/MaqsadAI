@@ -157,8 +157,8 @@ class FinancialModule:
             if not transcribed_text or not transcribed_text.strip():
                 return {
                     "success": False,
-                    "message": "❌ Ovozli xabarni qayta ishlashda xatolik. Iltimos, qaytadan urinib ko'ring."
-                }
+                "message": "❌ Ovozli xabarni qayta ishlashda xatolik. Iltimos, qaytadan urinib ko'ring."
+            }
             
             # Transkriptni AI orqali yaxshilash (uzbek tilini yaxshi tushunish uchun)
             improved_text = await self._improve_transcription_with_ai(transcribed_text)
@@ -519,7 +519,7 @@ BUGUNGI SANGA: {current_date} ({current_year}-yil, {current_month}-oy, {current_
 
 MUHIM SUMMA QOIDALARI:
 - Agar xabarda ANIQ SUMMA bo'lmasa yoki oddiy so'z bo'lsa (ok, ha, yo'q, salom, rahmat, yaxshi), tranzaksiya TOPILMADI deb javob ber:
-  {{"transactions":[],"total_confidence":0}}
+{{"transactions":[],"total_confidence":0}}
 - Agar summa "ming", "million" kabi so'zlarda bo'lsa, uni raqamga o'giring:
   "yigirma besh ming" → 25000
   "ikki yuz ming" → 200000
@@ -529,11 +529,17 @@ MUHIM SUMMA QOIDALARI:
 - Agar summa yo'q bo'lsa, amount: 0 qaytarmang, balki tranzaksiya topilmadi deb qaytaring
 
 QOIDALAR:
-1. TYPE:
-   - "income" = daromad, oylik, ish haqi, maosh, tushdi, keldi
-   - "expense" = xarajat, sotib oldim, ketdi, sarfladim, to'ladim
-   - "debt_lent" = qarz berdim, qarz berish (men berdim)
-   - "debt_borrowed" = qarz oldim, qarz olish (men oldim)
+1. TYPE (MUHIM - ANIQ AJRATISH!):
+   - "income" = daromad, oylik, ish haqi, maosh, tushdi, keldi, pul tushdi, daromad keldi, ish haqi tushdi, maosh tushdi
+   - "expense" = xarajat, sotib oldim, ketdi, sarfladim, to'ladim, berdim, ish haqqini berdim, maosh berdim, to'lov qildim, pul ketdi
+   - "debt_lent" = qarz berdim, qarz berish (men berdim) - MUHIM: "qarz" so'zi bo'lishi SHART!
+   - "debt_borrowed" = qarz oldim, qarz olish (men oldim) - MUHIM: "qarz" so'zi bo'lishi SHART!
+   
+   MUHIM QOIDALAR:
+   - "ish haqqini berdim", "maosh berdim", "ishchimga ish haqqini berdim" → expense (CHIQIM!)
+   - "ish haqi tushdi", "maosh tushdi", "ish haqi keldi" → income (KIRIM!)
+   - "qarz berdim", "qarz oldim" → debt_lent/debt_borrowed (QARZ!) - "qarz" so'zi bo'lishi SHART!
+   - Agar "qarz" so'zi yo'q bo'lsa, qarz emas! Faqat "qarz" so'zi bo'lsa, qarz deb aniqlash!
 
 2. VALYUTA: UZS (default), USD, EUR, RUB, TRY
    - UZS: so'm, som, sum, so'mga, somga, sumga, so'mdan, somdan, sumdan
@@ -689,9 +695,12 @@ MISOLLAR (KATEGORIYALAR ANIQ AJRATILISHI KERAK!):
 "telefon 50k" → {{"transactions":[{{"amount":50000,"type":"expense","category":"Telefon","currency":"UZS"}}]}}
 "fitnes 300k" → {{"transactions":[{{"amount":300000,"type":"expense","category":"Fitnes","currency":"UZS"}}]}}
 "parikmaxona 100k" → {{"transactions":[{{"amount":100000,"type":"expense","category":"Parikmaxona","currency":"UZS"}}]}}
+"100 000 so'm ishchimga ish haqqini berdim" → {{"transactions":[{{"amount":100000,"type":"expense","category":"Boshqa","currency":"UZS","description":"ish haqqini berdim"}}]}}
+"100 000 so'm Husenga ish haaqini berdim" → {{"transactions":[{{"amount":100000,"type":"expense","category":"Boshqa","currency":"UZS","description":"ish haqqini berdim"}}]}}
 "Hasanga 500k qarz berdim" → {{"transactions":[{{"amount":500000,"type":"debt_lent","category":"Qarz berish","currency":"UZS","person_name":"Hasan"}}]}}
 "Komildan 200k qarz oldim" → {{"transactions":[{{"amount":200000,"type":"debt_borrowed","category":"Qarz olish","currency":"UZS","person_name":"Komil"}}]}}
 "Ali dan 100 000 sum qarz oldim keyingi yil 31-dekabrga qayttarishim kerak" → {{"transactions":[{{"amount":100000,"type":"debt_borrowed","category":"Qarz olish","currency":"UZS","person_name":"Ali","due_date":"{current_year + 1}-12-31"}}]}}
+"Hasanga 500k berdim" → {{"transactions":[{{"amount":500000,"type":"expense","category":"Boshqa","currency":"UZS","description":"berdim"}}]}} (qarz emas, chunki "qarz" so'zi yo'q!)
 "sovg'a uchun ichimlik sotib oldim" → {{"transactions":[],"total_confidence":0}} (summa yo'q)
 "yigirma besh ming so'mga ichimlik sotib oldim" → {{"transactions":[{{"amount":25000,"type":"expense","category":"Ovqat","currency":"UZS","description":"ichimlik"}}]}}
 "ikki yuz ming so'mga sovg'a oldim" → {{"transactions":[{{"amount":200000,"type":"expense","category":"Sovg'a","currency":"UZS","description":"sovg'a"}}]}}
@@ -1466,14 +1475,14 @@ JSON formatida qaytaring:
                 },
                 "auto_save": True,  # Barcha tranzaksiyalar avtomatik saqlanadi
                 "buttons_data": {
-                    'confirmed_count': len(confirmed),
-                    'suspected_count': len(suspected), 
-                    'unclear_count': len(unclear),
-                    'total_count': len(all_transactions),
-                    'transactions': all_transactions,
-                    'user_id': user_id,
-                    'original_text': original_text
-                }
+                'confirmed_count': len(confirmed),
+                'suspected_count': len(suspected), 
+                'unclear_count': len(unclear),
+                'total_count': len(all_transactions),
+                'transactions': all_transactions,
+                'user_id': user_id,
+                'original_text': original_text
+            }
             }
             
         except Exception as e:
