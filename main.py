@@ -1196,78 +1196,24 @@ async def start_command(message: types.Message, state: FSMContext):
         tx_result = await db.execute_one(tx_count_query, (user_id,))
         has_any_transactions = (tx_result.get('count', 0) > 0) if tx_result else False
 
-    # Eski onboarding logikasini tekshirish
-    # Agar foydalanuvchi onboarding jarayonida bo'lsa, qayerda to'xtagan bo'lsa o'sha yerdan davom etadi
+    # Eski onboarding logikasi olib tashlandi - endi barcha ma'lumotlar mini app da to'ldiriladi
     current_state = await state.get_state()
     
-    # Agar state yo'q bo'lsa (restart dan keyin), bazadan tekshirish
-    if not current_state and user_data:
-        # Qayerda to'xtaganini aniqlash
-        if user_data.get('phone') and not has_initial_balance:
-            # Onboarding yarim qolgan
-            if not user_data.get('name'):
-                current_state = UserStates.waiting_for_name
-            elif not user_data.get('source'):
-                current_state = UserStates.waiting_for_source
-            elif not user_data.get('account_type'):
-                current_state = UserStates.waiting_for_account_type
-            else:
-                current_state = UserStates.onboarding_balance
-            # State ni o'rnatish
-            await state.set_state(current_state)
-    
-    # Onboarding holatlarini tekshirish
-    if current_state in [UserStates.onboarding_balance, UserStates.onboarding_waiting_for_debt_action, 
-                        UserStates.onboarding_debt_waiting_for_person, UserStates.onboarding_debt_waiting_for_amount]:
-        # Foydalanuvchi onboarding jarayonida - qayerda to'xtagan bo'lsa o'sha yerdan davom etadi
-        if current_state == UserStates.onboarding_balance:
-            await message.answer_photo(
-                photo=FSInputFile('welcome.png'),
-                caption=(
-                    "💰 **1-qadam: Boshlang'ich balans**\n\n"
-                    "Qancha pulingiz bor? (naqd pul + karta)\n\n"
-                    "Masalan: 500000 (agar 500,000 so'm bo'lsa)"
-                ),
-                reply_markup=ReplyKeyboardRemove(),
-                parse_mode='Markdown'
-            )
-        elif current_state == UserStates.onboarding_waiting_for_debt_action:
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="➕ Qarz berganman", callback_data="onboarding_debt_lent")],
-                [InlineKeyboardButton(text="❌ Qarzlar yo'q", callback_data="onboarding_no_debts")]
-            ])
-            await message.answer_photo(
-                photo=FSInputFile('welcome.png'),
-                caption=(
-                    "💳 **2-qadam: Qarzlar holati**\n\n"
-                    "Kimga qarz berganmisiz yoki kimdan qarzdormisiz?"
-                ),
-                reply_markup=keyboard,
-                parse_mode='Markdown'
-            )
-        elif current_state == UserStates.onboarding_debt_waiting_for_person:
-            await message.answer_photo(
-                photo=FSInputFile('welcome.png'),
-                caption=(
-                    "💸 **Qarz bergan odam ismini kiriting:**\n\n"
-                    "Masalan: Akmal, Oila, Do'st, va h.k."
-                ),
-                reply_markup=ReplyKeyboardRemove(),
-                parse_mode='Markdown'
-            )
-        elif current_state == UserStates.onboarding_debt_waiting_for_amount:
-            data = await state.get_data()
-            person_name = data.get('debt_person', 'Noma\'lum')
-            await message.answer_photo(
-                photo=FSInputFile('welcome.png'),
-                caption=(
-                    f"💰 **{person_name}ga qancha qarz berganmisiz?**\n\n"
-                    "Masalan: 100000 (agar 100,000 so'm bo'lsa)"
-                ),
-                reply_markup=ReplyKeyboardRemove(),
-                parse_mode='Markdown'
-            )
-        return
+    # Eski onboarding state'larini tozalash (agar mavjud bo'lsa)
+    old_onboarding_states = [
+        UserStates.waiting_for_name.state,
+        UserStates.waiting_for_source.state,
+        UserStates.waiting_for_account_type.state,
+        UserStates.onboarding_balance.state,
+        UserStates.onboarding_waiting_for_debt_action.state,
+        UserStates.onboarding_debt_waiting_for_person.state,
+        UserStates.onboarding_debt_waiting_for_amount.state,
+        UserStates.onboarding_debt_waiting_for_due_date.state,
+        UserStates.waiting_for_initial_card.state,
+        UserStates.waiting_for_debt_type.state
+    ]
+    if current_state in old_onboarding_states:
+        await state.clear()
     
     # Agar foydalanuvchi onboarding yakunlagan bo'lsa
     if has_initial_balance or has_any_transactions:
@@ -1371,115 +1317,45 @@ async def start_command(message: types.Message, state: FSMContext):
         )
         return
 
-    # 2.2) Agar onboarding jarayonida bo'lsa -> davom etish
-    # OnboardingState holatlari uchun
-    if current_state == OnboardingState.waiting_for_income.state:
-        await message.answer(
-            "📊 **Onboarding bosqichi 1/3**\n\n"
-            "Oylik daromadingizni kiriting (so'mda):\n\n"
-            "Misol: 5000000",
-            parse_mode='Markdown'
-        )
-        return
-    elif current_state == OnboardingState.waiting_for_balance.state:
-        await message.answer(
-            "💰 **Onboarding bosqichi 2/3**\n\n"
-            "Hozirgi balansingizni kiriting (so'mda):\n\n"
-            "Misol: 2000000",
-            parse_mode='Markdown'
-        )
-        return
-    elif current_state == OnboardingState.waiting_for_debts.state:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Qarz berganman", callback_data="onboarding_debt_lent")],
-            [InlineKeyboardButton(text="➖ Qarz olganman", callback_data="onboarding_debt_borrowed")],
-            [InlineKeyboardButton(text="❌ Qarzlar yo'q", callback_data="onboarding_no_debts")]
-        ])
-        await message.answer(
-            "💳 **Onboarding bosqichi 3/3**\n\n"
-            "Qarzlar holatingizni belgilang:",
-            parse_mode='Markdown',
-            reply_markup=keyboard
-        )
-        return
-    
-    # UserStates holatlari uchun
-    if current_state == UserStates.waiting_for_name.state:
-        _msg = await message.answer_photo(
-            photo=FSInputFile('what_is_your_name.png'),
-            caption=(
-                "Sizni nima deb chaqiray? (Ismingizni kiriting yoki 'Xojayin' deb chaqishim mumkin)"
-            ),
-            reply_markup=ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text="Xojayin deb chaqir")]],
-                resize_keyboard=True
-            ),
-            parse_mode="Markdown"
-        )
-        try:
-            await state.update_data(onboarding_last_prompt_id=_msg.message_id)
-        except Exception:
-            pass
-        return
-    if current_state == UserStates.waiting_for_source.state:
-        _msg = await message.answer_photo(
-            photo=FSInputFile('where_did_you_hear_us.png'),
-            caption=("Bizni qayerda eshitdingiz?"),
-            reply_markup=get_source_menu(),
-            parse_mode="Markdown"
-        )
-        try:
-            await state.update_data(onboarding_last_prompt_id=_msg.message_id)
-        except Exception:
-            pass
-        return
-    if current_state == UserStates.waiting_for_account_type.state:
-        _msg = await message.answer_photo(
-            photo=FSInputFile('hisob_turini_tanlang.png'),
-            caption=(
-                "🏢 **Hisob turini tanlang**\n\n"
-                "Iltimos, hisobingiz uchun mos turini tanlang:"
-            ),
-            reply_markup=get_account_type_menu(),
-            parse_mode="Markdown"
-        )
-        try:
-            await state.update_data(onboarding_last_prompt_id=_msg.message_id)
-        except Exception:
-            pass
-        return
-    if current_state == UserStates.waiting_for_initial_card.state:
-        await message.answer(
-            "💳 2-qadam: Karta balansini kiriting.\nMasalan: 0 yoki 200000",
-            parse_mode="Markdown"
-        )
-        return
-    if current_state == UserStates.onboarding_waiting_for_debt_action.state:
-        await message.answer(
-            "📒 3-qadam: Mavjud qarzlaringizni kiriting yoki tugallang.",
-            reply_markup=get_onboarding_debt_menu()
-        )
-        return
-    if current_state == UserStates.waiting_for_debt_type.state:
-        await message.answer(
-            "Qarz turini tanlang:",
-            reply_markup=get_debt_type_menu()
-        )
-        return
-    if current_state == UserStates.onboarding_debt_waiting_for_person.state:
-        await message.answer("Qarz bo'yicha shaxs/izohni kiriting (masalan: Ali yoki Elektr hisob).")
-        return
-    if current_state == UserStates.onboarding_debt_waiting_for_amount.state:
-        await message.answer("Qarz summasini kiriting (faqat son).")
-        return
-    if current_state == UserStates.onboarding_debt_waiting_for_due_date.state:
-        await message.answer("Qaytarish sanasini kiriting (YYYY-MM-DD) yoki 'skip'.")
-        return
+    # Eski onboarding state'lari olib tashlandi - endi barcha ma'lumotlar mini app da to'ldiriladi
 
 
-    # 4) Aks holda, asosiy menyuni ko'rsatish
-    if user_data and user_data.get('phone') and (await state.get_state()) != UserStates.waiting_for_tariff.state:
-        # Eski foydalanuvchi - asosiy menyuni ko'rsatish
+    # 4) Telefon raqam bor, lekin ro'yxatdan to'liq o'tilmagan bo'lsa -> mini app tugmasi
+    if user_data and user_data.get('phone'):
+        # Ro'yxatdan to'liq o'tilganligini tekshirish
+        # Agar name, source, account_type yoki onboarding to'ldirilmagan bo'lsa
+        is_registration_complete = (
+            user_data.get('name') and 
+            user_data.get('name') != 'Xojayin' and
+            user_data.get('source') and
+            user_data.get('account_type') and
+            has_initial_balance  # Onboarding yakunlangan
+        )
+        
+        if not is_registration_complete:
+            # Ro'yxatdan to'liq o'tilmagan - mini app tugmasi berish
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="📱 Ro'yxatdan o'tishni davom ettirish",
+                    web_app=WebAppInfo(url="https://balansai-app.onrender.com/register")
+                )]
+            ])
+            
+            await message.answer(
+                "⚠️ **Ro'yxatdan o'tish yakunlanmagan**\n\n"
+                "Botdan foydalanish uchun barcha ma'lumotlarni to'ldirishingiz kerak:\n\n"
+                "• Ism\n"
+                "• Yosh\n"
+                "• Sozlamalar\n"
+                "• Onboarding\n"
+                "• Tarif tanlash\n\n"
+                "Quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+            return
+        
+        # Ro'yxatdan to'liq o'tilgan - asosiy menyuni ko'rsatish
         user_name = await get_user_name(user_id)
         user_tariff = await get_user_tariff(user_id)
         
@@ -1587,20 +1463,28 @@ async def process_phone(message: types.Message, state: FSMContext):
     except:
         pass
     
-    # Ism so'rash
-    _msg = await message.answer_photo(
-        photo=FSInputFile('what_is_your_name.png'),
-        caption=(
-            "👋 **Keling tanishib olsak!**\n\n"
-            "Ismingizni kiriting yoki /skip yuboring."
-        ),
+    # Mini app ochish uchun tugma berish
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="📱 Ro'yxatdan o'tishni davom ettirish",
+            web_app=WebAppInfo(url="https://balansai-app.onrender.com/register")
+        )]
+    ])
+    
+    await message.answer(
+        "✅ **Telefon raqamingiz qabul qilindi!**\n\n"
+        "Endi ro'yxatdan o'tishni davom ettirish uchun quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:\n\n"
+        "• Ism\n"
+        "• Yosh\n"
+        "• Sozlamalar\n"
+        "• Onboarding\n"
+        "• Tarif tanlash\n\n"
+        "Barcha ma'lumotlar to'ldirilgandan keyin botdan foydalanishga ruxsat beriladi.",
+        reply_markup=keyboard,
         parse_mode="Markdown"
     )
-    try:
-        await state.update_data(name_request_msg_id=_msg.message_id)
-    except Exception:
-        pass
-    await state.set_state(UserStates.waiting_for_name)
+    
+    await state.clear()
 
 # Ism qabul qilish
 @dp.message(UserStates.waiting_for_name)
@@ -5802,6 +5686,36 @@ async def confirm_leave_team_callback(callback_query: CallbackQuery):
         await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
 
 # MAX tarif - AI chat (real-time muloqot)
+# Ro'yxatdan to'liq o'tilganligini tekshirish funksiyasi
+async def check_registration_complete(user_id: int) -> bool:
+    """Foydalanuvchi ro'yxatdan to'liq o'tganligini tekshirish"""
+    try:
+        user_data = await db.get_user_data(user_id)
+        if not user_data or not user_data.get('phone'):
+            return False
+        
+        # Onboarding yakunlanganligini tekshirish
+        balance_query = """
+        SELECT COUNT(*) as count FROM transactions 
+        WHERE user_id = %s AND category IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
+        """
+        result = await db.execute_one(balance_query, (user_id,))
+        has_initial_balance = result.get('count', 0) > 0 if result else False
+        
+        # Barcha kerakli ma'lumotlar to'ldirilganligini tekshirish
+        is_complete = (
+            user_data.get('name') and 
+            user_data.get('name') != 'Xojayin' and
+            user_data.get('source') and
+            user_data.get('account_type') and
+            has_initial_balance
+        )
+        
+        return is_complete
+    except Exception as e:
+        logging.error(f"Registration check error: {e}")
+        return False
+
 @dp.message(lambda message: message.text and not message.text.startswith('/') and message.text not in [
     "📊 Hisobotlar", "👤 Profil", "➕ Kirim", "➖ Chiqim", "💳 Qarzlar", 
     "➕ Xodim qo'shish", "❌ Bekor qilish", "📦 Ombor", "🤖 AI Chat", 
@@ -5810,6 +5724,29 @@ async def confirm_leave_team_callback(callback_query: CallbackQuery):
 async def process_financial_message(message: types.Message, state: FSMContext):
     """MAX va FREE tariflar uchun AI chat"""
     user_id = message.from_user.id
+    
+    # Ro'yxatdan to'liq o'tilganligini tekshirish
+    is_registered = await check_registration_complete(user_id)
+    if not is_registered:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="📱 Ro'yxatdan o'tishni davom ettirish",
+                web_app=WebAppInfo(url="https://balansai-app.onrender.com/register")
+            )]
+        ])
+        await message.answer(
+            "⚠️ **Ro'yxatdan o'tish yakunlanmagan**\n\n"
+            "Botdan foydalanish uchun barcha ma'lumotlarni to'ldirishingiz kerak:\n\n"
+            "• Ism\n"
+            "• Yosh\n"
+            "• Sozlamalar\n"
+            "• Onboarding\n"
+            "• Tarif tanlash\n\n"
+            "Quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        return
     
     # Onboarding state'larda xabar qabul qilinmasligi kerak
     current_state = await state.get_state()
