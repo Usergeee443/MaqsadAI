@@ -1323,12 +1323,10 @@ async def start_command(message: types.Message, state: FSMContext):
     # 4) Telefon raqam bor, lekin ro'yxatdan to'liq o'tilmagan bo'lsa -> mini app tugmasi
     if user_data and user_data.get('phone'):
         # Ro'yxatdan to'liq o'tilganligini tekshirish
-        # Agar name, source, account_type yoki onboarding to'ldirilmagan bo'lsa
+        # Faqat asosiy maydonlarni tekshiramiz: ism, telefon, onboarding
         is_registration_complete = (
-            user_data.get('name') and 
+            user_data.get('name') and
             user_data.get('name') != 'Xojayin' and
-            user_data.get('source') and
-            user_data.get('account_type') and
             has_initial_balance  # Onboarding yakunlangan
         )
         
@@ -1343,13 +1341,10 @@ async def start_command(message: types.Message, state: FSMContext):
             
             await message.answer(
                 "⚠️ **Ro'yxatdan o'tish yakunlanmagan**\n\n"
-                "Botdan foydalanish uchun barcha ma'lumotlarni to'ldirishingiz kerak:\n\n"
-                "• Ism\n"
-                "• Yosh\n"
-                "• Sozlamalar\n"
-                "• Onboarding\n"
-                "• Tarif tanlash\n\n"
-                "Quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:",
+                "Botdan foydalanish uchun ro'yxatdan o'tishni yakunlashingiz kerak:\n\n"
+                "• Ismingizni kiriting\n"
+                "• Boshlang'ich balansni belgilang (onboarding)\n\n"
+                "Quyidagi tugmani bosing va ro'yxatdan o'tishni yakunlang:",
                 reply_markup=keyboard,
                 parse_mode="Markdown"
             )
@@ -5693,24 +5688,23 @@ async def check_registration_complete(user_id: int) -> bool:
         user_data = await db.get_user_data(user_id)
         if not user_data or not user_data.get('phone'):
             return False
-        
+
         # Onboarding yakunlanganligini tekshirish
         balance_query = """
-        SELECT COUNT(*) as count FROM transactions 
+        SELECT COUNT(*) as count FROM transactions
         WHERE user_id = %s AND category IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
         """
         result = await db.execute_one(balance_query, (user_id,))
         has_initial_balance = result.get('count', 0) > 0 if result else False
-        
+
         # Barcha kerakli ma'lumotlar to'ldirilganligini tekshirish
+        # Faqat asosiy maydonlarni tekshiramiz: ism, telefon, onboarding
         is_complete = (
-            user_data.get('name') and 
+            user_data.get('name') and
             user_data.get('name') != 'Xojayin' and
-            user_data.get('source') and
-            user_data.get('account_type') and
-            has_initial_balance
+            has_initial_balance  # Onboarding yakunlangan
         )
-        
+
         return is_complete
     except Exception as e:
         logging.error(f"Registration check error: {e}")
@@ -5736,13 +5730,10 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         ])
         await message.answer(
             "⚠️ **Ro'yxatdan o'tish yakunlanmagan**\n\n"
-            "Botdan foydalanish uchun barcha ma'lumotlarni to'ldirishingiz kerak:\n\n"
-            "• Ism\n"
-            "• Yosh\n"
-            "• Sozlamalar\n"
-            "• Onboarding\n"
-            "• Tarif tanlash\n\n"
-            "Quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:",
+            "Botdan foydalanish uchun ro'yxatdan o'tishni yakunlashingiz kerak:\n\n"
+            "• Ismingizni kiriting\n"
+            "• Boshlang'ich balansni belgilang (onboarding)\n\n"
+            "Quyidagi tugmani bosing va ro'yxatdan o'tishni yakunlang:",
             reply_markup=keyboard,
             parse_mode="Markdown"
         )
