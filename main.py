@@ -4905,7 +4905,7 @@ async def business_reports_handler(message: types.Message, state: FSMContext):
     reports_menu.inline_keyboard.insert(0, [
         InlineKeyboardButton(
             text="📱 To'liq ko'rish", 
-            web_app=WebAppInfo(url="https://balansai-biznes-app.onrender.com")
+            web_app=WebAppInfo(url="https://balansai-app.onrender.com")
         )
     ])
     
