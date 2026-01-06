@@ -118,8 +118,9 @@ async def ensure_tariff_valid(user_id: int) -> None:
             return
         current = user_data.get('tariff') or 'NONE'
         expires = user_data.get('tariff_expires_at')
-        if current not in ('NONE', 'FREE') and expires:
-            # Agar muddat tugagan bo‘lsa, tarifni deaktiv qilamiz
+        # Agar tariff_expires_at NULL bo'lsa, tarifni doimiy deb hisoblaymiz (masalan, BUSINESS)
+        if current not in ('NONE', 'FREE') and expires is not None:
+            # Agar muddat tugagan bo'lsa, tarifni deaktiv qilamiz
             from datetime import datetime as _dt
             if isinstance(expires, str):
                 # MySQL connector qaytargan formatlarga ehtiyot chorasi
@@ -1322,17 +1323,19 @@ async def start_command(message: types.Message, state: FSMContext):
 
     # 4) Telefon raqam bor, lekin ro'yxatdan to'liq o'tilmagan bo'lsa -> mini app tugmasi
     if user_data and user_data.get('phone'):
-        # Ro'yxatdan to'liq o'tilganligini tekshirish
-        # Agar name, source, account_type yoki onboarding to'ldirilmagan bo'lsa
-        is_registration_complete = (
-            user_data.get('name') and 
-            user_data.get('name') != 'Xojayin' and
-            user_data.get('source') and
-            user_data.get('account_type') and
-            has_initial_balance  # Onboarding yakunlangan
-        )
+        # Ro'yxatdan to'liq o'tilganligini tekshirish (check_registration_complete funksiyasidan foydalanish)
+        is_registration_complete = await check_registration_complete(user_id)
         
         if not is_registration_complete:
+            # Debug: qaysi ma'lumotlar yetishmayotganini aniqlash
+            missing_fields = []
+            if not user_data.get('name') or user_data.get('name') == 'Xojayin':
+                missing_fields.append('Ism')
+            if not user_data.get('source'):
+                missing_fields.append('Manba')
+            if not user_data.get('account_type'):
+                missing_fields.append('Hisob turi')
+            
             # Ro'yxatdan to'liq o'tilmagan - mini app tugmasi berish
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
@@ -1341,20 +1344,19 @@ async def start_command(message: types.Message, state: FSMContext):
                 )]
             ])
             
-            await message.answer(
-                "⚠️ **Ro'yxatdan o'tish yakunlanmagan**\n\n"
-                "Botdan foydalanish uchun barcha ma'lumotlarni to'ldirishingiz kerak:\n\n"
-                "• Ism\n"
-                "• Yosh\n"
-                "• Sozlamalar\n"
-                "• Onboarding\n"
-                "• Tarif tanlash\n\n"
-                "Quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:",
+            missing_text = "\n".join([f"• {field}" for field in missing_fields]) if missing_fields else "• Ma'lumotlar"
+            
+        await message.answer(
+                f"⚠️ **Ro'yxatdan o'tish yakunlanmagan**\n\n"
+                f"Botdan foydalanish uchun quyidagi ma'lumotlarni to'ldirishingiz kerak:\n\n"
+                f"{missing_text}\n\n"
+                f"Quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:",
                 reply_markup=keyboard,
-                parse_mode="Markdown"
-            )
-            return
-        
+            parse_mode="Markdown"
+        )
+        logging.info(f"User {user_id} registration incomplete. Missing: {missing_fields}, user_data: name={user_data.get('name')}, source={user_data.get('source')}, account_type={user_data.get('account_type')}")
+        return
+
         # Ro'yxatdan to'liq o'tilgan - asosiy menyuni ko'rsatish
         user_name = await get_user_name(user_id)
         user_tariff = await get_user_tariff(user_id)
@@ -2726,11 +2728,11 @@ async def reports_menu(message: types.Message, state: FSMContext):
         return
     
     try:
-        # Ko'p valyutali balans ma'lumotlarini olish
+    # Ko'p valyutali balans ma'lumotlarini olish
         multi_balance = await db.get_balance_multi_currency(user_id)
         total_uzs = multi_balance.get('total_uzs', {})
         by_currency = multi_balance.get('by_currency', {})
-        
+    
         # Eng oxirgi 3 ta tranzaksiyani olish
         recent_query = """
             SELECT 
@@ -2762,7 +2764,7 @@ async def reports_menu(message: types.Message, state: FSMContext):
             safe_message += "💱 <b>Valyutalar bo'yicha:</b>\n"
             currency_symbols = {'UZS': "🇺🇿", 'USD': "🇺🇸", 'EUR': "🇪🇺", 'RUB': "🇷🇺", 'TRY': "🇹🇷"}
             currency_names = {'UZS': "so'm", 'USD': "dollar", 'EUR': "evro", 'RUB': "rubl", 'TRY': "lira"}
-            
+                
             for curr, data in sorted(by_currency.items()):
                 symbol = currency_symbols.get(curr, "💰")
                 name = currency_names.get(curr, curr)
@@ -2770,13 +2772,13 @@ async def reports_menu(message: types.Message, state: FSMContext):
                 
                 safe_message += f"{symbol} <b>{curr}</b> ({name}): {balance:,.2f} {name}\n"
             safe_message += "\n"
-        
-        # 3. Qarzlar
-        total_lent = total_uzs.get('lent', 0)
-        total_borrowed = total_uzs.get('borrowed', 0)
-        safe_message += "💳 <b>Qarzlar:</b>\n"
-        safe_message += f"💸 Berilgan qarz: {total_lent:,.0f} so'm\n"
-        safe_message += f"💰 Olingan qarz: {total_borrowed:,.0f} so'm\n\n"
+            
+            # 3. Qarzlar
+            total_lent = total_uzs.get('lent', 0)
+            total_borrowed = total_uzs.get('borrowed', 0)
+            safe_message += "💳 <b>Qarzlar:</b>\n"
+            safe_message += f"💸 Berilgan qarz: {total_lent:,.0f} so'm\n"
+            safe_message += f"💰 Olingan qarz: {total_borrowed:,.0f} so'm\n\n"
         
         # 4. Oxirgi tranzaksiyalar (qisqa format)
         if recent_transactions:
@@ -2841,10 +2843,10 @@ async def reports_menu(message: types.Message, state: FSMContext):
         else:
             safe_message += "📋 <b>Oxirgi tranzaksiyalar:</b>\n"
             safe_message += "❌ Hozircha tranzaksiyalar yo'q.\n\n"
-        
-        # Mini app uchun tugma (Plus va Pro tariflar uchun)
+    
+        # Mini app uchun tugma
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-        
+    
         if user_tariff in ('PLUS', 'PRO'):
             keyboard.inline_keyboard.append([
                 InlineKeyboardButton(
@@ -2852,24 +2854,24 @@ async def reports_menu(message: types.Message, state: FSMContext):
                     web_app=WebAppInfo(url="https://balansai-app.onrender.com")
                 )
             ])
-        
+    
         keyboard.inline_keyboard.append([
             InlineKeyboardButton(text="💱 Valyuta kurslari", callback_data="currency_rates")
         ])
-        
+    
         await message.answer(
-            safe_message,
+                safe_message,
             reply_markup=keyboard,
-            parse_mode="HTML"
-        )
-        
+                parse_mode="HTML"
+            )
+
     except Exception as e:
         logging.error(f"Hisobotlar ko'rsatishda xatolik: {e}")
         import traceback
         logging.error(traceback.format_exc())
         await message.answer(
             "❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.",
-        parse_mode="Markdown"
+            parse_mode="HTML"
     )
 
 # Valyuta kurslari callback
@@ -5694,7 +5696,27 @@ async def check_registration_complete(user_id: int) -> bool:
         if not user_data or not user_data.get('phone'):
             return False
         
-        # Onboarding yakunlanganligini tekshirish
+        # Eski foydalanuvchilar uchun: agar tranzaksiyalar bo'lsa, ro'yxatdan o'tgan deb hisoblash
+        tx_count_query = "SELECT COUNT(*) as count FROM transactions WHERE user_id = %s"
+        tx_result = await db.execute_one(tx_count_query, (user_id,))
+        has_any_transactions = (tx_result.get('count', 0) > 0) if tx_result else False
+        
+        # Agar tranzaksiyalar bo'lsa, ro'yxatdan o'tgan deb hisoblash (eski foydalanuvchilar uchun)
+        if has_any_transactions:
+            return True
+        
+        # Mini-app orqali ro'yxatdan o'tgan foydalanuvchilar uchun:
+        # name, source, account_type bo'lsa, ro'yxatdan o'tgan deb hisoblash
+        # has_initial_balance ixtiyoriy (faqat eski onboarding oqimi uchun kerak)
+        has_name = user_data.get('name') and user_data.get('name') != 'Xojayin'
+        has_source = bool(user_data.get('source'))
+        has_account_type = bool(user_data.get('account_type'))
+        
+        # Agar barcha asosiy ma'lumotlar bo'lsa, ro'yxatdan o'tgan deb hisoblash
+        if has_name and has_source and has_account_type:
+            return True
+        
+        # Eski onboarding oqimi uchun: onboarding kategoriyalarini tekshirish
         balance_query = """
         SELECT COUNT(*) as count FROM transactions 
         WHERE user_id = %s AND category IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
@@ -5702,12 +5724,11 @@ async def check_registration_complete(user_id: int) -> bool:
         result = await db.execute_one(balance_query, (user_id,))
         has_initial_balance = result.get('count', 0) > 0 if result else False
         
-        # Barcha kerakli ma'lumotlar to'ldirilganligini tekshirish
+        # Eski onboarding oqimi uchun: barcha kerakli ma'lumotlar to'ldirilganligini tekshirish
         is_complete = (
-            user_data.get('name') and 
-            user_data.get('name') != 'Xojayin' and
-            user_data.get('source') and
-            user_data.get('account_type') and
+            has_name and
+            has_source and
+            has_account_type and
             has_initial_balance
         )
         
@@ -6183,123 +6204,122 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         logging.error(f"AI chat xatolik: {e}")
         await message.answer("Kechirasiz, xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
 
-async def process_audio_with_financial_module(message: types.Message, state: FSMContext, audio_path: str, user_id: int, processing_msg=None):
-    """Audio faylni financial module orqali qayta ishlash - text bilan bir xil"""
+async def process_audio_with_financial_module(
+    message: types.Message,
+    state: FSMContext,
+    audio_path: str,
+    user_id: int,
+    processing_msg=None
+):
     try:
-        # Financial module audio qayta ishlash (textga o'girib, keyin text kabi qayta ishlash)
         audio_result = await financial_module.process_audio_input(audio_path, user_id)
         
-        # Processing xabarni o'chirish
         if processing_msg:
             try:
                 await processing_msg.delete()
             except:
                 pass
         
-        # Audio natijasini text kabi qayta ishlash
-        logging.info(f"DEBUG audio_result: success={audio_result.get('success')}, keys={audio_result.keys()}")
-        
+        logging.info(
+            f"DEBUG audio_result: success={audio_result.get('success')}, keys={audio_result.keys()}"
+        )
+
+        # ===== SUCCESS YO‘LI =====
         if audio_result.get('success'):
-            # transaction_data mavjudligini tekshirish
-            if 'transaction_data' in audio_result:
-                # Tranzaksiya aniqlangan - text kabi avtomatik saqlash
-                transactions = audio_result['transaction_data'].get('transactions', [])
-                logging.info(f"DEBUG transactions found: {len(transactions)} ta")
+
+            if 'transaction_data' not in audio_result:
+                logging.warning("DEBUG: transaction_data yo‘q")
+                await message.answer(
+                    audio_result.get('message', '❌ Tranzaksiya topilmadi.'),
+                    parse_mode='Markdown'
+                )
+                return audio_result
+
+            transactions = audio_result['transaction_data'].get('transactions', [])
+            logging.info(f"DEBUG transactions found: {len(transactions)} ta")
+
+            if not transactions:
+                logging.warning("DEBUG: transactions bo‘sh")
+                await message.answer(
+                    audio_result.get('message', '❌ Tranzaksiya topilmadi.'),
+                    parse_mode='Markdown'
+                )
+                return audio_result
+
+            # ===== SAQLASH =====
+            save_result = await financial_module.save_confirmed_transactions(
+                transactions, user_id
+            )
+
+            if not save_result.get('success'):
+                await message.answer(
+                    '❌ Saqlashda xatolik yuz berdi.',
+                    parse_mode='Markdown'
+                )
+                return audio_result
+
+            response_message = (
+                (audio_result.get('message') or '') +
+                "\n\n✅ **Avtomatik saqlandi!**"
+            )
+
+            saved_transactions = save_result.get('transactions', [])
+
+            for trans in saved_transactions:
+                if trans.get('reminder_created') and trans.get('reminder_date'):
+                    from datetime import datetime
+                    try:
+                        d = datetime.strptime(trans['reminder_date'], '%Y-%m-%d')
+                        response_message += (
+                            f"\n\n📌 **Eslatma qo‘shildi!**\n"
+                            f"Qaytarish sanasi: {d.strftime('%d-%m-%Y')}"
+                        )
+                    except:
+                        response_message += (
+                            "\n\n📌 **Eslatma qo‘shildi!**\n"
+                            "Qaytarish sanasida eslatiladi."
+                        )
                 
-                if transactions:
-                    # Avtomatik saqlash (text kabi)
-                    save_result = await financial_module.save_confirmed_transactions(transactions, user_id)
-                    
-                    if save_result.get('success'):
-                        # Saqlangan - faqat O'chirish/Tahrirlash tugmalari (text kabi)
-                        response_message = (audio_result.get('message') or '') + "\n\n✅ **Avtomatik saqlandi!**"
-                        
-                        # Eslatma ma'lumotlarini qo'shish
-                        saved_transactions = save_result.get('transactions', [])
-                        if saved_transactions:
-                            for trans in saved_transactions:
-                                if trans.get('reminder_created') and trans.get('reminder_date'):
-                                    from datetime import datetime
-                                    try:
-                                        reminder_date = datetime.strptime(trans['reminder_date'], '%Y-%m-%d').date()
-                                        reminder_date_formatted = reminder_date.strftime('%d-%m-%Y')
-                                        response_message += f"\n\n📌 **Eslatma qo'shildi!**\nQaytarish sanasida ({reminder_date_formatted}) eslatiladi."
-                                    except:
-                                        response_message += f"\n\n📌 **Eslatma qo'shildi!**\nQaytarish sanasida eslatiladi."
-                        
-                        # O'chirish va Tahrirlash tugmalarini yaratish (text kabi)
-                        keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-                        
-                        if len(saved_transactions) == 1:
-                            # Bitta tranzaksiya
-                            trans = saved_transactions[0]
-                            trans_type = trans.get('type', '')
-                            # Qarz uchun missing_fields ni aniqlash
-                            missing_fields = []
-                            if trans_type in ('debt_lent', 'debt_borrowed'):
-                                if not trans.get('person_name'):
-                                    missing_fields.append('person_name')
-                                if not trans.get('due_date'):
-                                    missing_fields.append('due_date')
-                            
-                            # Qarz uchun qo'shimcha tugmalar
-                            if trans_type in ('debt_lent', 'debt_borrowed') and missing_fields:
-                                additional_buttons = []
-                                if 'person_name' in missing_fields:
-                                    additional_buttons.append(InlineKeyboardButton(text="👤 Ism qo'shish", callback_data="debt_add_name_1"))
-                                if 'due_date' in missing_fields:
-                                    additional_buttons.append(InlineKeyboardButton(text="📅 Qaytarish sanasi", callback_data="debt_add_date_1"))
-                                
-                                if additional_buttons:
-                                    keyboard.inline_keyboard.append(additional_buttons)
-                            
-                            keyboard.inline_keyboard.append([
-                                InlineKeyboardButton(text="✏️ Tahrirlash", callback_data="trans_edit_1"),
-                                InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_delete_1")
-                            ])
-                        else:
-                            # Ko'p tranzaksiya
-                            for i, trans in enumerate(saved_transactions, 1):
-                                keyboard.inline_keyboard.append([
-                                    InlineKeyboardButton(text=f"✏️ #{i}", callback_data=f"trans_edit_{i}"),
-                                    InlineKeyboardButton(text=f"🗑️ #{i}", callback_data=f"trans_delete_{i}")
-                                ])
-                        
-                        # Tugmalarni yuborish
-                        if keyboard.inline_keyboard:
-                            await message.answer(response_message, parse_mode='Markdown', reply_markup=keyboard)
-                        else:
-                            # Minimal tugmalar
-                            minimal_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                                [InlineKeyboardButton(text="✏️ Tahrirlash", callback_data="trans_edit_1"),
-                                 InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_delete_1")]
-                            ])
-                            await message.answer(response_message, parse_mode='Markdown', reply_markup=minimal_keyboard)
-                        
-                        # State ga saqlangan tranzaksiya ID larini saqlash
-                        await state.update_data(saved_transaction_ids=saved_transactions)
-                    else:
-                        # Saqlashda xatolik
-                        await message.answer(audio_result.get('message', '❌ Saqlashda xatolik yuz berdi.'), parse_mode='Markdown')
-                else:
-                    # transaction_data mavjud, lekin transactions bo'sh
-                    logging.warning(f"DEBUG: transaction_data mavjud, lekin transactions bo'sh")
-                    await message.answer(audio_result.get('message', '❌ Tranzaksiya topilmadi.'), parse_mode='Markdown')
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
+                
+            if len(saved_transactions) == 1:
+                        keyboard.inline_keyboard.append([
+                    InlineKeyboardButton("✏️ Tahrirlash", callback_data="trans_edit_1"),
+                    InlineKeyboardButton("🗑️ O'chirish", callback_data="trans_delete_1")
+                        ])
             else:
-                # transaction_data yo'q - faqat xabar ko'rsatish
-                logging.warning(f"DEBUG: transaction_data yo'q, faqat xabar ko'rsatiladi")
-                await message.answer(audio_result.get('message', '❌ Tranzaksiya topilmadi.'), parse_mode='Markdown')
+                for i in range(len(saved_transactions)):
+                    keyboard.inline_keyboard.append([
+                                InlineKeyboardButton(f"✏️ #{i+1}", callback_data=f"trans_edit_{i+1}"),
+                                InlineKeyboardButton(f"🗑️ #{i+1}", callback_data=f"trans_delete_{i+1}")
+                            ])
+
+            await message.answer(
+                response_message,
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+
+            await state.update_data(
+                saved_transaction_ids=saved_transactions
+            )
+
+        # ===== FAIL YO‘LI =====
         else:
-            # Xatolik yoki tranzaksiya topilmadi
-            await message.answer(audio_result.get('message', '❌ Xatolik yuz berdi.'), parse_mode='Markdown')
+            await message.answer(
+                audio_result.get('message', '❌ Xatolik yuz berdi.'),
+                parse_mode='Markdown'
+            )
+
+        return audio_result
     
     except Exception as e:
         logging.error(f"Audio qayta ishlashda xatolik: {e}")
-        await message.answer("❌ Texnik xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.", parse_mode='Markdown')
+        await message.answer(
+            "❌ Texnik xatolik yuz berdi. Iltimos, qayta urinib ko‘ring.",
+            parse_mode='Markdown'
+        )
         return None
-    
-    return audio_result
-
 
 # Audio xabarlarni qayta ishlash (Premium)
 @dp.message(lambda message: message.voice or message.audio)

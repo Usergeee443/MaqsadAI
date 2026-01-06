@@ -108,10 +108,23 @@ class Database:
                     description TEXT,
                     due_date DATE NULL,
                     debt_direction ENUM('lent','borrowed') NULL,
+                    category_contact_id INT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    FOREIGN KEY (category_contact_id) REFERENCES contacts(id) ON DELETE SET NULL
                 )
             """)
+            
+            # category_contact_id ustunini qo'shish (agar mavjud bo'lmasa)
+            try:
+                await self.execute_query("""
+                    ALTER TABLE transactions 
+                    ADD COLUMN category_contact_id INT NULL,
+                    ADD FOREIGN KEY (category_contact_id) REFERENCES contacts(id) ON DELETE SET NULL
+                """)
+            except Exception as e:
+                if "Duplicate column name" not in str(e) and "Duplicate key name" not in str(e):
+                    logging.info(f"category_contact_id ustuni allaqachon mavjud yoki xatolik: {e}")
             
             # Categories jadvali
             await self.execute_query("""
@@ -298,7 +311,7 @@ class Database:
                 )
             """)
             
-            # Contacts jadvali - qarz kontaktlari uchun
+            # Contacts jadvali - qarz kontaktlari va kategoriyalar uchun
             await self.execute_query("""
                 CREATE TABLE IF NOT EXISTS contacts (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -308,13 +321,43 @@ class Database:
                     notes TEXT NULL,
                     total_lent DECIMAL(15,2) DEFAULT 0,
                     total_borrowed DECIMAL(15,2) DEFAULT 0,
+                    contact_type ENUM('person', 'category') DEFAULT 'person',
+                    category_name VARCHAR(100) NULL,
+                    transaction_type ENUM('income', 'expense', 'both') NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
                     INDEX idx_user_id (user_id),
-                    INDEX idx_name (name)
+                    INDEX idx_name (name),
+                    INDEX idx_contact_type (contact_type),
+                    INDEX idx_category_name (category_name)
                 )
             """)
+            
+            # contact_type va category_name ustunlarini qo'shish (agar mavjud bo'lmasa)
+            try:
+                await self.execute_query("""
+                    ALTER TABLE contacts 
+                    ADD COLUMN contact_type ENUM('person', 'category') DEFAULT 'person',
+                    ADD COLUMN category_name VARCHAR(100) NULL,
+                    ADD COLUMN transaction_type ENUM('income', 'expense', 'both') NULL
+                """)
+            except Exception as e:
+                if "Duplicate column name" not in str(e):
+                    logging.info(f"Contacts jadvali ustunlari allaqachon mavjud yoki xatolik: {e}")
+            
+            # Index'larni qo'shish (agar mavjud bo'lmasa)
+            try:
+                await self.execute_query("CREATE INDEX idx_contact_type ON contacts(contact_type)")
+            except Exception as e:
+                if "Duplicate key name" not in str(e):
+                    logging.debug(f"Index idx_contact_type yaratish xatolik: {e}")
+            
+            try:
+                await self.execute_query("CREATE INDEX idx_category_name ON contacts(category_name)")
+            except Exception as e:
+                if "Duplicate key name" not in str(e):
+                    logging.debug(f"Index idx_category_name yaratish xatolik: {e}")
             
             # User settings jadvali - foydalanuvchi sozlamalari
             await self.execute_query("""
@@ -1536,6 +1579,37 @@ class Database:
         if package:
             return 'PLUS'
         
+        # Users jadvalidagi tariff ni tekshiramiz (asosiy tarif)
+        user_query = """
+        SELECT tariff, tariff_expires_at FROM users
+        WHERE user_id = %s
+        """
+        user_result = await self.execute_one(user_query, (user_id,))
+        if user_result:
+            user_tariff = user_result.get('tariff')
+            tariff_expires = user_result.get('tariff_expires_at')
+            
+            # Agar tariff bo'lsa va muddat tugamagan bo'lsa (yoki muddat yo'q bo'lsa)
+            if user_tariff and user_tariff not in ('NONE', 'FREE', None):
+                if tariff_expires is None:
+                    # Muddat yo'q - doimiy tarif (masalan, BUSINESS)
+                    return user_tariff
+                else:
+                    # Muddat bor - tekshiramiz
+                    from datetime import datetime
+                    if isinstance(tariff_expires, str):
+                        try:
+                            from dateutil import parser
+                            expires_dt = parser.parse(tariff_expires)
+                        except:
+                            expires_dt = datetime.fromisoformat(tariff_expires.replace('Z', '+00:00'))
+                    else:
+                        expires_dt = tariff_expires
+                    
+                    if expires_dt > datetime.now():
+                        return user_tariff
+        
+        # User_subscriptions jadvalidan qidirish
         query = """
         SELECT tariff FROM user_subscriptions
         WHERE user_id = %s AND is_active = TRUE AND expires_at > NOW()
