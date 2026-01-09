@@ -1139,11 +1139,11 @@ def get_payment_method_keyboard() -> InlineKeyboardMarkup:
     return keyboard
 
 async def get_user_name(user_id: int) -> str:
-    """Foydalanuvchi ismini olish"""
+    """Foydalanuvchi ismini olish (first_name dan)"""
     try:
-        query = "SELECT name FROM users WHERE user_id = %s"
+        query = "SELECT first_name FROM users WHERE user_id = %s"
         result = await db.execute_one(query, (user_id,))
-        return result.get('name') if result else "Xojayin"
+        return result.get('first_name') if result and result.get('first_name') else "Xojayin"
     except:
         return "Xojayin"
 
@@ -1165,15 +1165,14 @@ async def start_command(message: types.Message, state: FSMContext):
     except Exception:
         pass
     username = message.from_user.username
-    first_name = message.from_user.first_name
-    last_name = message.from_user.last_name
+    first_name = message.from_user.first_name or "Xojayin"
     # /start xabarini o'chirmaymiz - foydalanuvchi ko'rsin
     
-    # Foydalanuvchini ma'lumotlar bazasiga qo'shish
+    # Foydalanuvchini ma'lumotlar bazasiga qo'shish (faqat first_name ishlatiladi)
     try:
             await db.execute_query(
-                "INSERT INTO users (user_id, username, first_name, last_name, tariff, name) VALUES (%s, %s, %s, %s, 'NONE', 'Xojayin') ON DUPLICATE KEY UPDATE username = %s, first_name = %s, last_name = %s",
-                (user_id, username, first_name, last_name, username, first_name, last_name)
+                "INSERT INTO users (user_id, username, first_name, tariff) VALUES (%s, %s, %s, 'NONE') ON DUPLICATE KEY UPDATE username = %s, first_name = %s",
+                (user_id, username, first_name, username, first_name)
             )
     except Exception as e:
         logging.error(f"Foydalanuvchi qo'shishda xatolik: {e}")
@@ -1329,12 +1328,10 @@ async def start_command(message: types.Message, state: FSMContext):
         if not is_registration_complete:
             # Debug: qaysi ma'lumotlar yetishmayotganini aniqlash
             missing_fields = []
-            if not user_data.get('name') or user_data.get('name') == 'Xojayin':
+            if not user_data.get('first_name'):
                 missing_fields.append('Ism')
             if not user_data.get('source'):
                 missing_fields.append('Manba')
-            if not user_data.get('account_type'):
-                missing_fields.append('Hisob turi')
             
             # Ro'yxatdan to'liq o'tilmagan - mini app tugmasi berish
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1346,20 +1343,23 @@ async def start_command(message: types.Message, state: FSMContext):
             
             missing_text = "\n".join([f"• {field}" for field in missing_fields]) if missing_fields else "• Ma'lumotlar"
             
-        await message.answer(
+            await message.answer(
                 f"⚠️ **Ro'yxatdan o'tish yakunlanmagan**\n\n"
                 f"Botdan foydalanish uchun quyidagi ma'lumotlarni to'ldirishingiz kerak:\n\n"
                 f"{missing_text}\n\n"
                 f"Quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:",
                 reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
-        logging.info(f"User {user_id} registration incomplete. Missing: {missing_fields}, user_data: name={user_data.get('name')}, source={user_data.get('source')}, account_type={user_data.get('account_type')}")
-        return
+                parse_mode="Markdown"
+            )
+            logging.info(f"User {user_id} registration incomplete. Missing: {missing_fields}, user_data: first_name={user_data.get('first_name')}, source={user_data.get('source')}")
+            return
 
-        # Ro'yxatdan to'liq o'tilgan - asosiy menyuni ko'rsatish
-        user_name = await get_user_name(user_id)
-        user_tariff = await get_user_tariff(user_id)
+    # Ro'yxatdan to'liq o'tilgan - asosiy menyuni ko'rsatish
+    if user_data and user_data.get('phone'):
+        is_registration_complete = await check_registration_complete(user_id)
+        if is_registration_complete:
+            user_name = await get_user_name(user_id)
+            user_tariff = await get_user_tariff(user_id)
         
         try:
             if user_tariff in ("NONE", None):
@@ -1407,7 +1407,6 @@ async def start_command(message: types.Message, state: FSMContext):
                     f"👋 Salom, {user_name}!\n\nXabar yuboring...",
                     reply_markup=ReplyKeyboardRemove()
                 )
-    # fallback
     return
 
     # Agar foydalanuvchi telefon bergan bo'lsa-yu, hali tarif tanlamagan bo'lsa, tarif menyusiga yo'naltiramiz
@@ -1486,7 +1485,58 @@ async def process_phone(message: types.Message, state: FSMContext):
         parse_mode="Markdown"
     )
     
+    # State'ni tozalash va ro'yxatdan o'tish holatiga o'tkazish
     await state.clear()
+    await state.set_state(None)
+
+# waiting_for_phone state uchun universal handler - contact bo'lmagan xabarlar uchun
+@dp.message(UserStates.waiting_for_phone)
+async def handle_waiting_for_phone_message(message: types.Message, state: FSMContext):
+    """Telefon raqam so'rash - har qanday xabar yozilsa yana telefon raqam so'rash xabari yuboriladi"""
+    user_id = message.from_user.id
+    
+    # Eski xabarni o'chirish
+    try:
+        await message.delete()
+    except:
+        pass
+    
+    # Telefon raqam so'rash xabari
+    try:
+        _msg = await message.answer_photo(
+            photo=FSInputFile('welcome.png'),
+        caption=(
+                "Balans AI'ga xush kelibsiz.\n\n"
+                "💵 Balans AI — sizning shaxsiy buxgalteringiz.\n"
+                "U har bir so‘mingizni hisoblab, daromad va xarajatlaringizni tartibda saqlaydi.\n\n"
+                "• Har kuni pulingiz qayerga ketayotganini aniq bilasiz.\n"
+                "• Har oy qancha tejayotganingizni ko‘rasiz.\n"
+                "• AI hammasini kuzatadi — siz esa xotirjam bo‘lasiz.\n\n"
+                "⏩ Boshlash: telefoningizni pastdagi tugma orqali yuboring."
+            ),
+            reply_markup=ReplyKeyboardMarkup(
+                keyboard=[[KeyboardButton(text="Telefon raqamni yuborish", request_contact=True)]],
+                resize_keyboard=True
+            ),
+            parse_mode="HTML"
+        )
+        await state.update_data(phone_request_msg_id=_msg.message_id)
+    except Exception as _e:
+        logging.warning(f"Welcome rasm yuborilmadi: {_e}")
+        await message.answer(
+            "Balans AI'ga xush kelibsiz.\n\n"
+            "💵 Balans AI — sizning shaxsiy buxgalteringiz.\n"
+            "U har bir so‘mingizni hisoblab, daromad va xarajatlaringizni tartibda saqlaydi.\n\n"
+            "• Har kuni pulingiz qayerga ketayotganini aniq bilasiz.\n"
+            "• Har oy qancha tejayotganingizni ko‘rasiz.\n"
+            "• AI hammasini kuzatadi — siz esa xotirjam bo‘lasiz.\n\n"
+            "⏩ Boshlash: telefoningizni pastdagi tugma orqali yuboring.",
+            reply_markup=ReplyKeyboardMarkup(
+                keyboard=[[KeyboardButton(text="Telefon raqamni yuborish", request_contact=True)]],
+                resize_keyboard=True
+        ),
+        parse_mode="Markdown"
+    )
 
 # Ism qabul qilish
 @dp.message(UserStates.waiting_for_name)
@@ -2728,7 +2778,7 @@ async def reports_menu(message: types.Message, state: FSMContext):
         return
     
     try:
-    # Ko'p valyutali balans ma'lumotlarini olish
+        # Ko'p valyutali balans ma'lumotlarini olish
         multi_balance = await db.get_balance_multi_currency(user_id)
         total_uzs = multi_balance.get('total_uzs', {})
         by_currency = multi_balance.get('by_currency', {})
@@ -2854,16 +2904,16 @@ async def reports_menu(message: types.Message, state: FSMContext):
                     web_app=WebAppInfo(url="https://balansai-app.onrender.com")
                 )
             ])
-    
+        
         keyboard.inline_keyboard.append([
             InlineKeyboardButton(text="💱 Valyuta kurslari", callback_data="currency_rates")
         ])
-    
+        
         await message.answer(
-                safe_message,
+                    safe_message,
             reply_markup=keyboard,
-                parse_mode="HTML"
-            )
+                    parse_mode="HTML"
+                )
 
     except Exception as e:
         logging.error(f"Hisobotlar ko'rsatishda xatolik: {e}")
@@ -2991,12 +3041,12 @@ async def profile_handler(message: Message, state: FSMContext):
     if user_tariff == 'EMPLOYEE':
         # Boshliq ma'lumotlarini olish
         manager_data = await db.get_user_data(user_data.get('manager_id', 0))
-        manager_name = manager_data.get('name', 'Noma\'lum') if manager_data else 'Noma\'lum'
+        manager_name = manager_data.get('first_name', 'Noma\'lum') if manager_data else 'Noma\'lum'
         
         profile_text = f"👤 **Xodim Profili**\n\n"
         profile_text += f"🆔 ID: `{user_id}`\n"
         profile_text += f"📅 Ro'yxat: {user_data['created_at'].strftime('%d.%m.%Y')}\n"
-        profile_text += f"👤 Ism: {user_data.get('name', 'Nomalum')}\n"
+        profile_text += f"👤 Ism: {user_data.get('first_name', 'Nomalum')}\n"
         if user_data.get('phone'):
             profile_text += f"📱 Tel: {user_data['phone']}\n\n"
         
@@ -3008,7 +3058,7 @@ async def profile_handler(message: Message, state: FSMContext):
         return
     
     # Oddiy foydalanuvchi profili (yangi UI)
-    display_name = user_data.get('name', 'Xojayin')
+    display_name = user_data.get('first_name', 'Xojayin')
     
     if user_tariff == 'PLUS':
         plus_summary = await db.get_plus_usage_summary(user_id)
@@ -3163,7 +3213,7 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
         await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
         return
     
-    display_name = user_data.get('name', 'Xojayin')
+    display_name = user_data.get('first_name', 'Xojayin')
     profile_text = f"👤 <b>Profil</b>\n\n"
     profile_text += f"👋 Salom, {display_name}!\n\n"
     profile_text += f"💳 <b>Tarif:</b> {TARIFFS.get(user_data['tariff'], 'Nomalum')}\n"
@@ -3685,7 +3735,7 @@ async def back_to_profile_callback(callback_query: CallbackQuery):
     user_tariff = await get_user_tariff(user_id)
     
     # Yangi yagona profil formatiga mos
-    display_name = user_data.get('name', 'Xojayin')
+    display_name = user_data.get('first_name', 'Xojayin')
     
     # FREE tarif uchun
     if user_tariff == 'PLUS':
@@ -5706,14 +5756,13 @@ async def check_registration_complete(user_id: int) -> bool:
             return True
         
         # Mini-app orqali ro'yxatdan o'tgan foydalanuvchilar uchun:
-        # name, source, account_type bo'lsa, ro'yxatdan o'tgan deb hisoblash
-        # has_initial_balance ixtiyoriy (faqat eski onboarding oqimi uchun kerak)
-        has_name = user_data.get('name') and user_data.get('name') != 'Xojayin'
+        # first_name va source bo'lsa, ro'yxatdan o'tgan deb hisoblash
+        # account_type kerak emas, chunki tarif tanlashda aniqlanadi
+        has_first_name = bool(user_data.get('first_name'))
         has_source = bool(user_data.get('source'))
-        has_account_type = bool(user_data.get('account_type'))
         
         # Agar barcha asosiy ma'lumotlar bo'lsa, ro'yxatdan o'tgan deb hisoblash
-        if has_name and has_source and has_account_type:
+        if has_first_name and has_source:
             return True
         
         # Eski onboarding oqimi uchun: onboarding kategoriyalarini tekshirish
@@ -5726,9 +5775,8 @@ async def check_registration_complete(user_id: int) -> bool:
         
         # Eski onboarding oqimi uchun: barcha kerakli ma'lumotlar to'ldirilganligini tekshirish
         is_complete = (
-            has_name and
+            has_first_name and
             has_source and
-            has_account_type and
             has_initial_balance
         )
         
@@ -5745,29 +5793,44 @@ async def check_registration_complete(user_id: int) -> bool:
 async def process_financial_message(message: types.Message, state: FSMContext):
     """MAX va FREE tariflar uchun AI chat"""
     user_id = message.from_user.id
+    current_state = await state.get_state()
     
-    # Ro'yxatdan to'liq o'tilganligini tekshirish
-    is_registered = await check_registration_complete(user_id)
-    if not is_registered:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="📱 Ro'yxatdan o'tishni davom ettirish",
-                web_app=WebAppInfo(url="https://balansai-app.onrender.com/register")
-            )]
-        ])
-        await message.answer(
-            "⚠️ **Ro'yxatdan o'tish yakunlanmagan**\n\n"
-            "Botdan foydalanish uchun barcha ma'lumotlarni to'ldirishingiz kerak:\n\n"
-            "• Ism\n"
-            "• Yosh\n"
-            "• Sozlamalar\n"
-            "• Onboarding\n"
-            "• Tarif tanlash\n\n"
-            "Quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:",
-            reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
+    # waiting_for_phone state'da bo'lsa, uni ignore qilamiz (alohida handler bor)
+    if current_state == UserStates.waiting_for_phone.state:
         return
+    
+    # Telefon raqam bor-yo'qligini tekshirish
+    user_data = await db.get_user_data(user_id)
+    if user_data and user_data.get('phone'):
+        # Ro'yxatdan to'liq o'tilganligini tekshirish
+        is_registered = await check_registration_complete(user_id)
+        if not is_registered:
+            # Eski xabarni o'chirish
+            try:
+                await message.delete()
+            except:
+                pass
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="📱 Ro'yxatdan o'tishni davom ettirish",
+                    web_app=WebAppInfo(url="https://balansai-app.onrender.com/register")
+                )]
+            ])
+            
+            await message.answer(
+                "⚠️ **Ro'yxatdan o'tish yakunlanmagan**\n\n"
+                "Botdan foydalanish uchun barcha ma'lumotlarni to'ldirishingiz kerak:\n\n"
+                "• Ism\n"
+                "• Yosh\n"
+                "• Sozlamalar\n"
+                "• Onboarding\n"
+                "• Tarif tanlash\n\n"
+                "Quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+            return
     
     # Onboarding state'larda xabar qabul qilinmasligi kerak
     current_state = await state.get_state()
