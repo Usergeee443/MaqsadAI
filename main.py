@@ -1343,16 +1343,16 @@ async def start_command(message: types.Message, state: FSMContext):
             
             missing_text = "\n".join([f"• {field}" for field in missing_fields]) if missing_fields else "• Ma'lumotlar"
             
-            await message.answer(
+        await message.answer(
                 f"⚠️ **Ro'yxatdan o'tish yakunlanmagan**\n\n"
                 f"Botdan foydalanish uchun quyidagi ma'lumotlarni to'ldirishingiz kerak:\n\n"
                 f"{missing_text}\n\n"
                 f"Quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:",
                 reply_markup=keyboard,
-                parse_mode="Markdown"
-            )
-            logging.info(f"User {user_id} registration incomplete. Missing: {missing_fields}, user_data: first_name={user_data.get('first_name')}, source={user_data.get('source')}")
-            return
+            parse_mode="Markdown"
+        )
+        logging.info(f"User {user_id} registration incomplete. Missing: {missing_fields}, user_data: first_name={user_data.get('first_name')}, source={user_data.get('source')}")
+        return
 
     # Ro'yxatdan to'liq o'tilgan - asosiy menyuni ko'rsatish
     if user_data and user_data.get('phone'):
@@ -2778,7 +2778,7 @@ async def reports_menu(message: types.Message, state: FSMContext):
         return
     
     try:
-        # Ko'p valyutali balans ma'lumotlarini olish
+    # Ko'p valyutali balans ma'lumotlarini olish
         multi_balance = await db.get_balance_multi_currency(user_id)
         total_uzs = multi_balance.get('total_uzs', {})
         by_currency = multi_balance.get('by_currency', {})
@@ -2904,14 +2904,14 @@ async def reports_menu(message: types.Message, state: FSMContext):
                     web_app=WebAppInfo(url="https://balansai-app.onrender.com")
                 )
             ])
-        
+    
         keyboard.inline_keyboard.append([
             InlineKeyboardButton(text="💱 Valyuta kurslari", callback_data="currency_rates")
         ])
-        
+    
         await message.answer(
                     safe_message,
-            reply_markup=keyboard,
+        reply_markup=keyboard,
                     parse_mode="HTML"
                 )
 
@@ -4951,11 +4951,11 @@ async def business_reports_handler(message: types.Message, state: FSMContext):
     # Hisobotlar menyusi keyboard
     reports_menu = business_module.get_reports_menu()
     
-    # Mini app tugmasini qo'shish
+    # Batafsil tugmasini qo'shish - /business sahifasiga yo'naltirish
     reports_menu.inline_keyboard.insert(0, [
         InlineKeyboardButton(
-            text="📱 To'liq ko'rish", 
-            web_app=WebAppInfo(url="https://balansai-app.onrender.com")
+            text="📋 Batafsil", 
+            callback_data="go_to_business"
         )
     ])
     
@@ -4963,6 +4963,27 @@ async def business_reports_handler(message: types.Message, state: FSMContext):
         "📊 **Hisobotlar**\n\n"
         "Biznesingiz statistikasi va tahlillari:",
         reply_markup=reports_menu,
+        parse_mode='Markdown'
+    )
+
+# Business sahifasiga o'tish callback
+@dp.callback_query(lambda c: c.data == "go_to_business")
+async def go_to_business_callback(callback: types.CallbackQuery, state: FSMContext):
+    """Hisobotlardan Business sahifasiga o'tish"""
+    user_id = callback.from_user.id
+    user_tariff = await get_user_tariff(user_id)
+    
+    if user_tariff != "BUSINESS":
+        await callback.answer("❌ Bu funksiya faqat Business tarif uchun mavjud.", show_alert=True)
+        return
+    
+    await callback.answer()
+    
+    # Business profil sahifasini ko'rsatish
+    await callback.message.answer(
+        "🏢 **Business Panel**\n\n"
+        "Biznesingizni boshqarish uchun quyidagi bo'limlardan birini tanlang:",
+        reply_markup=business_module.get_profile_menu(),
         parse_mode='Markdown'
     )
 
@@ -6334,28 +6355,30 @@ async def process_audio_with_financial_module(
                     try:
                         d = datetime.strptime(trans['reminder_date'], '%Y-%m-%d')
                         response_message += (
-                            f"\n\n📌 **Eslatma qo‘shildi!**\n"
+                            f"\n\n📌 **Eslatma qo'shildi!**\n"
                             f"Qaytarish sanasi: {d.strftime('%d-%m-%Y')}"
                         )
                     except:
                         response_message += (
-                            "\n\n📌 **Eslatma qo‘shildi!**\n"
+                            "\n\n📌 **Eslatma qo'shildi!**\n"
                             "Qaytarish sanasida eslatiladi."
                         )
-                
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-                
+            
+            # Keyboard yaratish - for loopdan tashqarida
+            keyboard_buttons = []
             if len(saved_transactions) == 1:
-                        keyboard.inline_keyboard.append([
-                    InlineKeyboardButton("✏️ Tahrirlash", callback_data="trans_edit_1"),
-                    InlineKeyboardButton("🗑️ O'chirish", callback_data="trans_delete_1")
-                        ])
+                keyboard_buttons.append([
+                    InlineKeyboardButton(text="✏️ Tahrirlash", callback_data="trans_edit_1"),
+                    InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_delete_1")
+                ])
             else:
                 for i in range(len(saved_transactions)):
-                    keyboard.inline_keyboard.append([
-                                InlineKeyboardButton(f"✏️ #{i+1}", callback_data=f"trans_edit_{i+1}"),
-                                InlineKeyboardButton(f"🗑️ #{i+1}", callback_data=f"trans_delete_{i+1}")
-                            ])
+                    keyboard_buttons.append([
+                        InlineKeyboardButton(text=f"✏️ #{i+1}", callback_data=f"trans_edit_{i+1}"),
+                        InlineKeyboardButton(text=f"🗑️ #{i+1}", callback_data=f"trans_delete_{i+1}")
+                    ])
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
 
             await message.answer(
                 response_message,
