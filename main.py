@@ -1069,11 +1069,11 @@ async def get_user_tariff(user_id: int) -> str:
     """Foydalanuvchi tarifini olish (yangi ko'p tarif tizimi)"""
     try:
         tariff = await db.get_active_tariff(user_id)
-        if tariff in (None, 'FREE'):
-            return 'NONE'
+        if tariff in (None, ''):
+            return 'FREE'
         return tariff
     except Exception:
-        return "NONE"
+        return "FREE"
 
 async def get_user_all_subscriptions(user_id: int):
     """Foydalanuvchining barcha tariflarini olish"""
@@ -1342,16 +1342,16 @@ async def start_command(message: types.Message, state: FSMContext):
                 f"⚠️ **Ro'yxatdan o'tish yakunlanmagan**\n\n"
                 f"Botdan foydalanish uchun quyidagi tugmani bosing va ma'lumotlarni to'ldiring:",
                 reply_markup=keyboard,
-                parse_mode="Markdown"
-            )
-            return
-        
+            parse_mode="Markdown"
+        )
+        return
+
         # Ro'yxatdan to'liq o'tilgan - asosiy menyuni ko'rsatish
         user_name = await get_user_name(user_id)
         user_tariff = await get_user_tariff(user_id)
         
         # Tarifga qarab keyboard tanlash
-        if user_tariff in ("NONE", None):
+        if user_tariff in ("FREE", None):
             # Tarif yo'q - Plus sotib olish taklifi
             await message.answer(
                 f"👋 Salom, {user_name}!\n\n"
@@ -2424,7 +2424,7 @@ async def cancel_operation(message: types.Message, state: FSMContext):
         ),
         parse_mode="Markdown"
     )
-    if user_tariff in (None, "NONE"):
+    if user_tariff in (None, "FREE"):
         await message.answer(
             "Balans AI'dan foydalanishni davom ettirish uchun Plus paket sotib oling yoki Pro tarifga o'ting.",
             reply_markup=get_plus_purchase_keyboard(),
@@ -2855,19 +2855,19 @@ async def reports_menu(message: types.Message, state: FSMContext):
     
         # Mini app uchun tugma
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-        
-        if user_tariff in ('PLUS', 'PRO', 'BUSINESS'):
-            if user_tariff == 'BUSINESS':
-                app_url = "https://balansai-app.onrender.com/business"
-            else:
-                app_url = "https://balansai-app.onrender.com"
-            keyboard.inline_keyboard.append([
-                InlineKeyboardButton(
-                    text="📱 To'liq ko'rish", 
-                    web_app=WebAppInfo(url=app_url)
-                )
-            ])
-        
+    
+        # Barcha tariflar uchun "To'liq ko'rish" tugmasi
+        if user_tariff == 'BUSINESS':
+            app_url = "https://balansai-app.onrender.com/business"
+        else:
+            app_url = "https://balansai-app.onrender.com"
+        keyboard.inline_keyboard.append([
+            InlineKeyboardButton(
+                text="📱 To'liq ko'rish", 
+                web_app=WebAppInfo(url=app_url)
+            )
+        ])
+    
         keyboard.inline_keyboard.append([
             InlineKeyboardButton(text="💱 Valyuta kurslari", callback_data="currency_rates")
         ])
@@ -3030,7 +3030,9 @@ async def profile_handler(message: Message, state: FSMContext):
     
     if user_tariff == 'PLUS':
         # Plus tarif uchun obuna ma'lumotlari
+        expires_str = None
         try:
+            # Avval user_subscriptions dan tekshirish
             sub_row = await db.execute_one(
                 """SELECT expires_at FROM user_subscriptions 
                    WHERE user_id = %s AND tariff = 'PLUS' AND status = 'active'
@@ -3039,17 +3041,23 @@ async def profile_handler(message: Message, state: FSMContext):
             )
             if sub_row and sub_row.get('expires_at'):
                 expires_str = sub_row['expires_at'].strftime('%d.%m.%Y')
-                profile_text = (
-                    f"{display_name} (ID: {user_id})\n\n"
-                        f"Tarif: ⭐ Plus\n"
-                        f"Tugash sanasi: {expires_str}"
-                )
-            else:
-                profile_text = (
-                    f"{display_name} (ID: {user_id})\n\n"
-                        f"Tarif: ⭐ Plus"
-                    )
+            elif user_data.get('tariff_expires_at'):
+                # users jadvalidagi tariff_expires_at ni tekshirish
+                expires_str = user_data['tariff_expires_at'].strftime('%d.%m.%Y')
         except:
+            if user_data.get('tariff_expires_at'):
+                try:
+                    expires_str = user_data['tariff_expires_at'].strftime('%d.%m.%Y')
+                except:
+                    pass
+        
+        if expires_str:
+            profile_text = (
+                f"{display_name} (ID: {user_id})\n\n"
+                f"Tarif: ⭐ Plus\n"
+                f"Tugash sanasi: {expires_str}"
+            )
+        else:
             profile_text = (
                 f"{display_name} (ID: {user_id})\n\n"
                 f"Tarif: ⭐ Plus"
@@ -5932,7 +5940,11 @@ async def process_financial_message(message: types.Message, state: FSMContext):
                         [InlineKeyboardButton(text=btn['text'], callback_data=btn['callback_data'])] 
                         for row in buttons for btn in row
                     ])
-           
+                    await message.answer(
+                                response_message,
+                                reply_markup=keyboard,
+                                parse_mode='Markdown'
+                            )
                 else:
                     await message.answer(
                         response_message,
@@ -6009,7 +6021,11 @@ async def process_financial_message(message: types.Message, state: FSMContext):
             })
             
             reminder_msg = reminder_result.get('message', '')
-            response_message = f"{result.get('message', '')}\n\n{reminder_msg}" + usage_note
+            base_msg = result.get('message', '')
+            # "Tarif sotib oling" xabarini tozalash
+            if 'Tarif sotib oling' in base_msg or 'tarifni sotib oling' in base_msg.lower():
+                base_msg = '✅ Tranzaksiya aniqlandi!'
+            response_message = f"{base_msg}\n\n{reminder_msg}" + usage_note
             
             if buttons:
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -6028,7 +6044,11 @@ async def process_financial_message(message: types.Message, state: FSMContext):
             
             if save_result.get('success'):
                 # Saqlangan - faqat O'chirish/Tahrirlash tugmalari
-                response_message = (result.get('message') or '') + "\n\n✅ **Avtomatik saqlandi!**"
+                base_msg = result.get('message') or ''
+                # "Tarif sotib oling" xabarini tozalash
+                if 'Tarif sotib oling' in base_msg or 'tarifni sotib oling' in base_msg.lower():
+                    base_msg = '✅ Tranzaksiya aniqlandi!'
+                response_message = base_msg + "\n\n✅ **Avtomatik saqlandi!**"
                 
                 # Eslatma ma'lumotlarini qo'shish
                 saved_transactions = save_result.get('transactions', [])
@@ -6353,7 +6373,7 @@ async def process_audio_with_financial_module(
             )
 
             saved_transactions = save_result.get('transactions', [])
-
+                
             for trans in saved_transactions:
                 if trans.get('reminder_created') and trans.get('reminder_date'):
                     from datetime import datetime
@@ -6375,16 +6395,16 @@ async def process_audio_with_financial_module(
                 keyboard_buttons.append([
                     InlineKeyboardButton(text="✏️ Tahrirlash", callback_data="trans_edit_1"),
                     InlineKeyboardButton(text="🗑️ O'chirish", callback_data="trans_delete_1")
-                ])
+                        ])
             else:
                 for i in range(len(saved_transactions)):
                     keyboard_buttons.append([
                         InlineKeyboardButton(text=f"✏️ #{i+1}", callback_data=f"trans_edit_{i+1}"),
                         InlineKeyboardButton(text=f"🗑️ #{i+1}", callback_data=f"trans_delete_{i+1}")
-                    ])
+                ])
             
             keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-
+                
             await message.answer(
                 response_message,
                 parse_mode='Markdown',

@@ -1579,13 +1579,31 @@ class Database:
         if package:
             return 'PLUS'
         
+        # user_subscriptions dan tekshirish
         query = """
         SELECT tariff FROM user_subscriptions
         WHERE user_id = %s AND is_active = TRUE AND expires_at > NOW()
         LIMIT 1
         """
         result = await self.execute_one(query, (user_id,))
-        return result.get('tariff') if result else "NONE"
+        if result and result.get('tariff'):
+            return result.get('tariff').upper()
+        
+        # users jadvalidan tekshirish (tariff va tariff_expires_at)
+        user_query = """
+        SELECT tariff, tariff_expires_at FROM users WHERE user_id = %s
+        """
+        user_result = await self.execute_one(user_query, (user_id,))
+        if user_result and user_result.get('tariff'):
+            user_tariff = user_result.get('tariff', '').upper()
+            expires_at = user_result.get('tariff_expires_at')
+            # Tarif mavjud va (muddati o'tmagan yoki muddatsiz)
+            if user_tariff and user_tariff not in ('NONE', 'FREE', ''):
+                from datetime import datetime
+                if expires_at is None or expires_at > datetime.now():
+                    return user_tariff
+        
+        return "NONE"
     
     # Reminders funksiyalari
     async def create_reminder(self, user_id: int, reminder_type: str, title: str, 
