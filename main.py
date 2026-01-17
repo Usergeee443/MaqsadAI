@@ -4950,7 +4950,7 @@ async def business_reports_handler(message: types.Message, state: FSMContext):
         )
     ])
     
-g
+
 
 # Business sahifasiga o'tish callback
 @dp.callback_query(lambda c: c.data == "go_to_business")
