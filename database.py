@@ -1574,75 +1574,18 @@ class Database:
     
     async def get_active_tariff(self, user_id):
         """Foydalanuvchining hozirgi aktiv tarifini olish"""
-        import logging
-        
         # Avvalo Plus paketlarini tekshiramiz
         package = await self.get_active_plus_package(user_id)
         if package:
             return 'PLUS'
         
-        # Users jadvalidagi tariff ni tekshiramiz (asosiy tarif)
-        user_query = """
-        SELECT tariff, tariff_expires_at FROM users
-        WHERE user_id = %s
-        """
-        user_result = await self.execute_one(user_query, (user_id,))
-        if user_result:
-            user_tariff = user_result.get('tariff')
-            tariff_expires = user_result.get('tariff_expires_at')
-            
-            # Debug logging
-            logging.info(f"get_active_tariff: user_id={user_id}, tariff={user_tariff}, expires={tariff_expires}")
-            
-            # Agar tariff bo'lsa va muddat tugamagan bo'lsa (yoki muddat yo'q bo'lsa)
-            if user_tariff and user_tariff not in ('NONE', 'FREE', None):
-                # Tarifni to'g'ri formatlash (kichik/katta harflar bilan bog'liq muammolarni hal qilish)
-                user_tariff = str(user_tariff).upper().strip()
-                
-                # ENUM'dan tashqari qiymatlarni to'g'rilash
-                tariff_mapping = {
-                    'BIZNES': 'BUSINESS',
-                    'BIZNES PLUS': 'BUSINESS_PLUS',
-                    'BIZNES MAX': 'BUSINESS_MAX',
-                    'BUSINESS': 'BUSINESS',
-                    'BUSINESS_PLUS': 'BUSINESS_PLUS',
-                    'BUSINESS_MAX': 'BUSINESS_MAX',
-                }
-                if user_tariff in tariff_mapping:
-                    user_tariff = tariff_mapping[user_tariff]
-                
-                if tariff_expires is None:
-                    # Muddat yo'q - doimiy tarif (masalan, BUSINESS)
-                    logging.info(f"get_active_tariff: Returning tariff without expiry: {user_tariff}")
-                    return user_tariff
-                else:
-                    # Muddat bor - tekshiramiz
-                    from datetime import datetime
-                    if isinstance(tariff_expires, str):
-                        try:
-                            from dateutil import parser
-                            expires_dt = parser.parse(tariff_expires)
-                        except:
-                            expires_dt = datetime.fromisoformat(tariff_expires.replace('Z', '+00:00'))
-                    else:
-                        expires_dt = tariff_expires
-                    
-                    if expires_dt > datetime.now():
-                        logging.info(f"get_active_tariff: Returning tariff with valid expiry: {user_tariff}")
-                        return user_tariff
-                    else:
-                        logging.info(f"get_active_tariff: Tariff expired: {user_tariff}, expires_at={expires_dt}")
-        
-        # User_subscriptions jadvalidan qidirish
         query = """
         SELECT tariff FROM user_subscriptions
         WHERE user_id = %s AND is_active = TRUE AND expires_at > NOW()
         LIMIT 1
         """
         result = await self.execute_one(query, (user_id,))
-        final_tariff = result.get('tariff') if result else "NONE"
-        logging.info(f"get_active_tariff: Final result: {final_tariff}")
-        return final_tariff
+        return result.get('tariff') if result else "NONE"
     
     # Reminders funksiyalari
     async def create_reminder(self, user_id: int, reminder_type: str, title: str, 

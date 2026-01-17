@@ -510,24 +510,30 @@ def get_transaction_confirmation_keyboard(buttons_data: dict):
 # Profil menyusi
 def get_profile_menu(user_tariff='PLUS'):
     """Profil menyusini qaytaradi - Batafsil, Sozlamalar va Yordam"""
-    buttons = [
-        [
-            InlineKeyboardButton(text="📋 Batafsil", web_app=WebAppInfo(url="https://balansai-app.onrender.com/profile")),
-            InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings")
-        ],
-        [
-            InlineKeyboardButton(text="📖 Yordam", callback_data="help_menu")
-        ]
-    ]
+    buttons = []
+    
+    # Free tarif uchun Kuchaytirish tugmasi
+    if user_tariff in ('NONE', None, 'FREE'):
+        buttons.append([
+            InlineKeyboardButton(text="🚀 Kuchaytirish", web_app=WebAppInfo(url="https://balansai-app.onrender.com/tariffs"))
+        ])
+    
+    buttons.append([
+        InlineKeyboardButton(text="📋 Batafsil", web_app=WebAppInfo(url="https://balansai-app.onrender.com/profile")),
+        InlineKeyboardButton(text="⚙️ Sozlamalar", callback_data="settings")
+    ])
+    buttons.append([
+        InlineKeyboardButton(text="📖 Yordam", callback_data="help_menu")
+    ])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_plus_purchase_keyboard():
-    """Plus paketlarini sotib olish uchun mini-ilova tugmasi"""
+    """Plus tarifni sotib olish uchun tugma"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🛒 Paket sotib olish", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL))]
+            [InlineKeyboardButton(text="⭐ Plus tarifni sotib olish", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL))]
         ]
     )
 
@@ -1320,19 +1326,11 @@ async def start_command(message: types.Message, state: FSMContext):
     # Eski onboarding state'lari olib tashlandi - endi barcha ma'lumotlar mini app da to'ldiriladi
 
 
-    # 4) Telefon raqam bor, lekin ro'yxatdan to'liq o'tilmagan bo'lsa -> mini app tugmasi
+    # 4) Telefon raqam bor - ro'yxatdan o'tganligini tekshirish
     if user_data and user_data.get('phone'):
-        # Ro'yxatdan to'liq o'tilganligini tekshirish (check_registration_complete funksiyasidan foydalanish)
         is_registration_complete = await check_registration_complete(user_id)
         
         if not is_registration_complete:
-            # Debug: qaysi ma'lumotlar yetishmayotganini aniqlash
-            missing_fields = []
-            if not user_data.get('first_name'):
-                missing_fields.append('Ism')
-            if not user_data.get('source'):
-                missing_fields.append('Manba')
-            
             # Ro'yxatdan to'liq o'tilmagan - mini app tugmasi berish
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
@@ -1340,81 +1338,39 @@ async def start_command(message: types.Message, state: FSMContext):
                     web_app=WebAppInfo(url="https://balansai-app.onrender.com/register")
                 )]
             ])
-            
-            missing_text = "\n".join([f"• {field}" for field in missing_fields]) if missing_fields else "• Ma'lumotlar"
-            
-        await message.answer(
+            await message.answer(
                 f"⚠️ **Ro'yxatdan o'tish yakunlanmagan**\n\n"
-                f"Botdan foydalanish uchun quyidagi ma'lumotlarni to'ldirishingiz kerak:\n\n"
-                f"{missing_text}\n\n"
-                f"Quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:",
+                f"Botdan foydalanish uchun quyidagi tugmani bosing va ma'lumotlarni to'ldiring:",
                 reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
-        logging.info(f"User {user_id} registration incomplete. Missing: {missing_fields}, user_data: first_name={user_data.get('first_name')}, source={user_data.get('source')}")
-        return
-
-    # Ro'yxatdan to'liq o'tilgan - asosiy menyuni ko'rsatish
-    if user_data and user_data.get('phone'):
-        is_registration_complete = await check_registration_complete(user_id)
-        if is_registration_complete:
-            user_name = await get_user_name(user_id)
-            user_tariff = await get_user_tariff(user_id)
+                parse_mode="Markdown"
+            )
+            return
         
-        try:
-            if user_tariff in ("NONE", None):
-                await message.answer_photo(
-                    photo=FSInputFile('welcome.png'),
-                    caption=(
-                        f"👋 Salom, {user_name}!\n\n"
-                    "Balans AI'dan foydalanishni boshlash uchun Plus paketlardan birini yoki Pro tarifni tanlang."
-                    ),
-                    reply_markup=get_plus_purchase_keyboard(),
-                    parse_mode="Markdown"
-                )
-            elif user_tariff == "BUSINESS":
-                # ChatGPT ga o'xshash qisqa va sodda dizayn
-                await message.answer(
-                    f"👋 Salom, {user_name}!\n\nXabar yuboring...",
-                    reply_markup=ReplyKeyboardRemove()
-                )
-            else:
-                # ChatGPT ga o'xshash qisqa va sodda dizayn
-                await message.answer(
-                    f"👋 Salom, {user_name}!\n\nXabar yuboring...",
-                    reply_markup=ReplyKeyboardRemove()
-                )
-        except Exception as e:
-            logging.warning(f"Welcome rasm yuborilmadi: {e}")
-            # Rasm yuborishda xatolik bo'lsa, oddiy matn xabar yuboramiz
-            if user_tariff in ("NONE", None):
-                await message.answer(
-                    f"👋 Salom, {user_name}!\n\n"
-                    "Balans AI ga xush kelibsiz!\n\n"
-                    "Boshlash uchun Plus paket sotib oling yoki Pro tarifga o'ting.",
-                    reply_markup=get_plus_purchase_keyboard(),
-                    parse_mode="Markdown"
-                )
-            elif user_tariff == "BUSINESS":
-                # ChatGPT ga o'xshash qisqa va sodda dizayn
-                await message.answer(
-                    f"👋 Salom, {user_name}!\n\nXabar yuboring...",
-                    reply_markup=ReplyKeyboardRemove()
-                )
-            else:
-                # ChatGPT ga o'xshash qisqa va sodda dizayn
-                await message.answer(
-                    f"👋 Salom, {user_name}!\n\nXabar yuboring...",
-                    reply_markup=ReplyKeyboardRemove()
-                )
-    return
-
-    # Agar foydalanuvchi telefon bergan bo'lsa-yu, hali tarif tanlamagan bo'lsa, tarif menyusiga yo'naltiramiz
-    if (await state.get_state()) == UserStates.waiting_for_tariff.state:
-        await message.answer(
-            get_tariff_overview_text(),
-            reply_markup=build_main_tariff_keyboard()
-        )
+        # Ro'yxatdan to'liq o'tilgan - asosiy menyuni ko'rsatish
+        user_name = await get_user_name(user_id)
+        user_tariff = await get_user_tariff(user_id)
+        
+        # Tarifga qarab keyboard tanlash
+        if user_tariff in ("NONE", None):
+            # Tarif yo'q - Plus sotib olish taklifi
+            await message.answer(
+                f"👋 Salom, {user_name}!\n\n"
+                "Balans AI'dan foydalanishni boshlash uchun Plus tarifni sotib oling.",
+                reply_markup=get_plus_purchase_keyboard(),
+                parse_mode="Markdown"
+            )
+        elif user_tariff == "BUSINESS":
+            # Business tarif - business menu
+            await message.answer(
+                f"👋 Salom, {user_name}!\n\nXabar yuboring...",
+                reply_markup=get_business_menu()
+            )
+        else:
+            # PLUS, PRO va boshqa tariflar - premium menu
+            await message.answer(
+                f"👋 Salom, {user_name}!\n\nXabar yuboring...",
+                reply_markup=get_premium_menu()
+            )
         return
 
 # Tur tanlash menyusini qaytaradi
@@ -1505,7 +1461,7 @@ async def handle_waiting_for_phone_message(message: types.Message, state: FSMCon
     try:
         _msg = await message.answer_photo(
             photo=FSInputFile('welcome.png'),
-        caption=(
+            caption=(
                 "Balans AI'ga xush kelibsiz.\n\n"
                 "💵 Balans AI — sizning shaxsiy buxgalteringiz.\n"
                 "U har bir so‘mingizni hisoblab, daromad va xarajatlaringizni tartibda saqlaydi.\n\n"
@@ -1520,20 +1476,23 @@ async def handle_waiting_for_phone_message(message: types.Message, state: FSMCon
             ),
             parse_mode="HTML"
         )
+
         await state.update_data(phone_request_msg_id=_msg.message_id)
+
     except Exception as _e:
         logging.warning(f"Welcome rasm yuborilmadi: {_e}")
-        await message.answer(
-            "Balans AI'ga xush kelibsiz.\n\n"
-            "💵 Balans AI — sizning shaxsiy buxgalteringiz.\n"
-            "U har bir so‘mingizni hisoblab, daromad va xarajatlaringizni tartibda saqlaydi.\n\n"
-            "• Har kuni pulingiz qayerga ketayotganini aniq bilasiz.\n"
-            "• Har oy qancha tejayotganingizni ko‘rasiz.\n"
-            "• AI hammasini kuzatadi — siz esa xotirjam bo‘lasiz.\n\n"
-            "⏩ Boshlash: telefoningizni pastdagi tugma orqali yuboring.",
-            reply_markup=ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text="Telefon raqamni yuborish", request_contact=True)]],
-                resize_keyboard=True
+
+    await message.answer(
+        "Balans AI'ga xush kelibsiz.\n\n"
+        "💵 Balans AI — sizning shaxsiy buxgalteringiz.\n"
+        "U har bir so‘mingizni hisoblab, daromad va xarajatlaringizni tartibda saqlaydi.\n\n"
+        "• Har kuni pulingiz qayerga ketayotganini aniq bilasiz.\n"
+        "• Har oy qancha tejayotganingizni ko‘rasiz.\n"
+        "• AI hammasini kuzatadi — siz esa xotirjam bo‘lasiz.\n\n"
+        "⏩ Boshlash: telefoningizni pastdagi tugma orqali yuboring.",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="Telefon raqamni yuborish", request_contact=True)]],
+            resize_keyboard=True
         ),
         parse_mode="Markdown"
     )
@@ -2778,7 +2737,7 @@ async def reports_menu(message: types.Message, state: FSMContext):
         return
     
     try:
-    # Ko'p valyutali balans ma'lumotlarini olish
+        # Ko'p valyutali balans ma'lumotlarini olish
         multi_balance = await db.get_balance_multi_currency(user_id)
         total_uzs = multi_balance.get('total_uzs', {})
         by_currency = multi_balance.get('by_currency', {})
@@ -2896,29 +2855,28 @@ async def reports_menu(message: types.Message, state: FSMContext):
     
         # Mini app uchun tugma
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
-    
+        
         if user_tariff in ('PLUS', 'PRO', 'BUSINESS'):
-            # Business tarif uchun /business sahifasi
             if user_tariff == 'BUSINESS':
                 app_url = "https://balansai-app.onrender.com/business"
             else:
                 app_url = "https://balansai-app.onrender.com"
-        keyboard.inline_keyboard.append([
-            InlineKeyboardButton(
-                text="📱 To'liq ko'rish", 
+            keyboard.inline_keyboard.append([
+                InlineKeyboardButton(
+                    text="📱 To'liq ko'rish", 
                     web_app=WebAppInfo(url=app_url)
-            )
-        ])
-    
+                )
+            ])
+        
         keyboard.inline_keyboard.append([
             InlineKeyboardButton(text="💱 Valyuta kurslari", callback_data="currency_rates")
         ])
     
         await message.answer(
-                    safe_message,
-        reply_markup=keyboard,
-                    parse_mode="HTML"
-                )
+                        safe_message,
+            reply_markup=keyboard,
+                        parse_mode="HTML"
+                    )
 
     except Exception as e:
         logging.error(f"Hisobotlar ko'rsatishda xatolik: {e}")
@@ -3071,31 +3029,50 @@ async def profile_handler(message: Message, state: FSMContext):
     display_name = user_data.get('first_name', 'Xojayin')
     
     if user_tariff == 'PLUS':
-        plus_summary = await db.get_plus_usage_summary(user_id)
-        if plus_summary:
-            package_code = plus_summary.get('package_code')
-            package_info = PLUS_PACKAGES.get(package_code, {})
-            package_name = package_info.get('name', package_code or "Plus paket")
-            usage_line = format_plus_usage_display(plus_summary)
-            purchased_at = plus_summary.get('purchased_at')
-            purchased_str = purchased_at.strftime('%d.%m.%Y %H:%M') if purchased_at else '—'
+        # Plus tarif uchun obuna ma'lumotlari
+        try:
+            sub_row = await db.execute_one(
+                """SELECT expires_at FROM user_subscriptions 
+                   WHERE user_id = %s AND tariff = 'PLUS' AND status = 'active'
+                   ORDER BY expires_at DESC LIMIT 1""",
+                (user_id,)
+            )
+            if sub_row and sub_row.get('expires_at'):
+                expires_str = sub_row['expires_at'].strftime('%d.%m.%Y')
+                profile_text = (
+                    f"{display_name} (ID: {user_id})\n\n"
+                        f"Tarif: ⭐ Plus\n"
+                        f"Tugash sanasi: {expires_str}"
+                )
+            else:
+                profile_text = (
+                    f"{display_name} (ID: {user_id})\n\n"
+                        f"Tarif: ⭐ Plus"
+                    )
+        except:
             profile_text = (
                 f"{display_name} (ID: {user_id})\n\n"
-                f"Tarif: Plus paket\n"
-                f"Paket: {package_name}\n"
-                f"Boshlanish: {purchased_str}"
+                f"Tarif: ⭐ Plus"
             )
-        else:
-            profile_text = (
-                f"{display_name} (ID: {user_id})\n\n"
-                f"Tarif: Plus (aktiv paket topilmadi)\n"
-                f"🛒 Yangi paket sotib olib davom eting."
+    elif user_tariff in ('NONE', None, 'FREE'):
+        # Free tarif uchun oylik tranzaksiya limitini tekshirish
+        try:
+            monthly_row = await db.execute_one(
+                """SELECT COUNT(*) as count FROM transactions 
+                   WHERE user_id = %s 
+                   AND MONTH(created_at) = MONTH(NOW())
+                   AND YEAR(created_at) = YEAR(NOW())""",
+                (user_id,)
             )
-    elif user_tariff in ('NONE', None):
+            monthly_count = monthly_row.get('count', 0) if monthly_row else 0
+        except:
+            monthly_count = 0
+        
         profile_text = (
             f"{display_name} (ID: {user_id})\n\n"
-            "Tarif: Aktiv emas\n"
-            "Boshlash uchun Plus paket sotib oling yoki Pro tarifni tanlang."
+            f"Tarif: 🆓 Free\n"
+            f"Oylik tranzaksiyalar: {monthly_count}/100\n\n"
+            "💡 Ko'proq imkoniyatlar uchun tarifni kuchaytiring!"
         )
     elif user_tariff == 'PRO':
         # PRO tarif uchun maxsus format
@@ -3411,14 +3388,14 @@ async def send_onboarding_completion_message(user_id: int) -> None:
 
     # FREE tarif uchun - tarif tanlash
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒 Plus paket tanlash", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL))],
+        [InlineKeyboardButton(text="⭐ Plus tarifni sotib olish", web_app=WebAppInfo(url=PAYMENT_PLUS_WEBAPP_URL))],
         [InlineKeyboardButton(text="🔥 Pro tarifga o'tish", web_app=WebAppInfo(url=PAYMENT_PRO_WEBAPP_URL))]
     ])
 
     caption = (
         "✅ **Sizning buxgalteringiz ishga tayyor!**\n\n"
-        "Davom etish uchun paket yoki tarif tanlang:\n"
-        "• Plus paketlar – matn va ovoz limiti bilan moslashuvchan foydalanish\n"
+        "Davom etish uchun tarif tanlang:\n"
+        "• Plus tarif – oylik obuna bilan barcha imkoniyatlar\n"
         "• Pro tarif – oylik premium imkoniyatlar\n\n"
         "👇 Quyidagilardan birini tanlang:"
     )
@@ -5777,41 +5754,23 @@ async def check_registration_complete(user_id: int) -> bool:
         if not user_data or not user_data.get('phone'):
             return False
         
-        # Eski foydalanuvchilar uchun: agar tranzaksiyalar bo'lsa, ro'yxatdan o'tgan deb hisoblash
+        # 1) Agar tarif bo'lsa (PLUS, PRO, BUSINESS) - ro'yxatdan o'tgan
+        user_tariff = user_data.get('tariff', '').upper() if user_data.get('tariff') else ''
+        if user_tariff in ('PLUS', 'PRO', 'BUSINESS'):
+            return True
+        
+        # 2) Eski foydalanuvchilar uchun: agar tranzaksiyalar bo'lsa, ro'yxatdan o'tgan
         tx_count_query = "SELECT COUNT(*) as count FROM transactions WHERE user_id = %s"
         tx_result = await db.execute_one(tx_count_query, (user_id,))
         has_any_transactions = (tx_result.get('count', 0) > 0) if tx_result else False
         
-        # Agar tranzaksiyalar bo'lsa, ro'yxatdan o'tgan deb hisoblash (eski foydalanuvchilar uchun)
         if has_any_transactions:
             return True
         
-        # Mini-app orqali ro'yxatdan o'tgan foydalanuvchilar uchun:
-        # first_name va source bo'lsa, ro'yxatdan o'tgan deb hisoblash
-        # account_type kerak emas, chunki tarif tanlashda aniqlanadi
-        has_first_name = bool(user_data.get('first_name'))
-        has_source = bool(user_data.get('source'))
+        # 3) Yangi foydalanuvchilar uchun: telefon bor = ro'yxatdan o'tgan
+        # Tarif tanlash alohida qadamda bo'ladi
+        return True
         
-        # Agar barcha asosiy ma'lumotlar bo'lsa, ro'yxatdan o'tgan deb hisoblash
-        if has_first_name and has_source:
-            return True
-        
-        # Eski onboarding oqimi uchun: onboarding kategoriyalarini tekshirish
-        balance_query = """
-        SELECT COUNT(*) as count FROM transactions 
-        WHERE user_id = %s AND category IN ('boshlang_ich_balans', 'boshlang_ich_naqd', 'boshlang_ich_karta')
-        """
-        result = await db.execute_one(balance_query, (user_id,))
-        has_initial_balance = result.get('count', 0) > 0 if result else False
-        
-        # Eski onboarding oqimi uchun: barcha kerakli ma'lumotlar to'ldirilganligini tekshirish
-        is_complete = (
-            has_first_name and
-            has_source and
-            has_initial_balance
-        )
-        
-        return is_complete
     except Exception as e:
         logging.error(f"Registration check error: {e}")
         return False
@@ -5832,36 +5791,13 @@ async def process_financial_message(message: types.Message, state: FSMContext):
     
     # Telefon raqam bor-yo'qligini tekshirish
     user_data = await db.get_user_data(user_id)
-    if user_data and user_data.get('phone'):
-        # Ro'yxatdan to'liq o'tilganligini tekshirish
-        is_registered = await check_registration_complete(user_id)
-        if not is_registered:
-            # Eski xabarni o'chirish
-            try:
-                await message.delete()
-            except:
-                pass
-            
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(
-                    text="📱 Ro'yxatdan o'tishni davom ettirish",
-                    web_app=WebAppInfo(url="https://balansai-app.onrender.com/register")
-                )]
-            ])
-            
-            await message.answer(
-                "⚠️ **Ro'yxatdan o'tish yakunlanmagan**\n\n"
-                "Botdan foydalanish uchun barcha ma'lumotlarni to'ldirishingiz kerak:\n\n"
-                "• Ism\n"
-                "• Yosh\n"
-                "• Sozlamalar\n"
-                "• Onboarding\n"
-                "• Tarif tanlash\n\n"
-                "Quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:",
-                reply_markup=keyboard,
-                parse_mode="Markdown"
-            )
-            return
+    if not user_data or not user_data.get('phone'):
+        # Telefon raqam yo'q - /start ga yo'naltirish
+        await message.answer(
+            "⚠️ Iltimos, avval /start buyrug'ini yuboring va telefon raqamingizni kiriting.",
+            parse_mode="Markdown"
+        )
+        return
     
     # Onboarding state'larda xabar qabul qilinmasligi kerak
     current_state = await state.get_state()
@@ -5933,29 +5869,95 @@ async def process_financial_message(message: types.Message, state: FSMContext):
             )
         return
     
-    # PLUS tarif uchun financial_module ishlaydi
+    # FREE tarif uchun - faqat text tranzaksiyalar (oyiga 100 ta limit)
+    if user_tariff in ('NONE', None, 'FREE'):
+        # Oylik limit tekshirish
+        try:
+            monthly_row = await db.execute_one(
+                """SELECT COUNT(*) as count FROM transactions 
+                   WHERE user_id = %s 
+                   AND MONTH(created_at) = MONTH(NOW())
+                   AND YEAR(created_at) = YEAR(NOW())""",
+                (user_id,)
+            )
+            monthly_count = monthly_row.get('count', 0) if monthly_row else 0
+        except:
+            monthly_count = 0
+        
+        if monthly_count >= 100:
+            # Limit tugagan
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🚀 Kuchaytirish", web_app=WebAppInfo(url="https://balansai-app.onrender.com/tariffs"))]
+            ])
+            await message.answer(
+                f"⚠️ **Oylik limit tugadi!**\n\n"
+                f"Free tarifda oyiga 100 ta tranzaksiya kiritish mumkin.\n"
+                f"Siz {monthly_count}/100 ta ishlatdingiz.\n\n"
+                f"Ko'proq imkoniyatlar uchun tarifni kuchaytiring!",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+            return
+        
+        # "Bajarilyapti..." xabari
+        processing_msg = await message.answer("🔄 Bajarilyapti...")
+        
+        try:
+            # FREE uchun financial_module orqali qayta ishlaymiz
+            text = message.text
+            result = await financial_module.process_ai_input_advanced(text, user_id)
+            
+            # Processing xabarni o'chirish
+            try:
+                await processing_msg.delete()
+            except:
+                pass
+            
+            if result.get('success') and 'transaction_data' in result and result['transaction_data'].get('transactions'):
+                # Tranzaksiya aniqlandi
+                transaction_type = result.get('type', '')
+                buttons = financial_module.generate_transaction_buttons({
+                    'type': transaction_type,
+                    'transactions': result['transaction_data']['transactions']
+                })
+                
+                # Xabarni tozalash - "Tarif sotib oling" xabarini olib tashlash
+                response_message = result.get('message', '✅ Tranzaksiya aniqlandi!')
+                if 'Tarif sotib oling' in response_message or 'tarifni sotib oling' in response_message.lower():
+                    response_message = '✅ Tranzaksiya aniqlandi!'
+                
+                # Buttons ni InlineKeyboardMarkup ga o'girish
+                if buttons:
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text=btn['text'], callback_data=btn['callback_data'])] 
+                        for row in buttons for btn in row
+                    ])
+           g
+                else:
+                    await message.answer(
+                        response_message,
+                        parse_mode='Markdown'
+                    )
+            else:
+                # Tranzaksiya aniqlanmadi
+                await message.answer(
+                    result.get('message', '❓ Xabar tushunilmadi. Iltimos, aniqroq yozing.'),
+                    parse_mode='Markdown'
+                )
+        except Exception as e:
+            logging.error(f"FREE tarif xatolik: {e}")
+            try:
+                await processing_msg.delete()
+            except:
+                pass
+            await message.answer(
+                "❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.",
+                parse_mode="Markdown"
+            )
+            return
+        
+    # PLUS tarif uchun financial_module ishlaydi (oylik obuna - cheksiz)
     if user_tariff == 'PLUS':
-        package_summary = await db.get_plus_usage_summary(user_id)
-        if not package_summary:
-            await message.answer(
-                "❌ Plus paket aktiv emas. Paket sotib olib keyin davom eting.",
-                reply_markup=get_plus_purchase_keyboard()
-            )
-            return
-        
-        text_remaining = package_summary['text_limit'] - package_summary['text_used']
-        voice_remaining = package_summary['voice_limit'] - package_summary['voice_used']
-        
-        if text_remaining <= 0:
-            warning_text = "❌ Sizda hozircha textli tranzaksiyalar tugadi. Ovozli xabar yuboring yoki yangi paket sotib oling."
-            if voice_remaining <= 0:
-                warning_text = "❌ Plus paketingiz tugadi. Yangi paket sotib oling."
-            await message.answer(
-                warning_text,
-                reply_markup=get_plus_purchase_keyboard()
-            )
-            return
-        
         # "Bajarilyapti..." xabari
         processing_msg = await message.answer("🔄 Bajarilyapti...")
         
@@ -5995,14 +5997,7 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         # Eslatma aniqlanganmi tekshirish - 'id' yoki 'message' bor bo'lsa, eslatma aniqlangan
         has_reminder = reminder_result is not None and (reminder_result.get('id') or reminder_result.get('message'))
         
-        # Usage ni faqat tranzaksiya yoki eslatma aniqlangan bo'lsa kamaytiramiz
-        latest_summary = package_summary
-        if has_transaction or has_reminder:
-            incremented, updated_package = await db.increment_plus_usage(user_id, 'text')
-            if incremented and updated_package:
-                latest_summary = updated_package
-        
-        # Paket qoldiq xabari olib tashlandi - foydalanuvchi so'roviga binoan
+        # Plus tarifda cheksiz - usage tracking olib tashlandi
         usage_note = ""
         
         if has_transaction and has_reminder:
@@ -6457,26 +6452,7 @@ async def process_audio_message(message: types.Message, state: FSMContext):
                                    UserStates.waiting_for_income_month, UserStates.waiting_for_income_day]:
         return
     
-    plus_package_summary = None
-    if user_tariff == 'PLUS':
-        plus_package_summary = await db.get_plus_usage_summary(user_id)
-        if not plus_package_summary:
-            await message.answer(
-                "❌ Plus paket aktiv emas. Paket sotib olib keyin ovoz yuboring.",
-                reply_markup=get_plus_purchase_keyboard()
-            )
-            return
-        voice_remaining = plus_package_summary['voice_limit'] - plus_package_summary['voice_used']
-        text_remaining = plus_package_summary['text_limit'] - plus_package_summary['text_used']
-        if voice_remaining <= 0:
-            warning_text = "❌ Sizda hozircha ovozli tranzaksiyalar tugadi. Matn yuboring yoki yangi paket sotib oling."
-            if text_remaining <= 0:
-                warning_text = "❌ Plus paketingiz tugadi. Yangi paket sotib oling."
-            await message.answer(
-                warning_text,
-                reply_markup=get_plus_purchase_keyboard()
-            )
-            return
+    # Plus tarifda cheksiz foydalanish mumkin (oylik obuna)
     
     try:
         # Audio faylni yuklab olish
