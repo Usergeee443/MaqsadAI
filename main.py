@@ -4950,6 +4950,12 @@ async def business_reports_handler(message: types.Message, state: FSMContext):
         )
     ])
     
+    await message.answer(
+        "📊 **Hisobotlar**\n\n"
+        "Biznesingiz statistikasi va tahlillari:",
+        reply_markup=reports_menu,
+        parse_mode='Markdown'
+    )
 
 
 # Business sahifasiga o'tish callback
