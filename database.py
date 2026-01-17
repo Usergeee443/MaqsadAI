@@ -1574,36 +1574,51 @@ class Database:
     
     async def get_active_tariff(self, user_id):
         """Foydalanuvchining hozirgi aktiv tarifini olish"""
-        # Avvalo Plus paketlarini tekshiramiz
-        package = await self.get_active_plus_package(user_id)
-        if package:
-            return 'PLUS'
+        tariff_map = {'BIZNES': 'BUSINESS', 'BUSINESS': 'BUSINESS', 'PLUS': 'PLUS', 'PRO': 'PRO'}
         
-        # user_subscriptions dan tekshirish
-        query = """
-        SELECT tariff FROM user_subscriptions
-        WHERE user_id = %s AND is_active = TRUE AND expires_at > NOW()
-        LIMIT 1
-        """
-        result = await self.execute_one(query, (user_id,))
-        if result and result.get('tariff'):
-            return result.get('tariff').upper()
-        
-        # users jadvalidan tekshirish (tariff va tariff_expires_at)
+        # 1. Avval users jadvalidan tekshirish (BUSINESS/PRO birinchi)
         user_query = """
         SELECT tariff, tariff_expires_at FROM users WHERE user_id = %s
         """
         user_result = await self.execute_one(user_query, (user_id,))
         if user_result and user_result.get('tariff'):
             user_tariff = user_result.get('tariff', '').upper()
+            user_tariff = tariff_map.get(user_tariff, user_tariff)
             expires_at = user_result.get('tariff_expires_at')
-            # Tarif mavjud va (muddati o'tmagan yoki muddatsiz)
-            if user_tariff and user_tariff not in ('NONE', 'FREE', ''):
+            # BUSINESS yoki PRO bo'lsa va muddati o'tmagan bo'lsa
+            if user_tariff in ('BUSINESS', 'PRO'):
                 from datetime import datetime
                 if expires_at is None or expires_at > datetime.now():
                     return user_tariff
         
-        return "NONE"
+        # 2. user_subscriptions dan tekshirish
+        query = """
+        SELECT tariff FROM user_subscriptions
+        WHERE user_id = %s AND is_active = TRUE AND expires_at > NOW()
+        ORDER BY FIELD(tariff, 'BUSINESS', 'PRO', 'PLUS') 
+        LIMIT 1
+        """
+        result = await self.execute_one(query, (user_id,))
+        if result and result.get('tariff'):
+            tariff = result.get('tariff', '').upper()
+            return tariff_map.get(tariff, tariff)
+        
+        # 3. Plus paketlarini tekshiramiz (eng oxirida)
+        package = await self.get_active_plus_package(user_id)
+        if package:
+            return 'PLUS'
+        
+        # 4. users jadvalidagi PLUS tarifni tekshirish
+        if user_result and user_result.get('tariff'):
+            user_tariff = user_result.get('tariff', '').upper()
+            user_tariff = tariff_map.get(user_tariff, user_tariff)
+            expires_at = user_result.get('tariff_expires_at')
+            if user_tariff == 'PLUS':
+                from datetime import datetime
+                if expires_at is None or expires_at > datetime.now():
+                    return 'PLUS'
+        
+        return "FREE"
     
     # Reminders funksiyalari
     async def create_reminder(self, user_id: int, reminder_type: str, title: str, 

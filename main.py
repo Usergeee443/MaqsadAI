@@ -2857,14 +2857,10 @@ async def reports_menu(message: types.Message, state: FSMContext):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
     
         # Barcha tariflar uchun "To'liq ko'rish" tugmasi
-        if user_tariff == 'BUSINESS':
-            app_url = "https://balansai-app.onrender.com/business"
-        else:
-            app_url = "https://balansai-app.onrender.com"
         keyboard.inline_keyboard.append([
             InlineKeyboardButton(
                 text="📱 To'liq ko'rish", 
-                web_app=WebAppInfo(url=app_url)
+                web_app=WebAppInfo(url="https://balansai-app.onrender.com/business")
             )
         ])
     
@@ -2962,9 +2958,9 @@ async def back_to_reports_callback(callback_query: CallbackQuery):
         # Mini app uchun tugma (Plus va Pro tariflar uchun)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
         
-        if user_tariff in ('PLUS', 'PRO', 'BUSINESS'):
+        if user_tariff in ('PLUS', 'PRO', 'BIZNES', 'BUSINESS'):
             # Business tarif uchun /business sahifasi
-            if user_tariff == 'BUSINESS':
+            if user_tariff in ('BUSINESS', 'PLUS'):
                 app_url = "https://balansai-app.onrender.com/business"
             else:
                 app_url = "https://balansai-app.onrender.com"
@@ -4946,20 +4942,15 @@ async def business_reports_handler(message: types.Message, state: FSMContext):
     # Hisobotlar menyusi keyboard
     reports_menu = business_module.get_reports_menu()
     
-    # Batafsil tugmasini qo'shish - /business sahifasiga yo'naltirish
+    # Mini app tugmasini qo'shish
     reports_menu.inline_keyboard.insert(0, [
         InlineKeyboardButton(
-            text="📋 Batafsil", 
-            callback_data="go_to_business"
+            text="📱 To'liq ko'rish", 
+            web_app=WebAppInfo(url="https://balansai-app.onrender.com/business")
         )
     ])
     
-    await message.answer(
-        "📊 **Hisobotlar**\n\n"
-        "Biznesingiz statistikasi va tahlillari:",
-        reply_markup=reports_menu,
-        parse_mode='Markdown'
-    )
+g
 
 # Business sahifasiga o'tish callback
 @dp.callback_query(lambda c: c.data == "go_to_business")
