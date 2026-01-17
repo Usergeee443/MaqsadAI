@@ -5932,7 +5932,7 @@ async def process_financial_message(message: types.Message, state: FSMContext):
                         [InlineKeyboardButton(text=btn['text'], callback_data=btn['callback_data'])] 
                         for row in buttons for btn in row
                     ])
-           g
+           
                 else:
                     await message.answer(
                         response_message,
