@@ -2897,13 +2897,18 @@ async def reports_menu(message: types.Message, state: FSMContext):
         # Mini app uchun tugma
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
     
-        if user_tariff in ('PLUS', 'PRO'):
-            keyboard.inline_keyboard.append([
-                InlineKeyboardButton(
-                    text="📱 To'liq ko'rish", 
-                    web_app=WebAppInfo(url="https://balansai-app.onrender.com")
-                )
-            ])
+        if user_tariff in ('PLUS', 'PRO', 'BUSINESS'):
+            # Business tarif uchun /business sahifasi
+            if user_tariff == 'BUSINESS':
+                app_url = "https://balansai-app.onrender.com/business"
+            else:
+                app_url = "https://balansai-app.onrender.com"
+        keyboard.inline_keyboard.append([
+            InlineKeyboardButton(
+                text="📱 To'liq ko'rish", 
+                    web_app=WebAppInfo(url=app_url)
+            )
+        ])
     
         keyboard.inline_keyboard.append([
             InlineKeyboardButton(text="💱 Valyuta kurslari", callback_data="currency_rates")
@@ -2999,11 +3004,16 @@ async def back_to_reports_callback(callback_query: CallbackQuery):
         # Mini app uchun tugma (Plus va Pro tariflar uchun)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
         
-        if user_tariff in ('PLUS', 'PRO'):
+        if user_tariff in ('PLUS', 'PRO', 'BUSINESS'):
+            # Business tarif uchun /business sahifasi
+            if user_tariff == 'BUSINESS':
+                app_url = "https://balansai-app.onrender.com/business"
+            else:
+                app_url = "https://balansai-app.onrender.com"
             keyboard.inline_keyboard.append([
                 InlineKeyboardButton(
                     text="📱 To'liq ko'rish", 
-                    web_app=WebAppInfo(url="https://balansai-app.onrender.com")
+                    web_app=WebAppInfo(url=app_url)
                 )
             ])
         
