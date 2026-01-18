@@ -2850,11 +2850,18 @@ async def reports_menu(message: types.Message, state: FSMContext):
         # Mini app uchun tugma
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
     
-        # Barcha tariflar uchun "To'liq ko'rish" tugmasi
+        # Tarifga qarab "To'liq ko'rish" tugmasi
+        if user_tariff == "PLUS":
+            app_url = "https://balansai-app.onrender.com/"
+        elif user_tariff in ("FREE", "NONE", None):
+            app_url = "https://balansai-app.onrender.com/free"
+        else:
+            app_url = "https://balansai-app.onrender.com/business"
+        
         keyboard.inline_keyboard.append([
             InlineKeyboardButton(
                 text="📱 To'liq ko'rish", 
-                web_app=WebAppInfo(url="https://balansai-app.onrender.com/business")
+                web_app=WebAppInfo(url=app_url)
             )
         ])
     
