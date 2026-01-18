@@ -5933,32 +5933,71 @@ async def process_financial_message(message: types.Message, state: FSMContext):
                 pass
             
             if result.get('success') and 'transaction_data' in result and result['transaction_data'].get('transactions'):
-                # Tranzaksiya aniqlandi
+                # Tranzaksiya aniqlandi - Free tarifda avtomatik saqlash
                 transaction_type = result.get('type', '')
-                buttons = financial_module.generate_transaction_buttons({
-                    'type': transaction_type,
-                    'transactions': result['transaction_data']['transactions']
-                })
+                transactions = result['transaction_data']['transactions']
                 
-                # Xabarni tozalash - "Tarif sotib oling" xabarini olib tashlash
-                response_message = result.get('message', '✅ Tranzaksiya aniqlandi!')
-                if 'Tarif sotib oling' in response_message or 'tarifni sotib oling' in response_message.lower():
-                    response_message = '✅ Tranzaksiya aniqlandi!'
+                # Avtomatik saqlash
+                save_result = await financial_module.save_confirmed_transactions(transactions, user_id)
                 
-                # Buttons ni InlineKeyboardMarkup ga o'girish
-                if buttons:
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text=btn['text'], callback_data=btn['callback_data'])] 
-                        for row in buttons for btn in row
-                    ])
-                    await message.answer(
-                                response_message,
-                                reply_markup=keyboard,
-                                parse_mode='Markdown'
-                            )
+                if save_result.get('success'):
+                    # Saqlangan tranzaksiyalar ID'lari bilan tugmalar yaratish
+                    saved_transactions = save_result.get('transactions', [])
+                    
+                    # State ga saqlangan tranzaksiyalarni qo'shish (o'chirish/tahrirlash uchun)
+                    await state.update_data(saved_transaction_ids=saved_transactions)
+                    
+                    # Avtomatik saqlangan - faqat "O'chirish" va "Tahrirlash" tugmalari
+                    buttons = financial_module.generate_transaction_buttons({
+                        'type': transaction_type,
+                        'transactions': saved_transactions
+                    }, auto_saved=True)
+                    
+                    # Free tarifda oddiy xabar - bitta tranzaksiya bo'lsa oddiy, ko'p bo'lsa qisqa
+                    if len(saved_transactions) == 1:
+                        trans = saved_transactions[0]
+                        trans_type = trans.get('type', 'expense')
+                        amount = trans.get('amount', 0)
+                        category = trans.get('category', '')
+                        currency = trans.get('currency', 'UZS')
+                        
+                        type_names = {
+                            'income': 'Kirim',
+                            'expense': 'Chiqim',
+                            'debt': 'Qarz'
+                        }
+                        type_name = type_names.get(trans_type, 'Tranzaksiya')
+                        
+                        if currency != 'UZS':
+                            amount_text = f"{amount:,.2f} {currency}"
+                        else:
+                            amount_text = f"{amount:,.0f} so'm"
+                        
+                        response_message = f"✅ **{type_name} saqlandi!**\n\n💰 Summa: {amount_text}\n📂 Kategoriya: {category}"
+                    else:
+                        # Ko'p tranzaksiya - qisqa xabar
+                        response_message = f"✅ **{len(saved_transactions)} ta tranzaksiya saqlandi!**"
+                    
+                    # Buttons ni InlineKeyboardMarkup ga o'girish
+                    if buttons:
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text=btn['text'], callback_data=btn['callback_data'])] 
+                            for row in buttons for btn in row
+                        ])
+                        await message.answer(
+                                    response_message,
+                                    reply_markup=keyboard,
+                                    parse_mode='Markdown'
+                                )
+                    else:
+                        await message.answer(
+                            response_message,
+                            parse_mode='Markdown'
+                        )
                 else:
+                    # Saqlashda xatolik
                     await message.answer(
-                        response_message,
+                        save_result.get('message', '❌ Tranzaksiya saqlashda xatolik yuz berdi.'),
                         parse_mode='Markdown'
                     )
             else:

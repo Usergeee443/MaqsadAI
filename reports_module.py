@@ -8,31 +8,49 @@ class ReportsModule:
         pass
     
     async def get_balance_report(self, user_id: int) -> Dict[str, Any]:
-        """Balans hisoboti"""
+        """Balans hisoboti - valyuta konvertatsiyasi bilan"""
         try:
-            # Jami kirim
+            # Valyuta kurslarini olish
+            rates = await db.get_currency_rates()
+            
+            # Jami kirim - valyuta konvertatsiyasi bilan
             income_query = """
-            SELECT COALESCE(SUM(amount), 0) FROM transactions 
+            SELECT amount, currency FROM transactions 
             WHERE user_id = %s AND transaction_type = 'income'
             """
-            income_result = await db.execute_one(income_query, (user_id,))
-            total_income = float(income_result[0]) if income_result else 0.0
+            income_results = await db.execute_query(income_query, (user_id,))
+            total_income = 0.0
+            for row in income_results:
+                amount = float(row[0]) if row[0] else 0.0
+                currency = row[1] if row[1] else 'UZS'
+                rate = rates.get(currency, 1.0)
+                total_income += amount * rate
             
-            # Jami chiqim
+            # Jami chiqim - valyuta konvertatsiyasi bilan
             expense_query = """
-            SELECT COALESCE(SUM(amount), 0) FROM transactions 
+            SELECT amount, currency FROM transactions 
             WHERE user_id = %s AND transaction_type = 'expense'
             """
-            expense_result = await db.execute_one(expense_query, (user_id,))
-            total_expense = float(expense_result[0]) if expense_result else 0.0
+            expense_results = await db.execute_query(expense_query, (user_id,))
+            total_expense = 0.0
+            for row in expense_results:
+                amount = float(row[0]) if row[0] else 0.0
+                currency = row[1] if row[1] else 'UZS'
+                rate = rates.get(currency, 1.0)
+                total_expense += amount * rate
             
-            # Jami qarz
+            # Jami qarz - valyuta konvertatsiyasi bilan
             debt_query = """
-            SELECT COALESCE(SUM(amount), 0) FROM transactions 
+            SELECT amount, currency FROM transactions 
             WHERE user_id = %s AND transaction_type = 'debt'
             """
-            debt_result = await db.execute_one(debt_query, (user_id,))
-            total_debt = float(debt_result[0]) if debt_result else 0.0
+            debt_results = await db.execute_query(debt_query, (user_id,))
+            total_debt = 0.0
+            for row in debt_results:
+                amount = float(row[0]) if row[0] else 0.0
+                currency = row[1] if row[1] else 'UZS'
+                rate = rates.get(currency, 1.0)
+                total_debt += amount * rate
             
             balance = total_income - total_expense
             
