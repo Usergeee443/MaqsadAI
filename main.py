@@ -1342,10 +1342,10 @@ async def start_command(message: types.Message, state: FSMContext):
                 f"⚠️ **Ro'yxatdan o'tish yakunlanmagan**\n\n"
                 f"Botdan foydalanish uchun quyidagi tugmani bosing va ma'lumotlarni to'ldiring:",
                 reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
-        return
-
+                parse_mode="Markdown"
+            )
+            return
+        
         # Ro'yxatdan to'liq o'tilgan - asosiy menyuni ko'rsatish
         user_name = await get_user_name(user_id)
         user_tariff = await get_user_tariff(user_id)
