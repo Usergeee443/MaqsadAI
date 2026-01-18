@@ -176,7 +176,7 @@ class FinancialModule:
                 "success": False,
                 "message": "❌ Audio faylni qayta ishlashda xatolik yuz berdi."
             }
-        
+
     async def _transcribe_with_google(self, client: speech.SpeechClient, audio_content: bytes) -> Optional[str]:
         """Google Cloud Speech orqali transkripti olish"""
         audio = speech.RecognitionAudio(content=audio_content)
@@ -1318,7 +1318,7 @@ JSON formatida qaytaring:
                     "total_confidence": 0
                 }
             else:
-                # Oxirgi fallback - har doim bitta tranzaksiya
+            # Oxirgi fallback - har doim bitta tranzaksiya
                 fallback_data = {
                     "transactions": [{
                         "amount": 0,

@@ -1430,13 +1430,7 @@ async def process_phone(message: types.Message, state: FSMContext):
     
     await message.answer(
         "✅ **Telefon raqamingiz qabul qilindi!**\n\n"
-        "Endi ro'yxatdan o'tishni davom ettirish uchun quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:\n\n"
-        "• Ism\n"
-        "• Yosh\n"
-        "• Sozlamalar\n"
-        "• Onboarding\n"
-        "• Tarif tanlash\n\n"
-        "Barcha ma'lumotlar to'ldirilgandan keyin botdan foydalanishga ruxsat beriladi.",
+        "Endi ro'yxatdan o'tishni davom ettirish uchun quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:",
         reply_markup=keyboard,
         parse_mode="Markdown"
     )
@@ -5759,9 +5753,11 @@ async def check_registration_complete(user_id: int) -> bool:
         if not user_data or not user_data.get('phone'):
             return False
         
-        # 1) Agar tarif bo'lsa (PLUS, PRO, BUSINESS) - ro'yxatdan o'tgan
-        user_tariff = user_data.get('tariff', '').upper() if user_data.get('tariff') else ''
-        if user_tariff in ('PLUS', 'PRO', 'BUSINESS'):
+        # Tarifni olish va normalize qilish
+        user_tariff = user_data.get('tariff', '').upper().strip() if user_data.get('tariff') else ''
+        
+        # 1) Agar tarif tanlangan bo'lsa (PLUS, PRO, BUSINESS, FREE) - ro'yxatdan o'tgan
+        if user_tariff in ('PLUS', 'PRO', 'BUSINESS', 'FREE'):
             return True
         
         # 2) Eski foydalanuvchilar uchun: agar tranzaksiyalar bo'lsa, ro'yxatdan o'tgan
@@ -5772,9 +5768,9 @@ async def check_registration_complete(user_id: int) -> bool:
         if has_any_transactions:
             return True
         
-        # 3) Yangi foydalanuvchilar uchun: telefon bor = ro'yxatdan o'tgan
-        # Tarif tanlash alohida qadamda bo'ladi
-        return True
+        # 3) Yangi foydalanuvchilar uchun: telefon bor lekin tarif tanlanmagan - ro'yxatdan o'tmagan
+        # Faqat telefon raqam yozilgan, lekin mini app'dan ma'lumot to'ldirilmagan
+        return False
         
     except Exception as e:
         logging.error(f"Registration check error: {e}")
@@ -5800,6 +5796,24 @@ async def process_financial_message(message: types.Message, state: FSMContext):
         # Telefon raqam yo'q - /start ga yo'naltirish
         await message.answer(
             "⚠️ Iltimos, avval /start buyrug'ini yuboring va telefon raqamingizni kiriting.",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Ro'yxatdan to'liq o'tganligini tekshirish (tarif tanlangan bo'lishi kerak)
+    if not await check_registration_complete(user_id):
+        # Tarif tanlanmagan - ro'yxatdan o'tishni talab qilish
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="📝 Ro'yxatdan o'tish", 
+                web_app=WebAppInfo(url="https://balansai-app.onrender.com/register")
+            )]
+        ])
+        await message.answer(
+            "⚠️ **Ro'yxatdan to'liq o'tmagansiz!**\n\n"
+            "Botdan foydalanish uchun avval ro'yxatdan o'tish va tarif tanlash kerak.\n\n"
+            "Quyidagi tugmani bosing va barcha ma'lumotlarni to'ldiring:",
+            reply_markup=keyboard,
             parse_mode="Markdown"
         )
         return
