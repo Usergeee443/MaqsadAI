@@ -535,12 +535,19 @@ QOIDALAR:
    - "expense" = xarajat, sotib oldim, ketdi, sarfladim, to'ladim, berdim, ish haqqini berdim, maosh berdim, to'lov qildim, pul ketdi
    - "debt_lent" = qarz berdim, qarz berish (men berdim) - MUHIM: "qarz" so'zi bo'lishi SHART!
    - "debt_borrowed" = qarz oldim, qarz olish (men oldim) - MUHIM: "qarz" so'zi bo'lishi SHART!
-   
-   MUHIM QOIDALAR:
+
+   QARZ UCHUN JUDA MUHIM QOIDALAR (DIQQAT!):
+   - "qarz" so'zi MAJBURIY! Agar "qarz" so'zi YO'Q bo'lsa, qarz EMAS, oddiy expense yoki income!
+   - "do'stimga qarz berdim" → debt_lent ✅ (qarz so'zi bor!)
+   - "Alidan qarz oldim" → debt_borrowed ✅ (qarz so'zi bor!)
+   - "do'stimga berdim" → expense ❌ (qarz so'zi YO'Q - bu oddiy xarajat!)
+   - "do'stimdan oldim" → income ❌ (qarz so'zi YO'Q - bu oddiy daromad!)
+   - "do'stimga pul berdim" → expense ❌ (qarz so'zi YO'Q - bu oddiy xarajat!)
+
+   BOSHQA MUHIM QOIDALAR:
    - "ish haqqini berdim", "maosh berdim", "ishchimga ish haqqini berdim" → expense (CHIQIM!)
    - "ish haqi tushdi", "maosh tushdi", "ish haqi keldi" → income (KIRIM!)
-   - "qarz berdim", "qarz oldim" → debt_lent/debt_borrowed (QARZ!) - "qarz" so'zi bo'lishi SHART!
-   - Agar "qarz" so'zi yo'q bo'lsa, qarz emas! Faqat "qarz" so'zi bo'lsa, qarz deb aniqlash!
+   - Har doim matnda "qarz" so'zi bor yoki yo'qligini tekshiring!
 
 2. VALYUTA: UZS (default), USD, EUR, RUB, TRY
    - UZS: so'm, som, sum, so'mga, somga, sumga, so'mdan, somdan, sumdan
@@ -652,8 +659,12 @@ CHIQIM KATEGORIYALARI:
    - "Tadbir" = tadbir, bayram, marosim
    - "Boshqa" = qolganlar, boshqa xarajatlar
 
+QARZ KATEGORIYALARI:
+   - "Qarz berish" = kimgadir qarz berdim (debt_lent type uchun)
+   - "Qarz olish" = kimgadir qarz oldim (debt_borrowed type uchun)
+
 4. QARZ uchun qo'shimcha:
-   - "person_name" = kimga/kimdan (MAJBURIY qarz uchun!)
+   - "person_name" = kimga/kimdan (MAJBURIY qarz uchun! Agar ism aytilmagan bo'lsa, matndan topishga harakat qiling)
    - "due_date" = qaytarish sanasi (YYYY-MM-DD formatida, MUHIM - sana tushunish qoidalari quyida)
 
 SANA TUSHUNISH QOIDALARI (MUHIM!):
@@ -698,10 +709,12 @@ MISOLLAR (KATEGORIYALAR ANIQ AJRATILISHI KERAK!):
 "parikmaxona 100k" → {{"transactions":[{{"amount":100000,"type":"expense","category":"Parikmaxona","currency":"UZS"}}]}}
 "100 000 so'm ishchimga ish haqqini berdim" → {{"transactions":[{{"amount":100000,"type":"expense","category":"Boshqa","currency":"UZS","description":"ish haqqini berdim"}}]}}
 "100 000 so'm Husenga ish haaqini berdim" → {{"transactions":[{{"amount":100000,"type":"expense","category":"Boshqa","currency":"UZS","description":"ish haqqini berdim"}}]}}
-"Hasanga 500k qarz berdim" → {{"transactions":[{{"amount":500000,"type":"debt_lent","category":"Qarz berish","currency":"UZS","person_name":"Hasan"}}]}}
-"Komildan 200k qarz oldim" → {{"transactions":[{{"amount":200000,"type":"debt_borrowed","category":"Qarz olish","currency":"UZS","person_name":"Komil"}}]}}
-"Ali dan 100 000 sum qarz oldim keyingi yil 31-dekabrga qayttarishim kerak" → {{"transactions":[{{"amount":100000,"type":"debt_borrowed","category":"Qarz olish","currency":"UZS","person_name":"Ali","due_date":"{current_year + 1}-12-31"}}]}}
-"Hasanga 500k berdim" → {{"transactions":[{{"amount":500000,"type":"expense","category":"Boshqa","currency":"UZS","description":"berdim"}}]}} (qarz emas, chunki "qarz" so'zi yo'q!)
+"Hasanga 500k qarz berdim" → {{"transactions":[{{"amount":500000,"type":"debt_lent","category":"Qarz berish","currency":"UZS","person_name":"Hasan","confidence":0.95}}]}}
+"Komildan 200k qarz oldim" → {{"transactions":[{{"amount":200000,"type":"debt_borrowed","category":"Qarz olish","currency":"UZS","person_name":"Komil","confidence":0.95}}]}}
+"Ali dan 100 000 sum qarz oldim keyingi yil 31-dekabrga qayttarishim kerak" → {{"transactions":[{{"amount":100000,"type":"debt_borrowed","category":"Qarz olish","currency":"UZS","person_name":"Ali","due_date":"{current_year + 1}-12-31","confidence":0.98}}]}}
+"do'stimga 20k qarz berdim" → {{"transactions":[{{"amount":20000,"type":"debt_lent","category":"Qarz berish","currency":"UZS","person_name":"do'stim","confidence":0.92}}]}} (qarz so'zi bor!)
+"do'stimdan 30k qarz oldim" → {{"transactions":[{{"amount":30000,"type":"debt_borrowed","category":"Qarz olish","currency":"UZS","person_name":"do'stim","confidence":0.92}}]}} (qarz so'zi bor!)
+"Hasanga 500k berdim" → {{"transactions":[{{"amount":500000,"type":"expense","category":"Boshqa","currency":"UZS","description":"berdim","confidence":0.65}}]}} (qarz emas, chunki "qarz" so'zi yo'q!)
 "Bugun 20:00 da Dastuchi bilan ko'rishisim kerak esalatasan" → {{"transactions":[],"total_confidence":0}} (ESLATMA! Summa yo'q va "eslatasan", "kerak", "ko'rishisim" so'zlari bor)
 "Ertaga 11:00 da Duxtirga borishim kerak eslatasan" → {{"transactions":[],"total_confidence":0}} (ESLATMA! Summa yo'q va "eslatasan", "kerak", "borishim" so'zlari bor)
 "sovg'a uchun ichimlik sotib oldim" → {{"transactions":[],"total_confidence":0}} (summa yo'q)
@@ -720,6 +733,20 @@ VALYUTA MISOLLARI:
 "100 evro kirim" → {{"transactions":[{{"amount":100,"type":"income","category":"boshqa","currency":"EUR"}}]}}
 "200 dollar qarz berdim" → {{"transactions":[{{"amount":200,"type":"debt_lent","category":"qarz","currency":"USD","person_name":"Noma'lum"}}]}}
 "50 euro qarz oldim" → {{"transactions":[{{"amount":50,"type":"debt_borrowed","category":"qarz","currency":"EUR","person_name":"Noma'lum"}}]}}
+
+CONFIDENCE QOIDALARI (JUDA MUHIM!):
+- Agar summa va kategoriya ANIQ bo'lsa → confidence: 0.95-1.0
+  Misol: "50k taksi" → confidence: 0.98
+- Agar summa aniq lekin kategoriya noaniq bo'lsa → confidence: 0.7-0.85
+  Misol: "100k xarajat" → confidence: 0.8 (kategoriya noaniq)
+- Agar kategoriya aniq lekin summa aniq emas (taxminiy) bo'lsa → confidence: 0.5-0.65
+  Misol: "taksi uchun" (summa yo'q) → confidence: 0.55
+- Agar type noaniq bo'lsa (qarz yoki expense) → confidence: 0.4-0.6
+  Misol: "do'stimga berdim" → confidence: 0.5 (qarz yoki expense?)
+- Agar hamma narsa noaniq bo'lsa → confidence: 0.3-0.4
+  Misol: "pul ketdi" → confidence: 0.35
+
+MUHIM: Agar sizda SHUBHA bo'lsa, confidence ni PASAYTIRING! Yuqori confidence faqat 100% aniq bo'lganda!
 
 FORMAT: {{"transactions":[{{...}}],"total_confidence":0.9}}"""
 
@@ -1453,41 +1480,75 @@ Yoki agar summa yo'q bo'lsa:
             # Barcha tranzaksiyalarni birlashtirish
             all_transactions = confirmed + suspected + unclear
             all_transactions.sort(key=lambda x: x['index'])
-            
-            message = "📋 *Aniqlangan tranzaksiyalar*\n\n"
-            
+
+            # Xabar sarlavhasini dinamik qilish
+            if len(all_transactions) == 0:
+                return {
+                    "success": True,
+                    "message": "❌ **Tushunmadim**\n\n" +
+                              "Iltimos, tranzaksiyangizni aniqroq kiriting:\n" +
+                              "• Summani ko'rsating (masalan: 50000 so'm)\n" +
+                              "• Nima uchun xarajat yoki kirim qilganingizni ayting\n\n" +
+                              "**Misol:** _50000 so'm ichimlik sotib oldim_",
+                    "auto_save": False
+                }
+
+            # Faqat confirmed bo'lsa - aniq topildi
+            if len(confirmed) > 0 and len(suspected) == 0 and len(unclear) == 0:
+                message = f"✅ **{len(confirmed)} ta aniq tranzaksiya topildi!**\n\n"
+            # Agar suspected yoki unclear bo'lsa - noaniq
+            elif len(unclear) > 0 or len(suspected) > 0:
+                message = "⚠️ **Noaniq tranzaksiyalar topildi!**\n\n"
+                if len(confirmed) > 0:
+                    message += f"✅ Aniq: {len(confirmed)} ta\n"
+                if len(suspected) > 0:
+                    message += f"⚠️ Taxminiy: {len(suspected)} ta\n"
+                if len(unclear) > 0:
+                    message += f"❓ Noaniq: {len(unclear)} ta\n"
+                message += "\n**Iltimos tekshiring va to'g'rilang:**\n\n"
+            else:
+                message = f"📋 **{len(all_transactions)} ta tranzaksiya:**\n\n"
+
             # Har bir tranzaksiyani ko'rsatish
             for item in all_transactions:
                 trans = item['data']
                 status = item['status']
-                
+
                 type_emoji = {
                     "income": "📈",
                     "expense": "📉",
-                    "debt": "💳"
+                    "debt_lent": "💳",
+                    "debt_borrowed": "💳"
                 }.get(trans['type'], "❓")
-                
+
                 # Status belgisi
                 if status == 'confirmed':
                     status_emoji = "✅"
-                elif status == 'suspected': 
+                elif status == 'suspected':
                     status_emoji = "⚠️"
                 else:
                     status_emoji = "❓"
-                
+
                 message += f"{item['index']}. {status_emoji} {type_emoji} **{trans['amount']:,.0f} so'm**\n"
                 message += f"   📂 {trans['category']}\n"
                 message += f"   📝 {trans['description']}\n"
-                
-                # Status izoh - taxminiy ma'lumotlarni olib tashladik
-                
+
+                # Noaniq bo'lsa, ogohlantirish
+                if status == 'unclear':
+                    message += f"   ⚠️ Aniqlik juda past - tekshiring!\n"
+                elif status == 'suspected':
+                    message += f"   ⚠️ Taxminiy - tekshirib ko'ring\n"
+
                 message += "\n"
-            
-            # Avtomatik saqlash uchun transaction_data qaytarish
-            # Barcha tranzaksiyalarni avtomatik saqlash (confirmed, suspected, unclear)
-            # Lekin faqat aniq tranzaksiyalar (confirmed) bo'lsa, ularni saqlash
-            transactions_to_save = confirmed if confirmed else all_transactions
-            
+
+            # AUTO-SAVE MANTIQ:
+            # Faqat BARCHA tranzaksiyalar confirmed bo'lsa, avtomatik saqlaydi
+            # Agar bitta ham suspected yoki unclear bo'lsa, SAQLAMAYDI
+            should_auto_save = len(all_transactions) > 0 and len(confirmed) == len(all_transactions)
+
+            # Faqat confirmed tranzaksiyalarni saqlash uchun tayyorlash
+            transactions_to_save = confirmed if should_auto_save else []
+
             return {
                 "success": True,
                 "type": "multiple_preview",
@@ -1496,10 +1557,10 @@ Yoki agar summa yo'q bo'lsa:
                     'transactions': transactions_to_save,
                     'user_id': user_id
                 },
-                "auto_save": True,  # Barcha tranzaksiyalar avtomatik saqlanadi
+                "auto_save": should_auto_save,  # Faqat barcha aniq bo'lsa True
                 "buttons_data": {
                 'confirmed_count': len(confirmed),
-                'suspected_count': len(suspected), 
+                'suspected_count': len(suspected),
                 'unclear_count': len(unclear),
                 'total_count': len(all_transactions),
                 'transactions': all_transactions,
@@ -1507,7 +1568,7 @@ Yoki agar summa yo'q bo'lsa:
                 'original_text': original_text
             }
             }
-            
+
         except Exception as e:
             logging.error(f"Ko'p tranzaksiyalar ko'rsatishda xatolik: {e}")
             return {
