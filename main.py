@@ -1455,7 +1455,7 @@ async def handle_waiting_for_phone_message(message: types.Message, state: FSMCon
     try:
         _msg = await message.answer_photo(
             photo=FSInputFile('welcome.png'),
-            caption=(
+        caption=(
                 "Balans AI'ga xush kelibsiz.\n\n"
                 "💵 Balans AI — sizning shaxsiy buxgalteringiz.\n"
                 "U har bir so‘mingizni hisoblab, daromad va xarajatlaringizni tartibda saqlaydi.\n\n"
@@ -2731,11 +2731,11 @@ async def reports_menu(message: types.Message, state: FSMContext):
         return
     
     try:
-        # Ko'p valyutali balans ma'lumotlarini olish
+    # Ko'p valyutali balans ma'lumotlarini olish
         multi_balance = await db.get_balance_multi_currency(user_id)
         total_uzs = multi_balance.get('total_uzs', {})
         by_currency = multi_balance.get('by_currency', {})
-    
+        
         # Eng oxirgi 3 ta tranzaksiyani olish
         recent_query = """
             SELECT 
@@ -2773,7 +2773,7 @@ async def reports_menu(message: types.Message, state: FSMContext):
                 name = currency_names.get(curr, curr)
                 balance = data.get('balance', 0)
                 
-                safe_message += f"{symbol} <b>{curr}</b> ({name}): {balance:,.2f} {name}\n"
+            safe_message += f"{symbol} <b>{curr}</b> ({name}): {balance:,.2f} {name}\n"
             safe_message += "\n"
             
             # 3. Qarzlar
@@ -2871,7 +2871,7 @@ async def reports_menu(message: types.Message, state: FSMContext):
     
         await message.answer(
                         safe_message,
-            reply_markup=keyboard,
+        reply_markup=keyboard,
                         parse_mode="HTML"
                     )
 
@@ -6395,9 +6395,12 @@ async def process_audio_with_financial_module(
 
             if 'transaction_data' not in audio_result:
                 logging.warning("DEBUG: transaction_data yo‘q")
+                error_msg = audio_result.get('message', '❌ Tranzaksiya topilmadi.')
+                # HTML formatiga o'girish
+                safe_msg = error_msg.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 await message.answer(
-                    audio_result.get('message', '❌ Tranzaksiya topilmadi.'),
-                    parse_mode='Markdown'
+                    safe_msg,
+                    parse_mode='HTML'
                 )
                 return audio_result
 
@@ -6406,9 +6409,12 @@ async def process_audio_with_financial_module(
 
             if not transactions:
                 logging.warning("DEBUG: transactions bo‘sh")
+                error_msg = audio_result.get('message', '❌ Tranzaksiya topilmadi.')
+                # HTML formatiga o'girish
+                safe_msg = error_msg.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 await message.answer(
-                    audio_result.get('message', '❌ Tranzaksiya topilmadi.'),
-                    parse_mode='Markdown'
+                    safe_msg,
+                    parse_mode='HTML'
                 )
                 return audio_result
 
@@ -6420,13 +6426,24 @@ async def process_audio_with_financial_module(
             if not save_result.get('success'):
                 await message.answer(
                     '❌ Saqlashda xatolik yuz berdi.',
-                    parse_mode='Markdown'
+                    parse_mode='HTML'
                 )
                 return audio_result
 
+            # Xabarni HTML formatiga o'girish va escape qilish
+            original_message = audio_result.get('message') or ''
+            # HTML maxsus belgilarini escape qilish
+            html_message = (
+                original_message
+                .replace('&', '&amp;')
+                .replace('<', '&lt;')
+                .replace('>', '&gt;')
+                .replace('**', '').replace('*', '').replace('_', '')
+            )
+            
             response_message = (
-                (audio_result.get('message') or '') +
-                "\n\n✅ **Avtomatik saqlandi!**"
+                html_message +
+                "\n\n✅ <b>Avtomatik saqlandi!</b>"
             )
 
             saved_transactions = save_result.get('transactions', [])
@@ -6437,12 +6454,12 @@ async def process_audio_with_financial_module(
                     try:
                         d = datetime.strptime(trans['reminder_date'], '%Y-%m-%d')
                         response_message += (
-                            f"\n\n📌 **Eslatma qo'shildi!**\n"
+                            f"\n\n📌 <b>Eslatma qo'shildi!</b>\n"
                             f"Qaytarish sanasi: {d.strftime('%d-%m-%Y')}"
                         )
                     except:
                         response_message += (
-                            "\n\n📌 **Eslatma qo'shildi!**\n"
+                            "\n\n📌 <b>Eslatma qo'shildi!</b>\n"
                             "Qaytarish sanasida eslatiladi."
                         )
             
@@ -6464,7 +6481,7 @@ async def process_audio_with_financial_module(
                 
             await message.answer(
                 response_message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=keyboard
             )
 
@@ -6474,9 +6491,12 @@ async def process_audio_with_financial_module(
 
         # ===== FAIL YO‘LI =====
         else:
+            error_msg = audio_result.get('message', '❌ Xatolik yuz berdi.')
+            # HTML formatiga o'girish
+            safe_msg = error_msg.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             await message.answer(
-                audio_result.get('message', '❌ Xatolik yuz berdi.'),
-                parse_mode='Markdown'
+                safe_msg,
+                parse_mode='HTML'
             )
 
         return audio_result
@@ -6484,8 +6504,8 @@ async def process_audio_with_financial_module(
     except Exception as e:
         logging.error(f"Audio qayta ishlashda xatolik: {e}")
         await message.answer(
-            "❌ Texnik xatolik yuz berdi. Iltimos, qayta urinib ko‘ring.",
-            parse_mode='Markdown'
+            "❌ Texnik xatolik yuz berdi. Iltimos, qayta urinib ko'ring.",
+            parse_mode='HTML'
         )
         return None
 
