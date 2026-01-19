@@ -1041,24 +1041,24 @@ FORMAT: {{"transactions":[{{...}}],"total_confidence":0.9}}"""
             transactions = data.get('transactions', [])
             
             # Tranzaksiyalarni aniqlik darajasiga qarab ajratish
-            confirmed_transactions = []  # Confidence >= 0.7
-            suspected_transactions = []   # Confidence 0.4-0.69
-            unclear_transactions = []     # Confidence < 0.4
-            
+            confirmed_transactions = []  # Confidence >= 0.9 (juda yuqori aniqlik)
+            suspected_transactions = []   # Confidence 0.6-0.89 (o'rtacha aniqlik)
+            unclear_transactions = []     # Confidence < 0.6 (past aniqlik)
+
             for i, transaction_data in enumerate(transactions):
                 confidence = transaction_data.get('confidence', 0)
                 transaction_data['original_text'] = original_text
-                
+
                 trans_item = {
                     'index': i + 1,
                     'data': transaction_data,
                     'id': f"trans_{user_id}_{i}_{int(datetime.now().timestamp())}"
                 }
-                
-                if confidence >= 0.7:
+
+                if confidence >= 0.9:
                     trans_item['status'] = 'confirmed'
                     confirmed_transactions.append(trans_item)
-                elif confidence >= 0.4:
+                elif confidence >= 0.6:
                     trans_item['status'] = 'suspected'
                     suspected_transactions.append(trans_item)
                 else:
@@ -1097,7 +1097,7 @@ FORMAT: {{"transactions":[{{...}}],"total_confidence":0.9}}"""
     async def _show_multiple_confirmed_transactions(self, confirmed_transactions: list, user_id: int, original_text: str) -> Dict[str, Any]:
         """Bir nechta aniq tranzaksiyalar uchun tasdiqlash"""
         try:
-            message = f"✅ **{len(confirmed_transactions)} ta aniq tranzaksiya aniqlandi!**\n\n"
+            message = f"📋 **{len(confirmed_transactions)} ta tranzaksiya topildi:**\n\n"
             
             total_income = 0
             total_expense = 0
@@ -1127,7 +1127,10 @@ FORMAT: {{"transactions":[{{...}}],"total_confidence":0.9}}"""
                 message += f"{item['index']}. {type_emoji} **{amount_text}**\n"
                 message += f"   📂 {trans['category']}\n"
                 message += f"   📝 {trans['description']}\n"
-                message += f"   🎯 {trans['confidence']:.1%}\n\n"
+                # Confidence faqat juda past bo'lsa ogohlantirish uchun ko'rsatiladi
+                if trans['confidence'] < 0.6:
+                    message += f"   ⚠️ Aniqlik past: {trans['confidence']:.1%}\n"
+                message += "\n"
                 
                 # Jami hisobga qo'shish
                 if trans['type'] == 'income':
@@ -1165,171 +1168,141 @@ FORMAT: {{"transactions":[{{...}}],"total_confidence":0.9}}"""
             }
 
     async def _force_ai_analysis(self, text: str, user_id: int) -> Dict[str, Any]:
-        """AI ga majburiy tahlil qilish - har doim taxmin qilishi kerak"""
+        """Noaniq kiritmalar uchun - tushunmagan holda xabar qaytarish"""
         try:
-            # AI ga qaytadan so'ramiz - bu safar har doim javob berishi kerak
+            # Eslatma yoki noaniq matnni tekshirish
+            reminder_keywords = ['eslatasan', 'eslat', 'kerak', 'borishim', 'ketishim', 'uchrashuv', 'meeting', 'dars', 'ko\'rishisim']
+            text_lower = text.lower()
+
+            # Agar eslatma bo'lsa
+            has_reminder_keywords = any(keyword in text_lower for keyword in reminder_keywords)
+
+            # Oddiy so'zlar (tushunish mumkin emas)
+            simple_words = ['salom', 'ok', 'ha', 'yo\'q', 'rahmat', 'yaxshi', 'xayr', 'assalomu', 'alaykum',
+                           'nima', 'qale', 'qalay', 'qalaysan', 'qandaysan', 'ishlar', 'zormi']
+            is_simple_word = any(word in text_lower for word in simple_words)
+
+            # Agar eslatma yoki oddiy so'z bo'lsa, tushunmagan deb qaytaramiz
+            if has_reminder_keywords or is_simple_word or len(text.strip()) < 5:
+                return {
+                    "success": True,
+                    "message": "❌ **Tushunmadim**\n\n" +
+                              "Iltimos, tranzaksiyangizni aniqroq kiriting:\n" +
+                              "• Summani ko'rsating (masalan: 50000 so'm)\n" +
+                              "• Nima uchun xarajat yoki kirim qilganingizni ayting\n\n" +
+                              "**Misol:** _50000 so'm ichimlik sotib oldim_",
+                    "auto_save": False
+                }
+
+            # Agar yo'q bo'lsa, AI ga qaytadan so'ramiz - lekin FAQAT ANIQ summalar uchun
             response = await self.openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
-                        "content": """Siz moliyaviy yordamchi AI siz. SIZ HECH QACHON "TUSHUNMADIM" DEMASLIGINGIZ KERAK!
+                        "content": """Siz moliyaviy yordamchi AI siz. MUHIM: Faqat ANIQ summa bo'lsa, tranzaksiya qaytaring!
 
 MUHIM QOIDALAR:
-1. Foydalanuvchi har qanday gapirsa ham, siz HAR DOIM moliyaviy ma'lumot toping
-2. Agar noaniq gapirsa, uning gapiga yaqin ma'lumotni taxmin qiling
-3. Har qanday matnni moliyaviy tranzaksiyaga aylantiring
-4. Tabiiy nutqni tushunish - "zo'r bo'ldi", "xudoga shukur", "pul tushdi" kabi
-5. Agar aniq bo'lmasa, "boshqa" kategoriyasida saqlang
-6. Har doim kamida 1 ta tranzaksiya qaytaring
-7. Confidence har doim 0.5 dan yuqori bo'lsin
-8. Raqamlarni to'g'ri tushuning: "yigirma besh ming" = 25000, "ikki yuz ming" = 200000, "bir million" = 1000000
-9. "Ishlab topdim", "pul tushdi", "daromad qildim" = income
-10. "xarajat", "sarfladim", "sotib oldim", "sotuv", "sotdim" = expense
-11. "qarz" = debt
-12. MUHIM: Agar xabarda ESLATMA kalit so'zlari bo'lsa ("eslatasan", "eslat", "kerak", "borishim", "ketishim", "uchrashuv", "meeting", "dars", "ko'rishisim") VA summa aniq bo'lmasa, tranzaksiya TOPILMADI deb javob ber:
-    {{"transactions":[],"total_confidence":0}}
-    - "Bugun 20:00 da Dastuchi bilan ko'rishisim kerak esalatasan" → {{"transactions":[],"total_confidence":0}} (ESLATMA! Summa yo'q va "eslatasan", "kerak", "ko'rishisim" so'zlari bor)
-    - "Ertaga 11:00 da Duxtirga borishim kerak eslatasan" → {{"transactions":[],"total_confidence":0}} (ESLATMA! Summa yo'q va "eslatasan", "kerak", "borishim" so'zlari bor)
-13. MUHIM: Agar summa aytilmagan bo'lsa, lekin moliyaviy harakat bo'lsa VA eslatma kalit so'zlari yo'q bo'lsa, MAJBURIY taxminiy summa qo'ying:
-    - "ichimlik sotib oldim" → 30000 so'm expense, "ovqat" kategoriya (HECH QACHON 0 QAYTARMANG!)
-    - "sovg'a uchun ichimlik sotib oldim" → 50000 so'm expense, "boshqa" kategoriya (HECH QACHON 0 QAYTARMANG!)
-    - "sotuv bo'ldi" → 200000 so'm income, "biznes" kategoriya (HECH QACHON 0 QAYTARMANG!)
-    - "pul tushdi" → 100000 so'm income, "biznes" kategoriya (HECH QACHON 0 QAYTARMANG!)
-    - "ichimdagi sotuvni bo'ldim" → 150000 so'm income, "biznes" kategoriya (HECH QACHON 0 QAYTARMANG!)
-14. HECH QACHON amount: 0 QAYTARMANG! Har doim kamida 10000 so'mdan boshlang! (LEKIN ESLATMA bo'lsa, tranzaksiya qaytarmang!)
+1. Agar matnda ANIQ SUMMA yo'q bo'lsa, bo'sh javob qaytaring: {{"transactions":[],"total_confidence":0}}
+2. Agar summa bor lekin kategoriya noaniq bo'lsa, "boshqa" kategoriyaga qo'ying
+3. HECH QACHON taxmin qilmang! Faqat aniq ma'lumotlarni qaytaring!
+4. Eslatma kalit so'zlari bo'lsa va summa yo'q bo'lsa, bo'sh qaytaring
+5. Confidence har doim 0.3-0.6 oralig'ida bo'lsin (chunki bu ikkinchi urinish)
 
-MISOL:
-- "Salom" → 0 so'm boshqa kategoriya, "Salomlashish" tavsifi (faqat salomlashish uchun)
-- "Tushunmadim" → 0 so'm boshqa kategoriya, "Noaniq kiritish" tavsifi (faqat noaniq kiritish uchun)
-- "Bugun 20:00 da Dastuchi bilan ko'rishisim kerak esalatasan" → {{"transactions":[],"total_confidence":0}} (ESLATMA! Summa yo'q va "eslatasan", "kerak", "ko'rishisim" so'zlari bor)
-- "Ertaga 11:00 da Duxtirga borishim kerak eslatasan" → {{"transactions":[],"total_confidence":0}} (ESLATMA! Summa yo'q va "eslatasan", "kerak", "borishim" so'zlari bor)
-- "25 ming ishlab topdim" → 25000 so'm income, "ish haqi" kategoriya
-- "100 ming xarajat" → 100000 so'm expense, "boshqa" kategoriya
-- "bugun zo'r bo'ldi xudoga shukur do'konimda pul tushdi" → 100000 so'm income biznes kategoriyada
-- "ichimlik sotib oldim" → 30000 so'm expense, "ovqat" kategoriya (HECH QACHON 0 EMAS!)
-- "sovg'a uchun ichimlik sotib oldim" → 50000 so'm expense, "boshqa" kategoriya (HECH QACHON 0 EMAS!)
-- "sotuv bo'ldi" → 200000 so'm income, "biznes" kategoriya (HECH QACHON 0 EMAS!)
-- "ichimdagi sotuvni bo'ldim" → 150000 so'm income, "biznes" kategoriya (HECH QACHON 0 EMAS!)
-- "Agar qiziqsang, kel, ichimdagi sotuvni bo'ldim" → 150000 so'm income, "biznes" kategoriya (HECH QACHON 0 EMAS!)
+ANIQ SUMMA MISOLLARI:
+- "25000 so'm" ✅
+- "yigirma besh ming" ✅
+- "25k" ✅
+- "ichimlik sotib oldim" ❌ (summa yo'q!)
+- "sotuv bo'ldi" ❌ (summa yo'q!)
 
 JSON formatida qaytaring:
 {
     "transactions": [
         {
             "amount": 25000,
-            "type": "income", 
-            "category": "ish haqi",
-            "description": "ishlab topish",
-            "confidence": 0.8
+            "type": "expense",
+            "category": "boshqa",
+            "description": "noaniq xarajat",
+            "confidence": 0.4
         }
     ],
-    "total_confidence": 0.8
-}"""
+    "total_confidence": 0.4
+}
+
+Yoki agar summa yo'q bo'lsa:
+{{"transactions":[],"total_confidence":0}}"""
                     },
                     {
-                        "role": "user", 
-                        "content": f"Bu matnni tahlil qiling va har qanday holatda ham moliyaviy tranzaksiya toping: {text}"
+                        "role": "user",
+                        "content": f"Matnni tahlil qiling (FAQAT ANIQ SUMMA BO'LSA qaytaring): {text}"
                     }
                 ],
                 max_tokens=1000,
-                temperature=0.7,
+                temperature=0.3,
                 frequency_penalty=0.1,
                 presence_penalty=0.1
             )
             
             ai_response = response.choices[0].message.content.strip()
             logging.info(f"Force AI response: {ai_response}")
-            
-            # Eslatma kalit so'zlarini tekshirish (avval tekshiramiz)
-            reminder_keywords = ['eslatasan', 'eslat', 'kerak', 'borishim', 'ketishim', 'uchrashuv', 'meeting', 'dars', 'ko\'rishisim']
-            text_lower = text.lower()
-            has_reminder_keywords = any(keyword in text_lower for keyword in reminder_keywords)
-            
+
             # JSON ni parse qilish
             try:
                 data = json.loads(ai_response)
             except json.JSONDecodeError:
-                # Agar JSON bo'lmasa, fallback
-                # Agar eslatma kalit so'zlari bo'lsa, tranzaksiya qaytarmaymiz
-                if has_reminder_keywords:
-                    data = {
-                        "transactions": [],
-                        "total_confidence": 0
-                    }
-                else:
-                    data = {
-                        "transactions": [{
-                            "amount": 0,
-                            "type": "expense",
-                            "category": "boshqa", 
-                            "description": f"Noaniq kiritish: {text[:50]}",
-                            "confidence": 0.2
-                        }],
-                        "total_confidence": 0.2
-                    }
-            
-            # Agar Force AI bo'sh qaytarsa va eslatma kalit so'zlari bo'lsa, tranzaksiya qaytarmaymiz
+                # Agar JSON parse qilishda xatolik bo'lsa, tushunmagan deb qaytaramiz
+                return {
+                    "success": True,
+                    "message": "❌ **Tushunmadim**\n\n" +
+                              "Iltimos, tranzaksiyangizni aniqroq kiriting:\n" +
+                              "• Summani ko'rsating (masalan: 50000 so'm)\n" +
+                              "• Nima uchun xarajat yoki kirim qilganingizni ayting\n\n" +
+                              "**Misol:** _50000 so'm ichimlik sotib oldim_",
+                    "auto_save": False
+                }
+
+            # Agar AI bo'sh qaytarsa, tushunmagan deb qaytaramiz
             if not data.get('transactions') or len(data.get('transactions', [])) == 0:
-                if has_reminder_keywords:
-                    # Eslatma - tranzaksiya qaytarmaymiz
-                    return {
-                        "success": False,
-                        "message": "❌ Tranzaksiya aniqlanmadi. Bu eslatma bo'lishi mumkin."
-                    }
-            
+                return {
+                    "success": True,
+                    "message": "❌ **Tushunmadim**\n\n" +
+                              "Iltimos, tranzaksiyangizni aniqroq kiriting:\n" +
+                              "• Summani ko'rsating (masalan: 50000 so'm)\n" +
+                              "• Nima uchun xarajat yoki kirim qilganingizni ayting\n\n" +
+                              "**Misol:** _50000 so'm ichimlik sotib oldim_",
+                    "auto_save": False
+                }
+
             # Validatsiya
             validation_result = await self._validate_extracted_data(data, text)
             if not validation_result['is_valid']:
-                # Agar validatsiya o'tmasa ham, majburiy saqlash
-                # Agar eslatma kalit so'zlari bo'lsa, tranzaksiya qaytarmaymiz
-                if has_reminder_keywords:
-                    # Eslatma - tranzaksiya qaytarmaymiz
-                    return {
-                        "success": False,
-                        "message": "❌ Tranzaksiya aniqlanmadi. Bu eslatma bo'lishi mumkin."
-                    }
-                else:
-                    data = {
-                        "transactions": [{
-                            "amount": 0,
-                            "type": "expense",
-                            "category": "boshqa",
-                            "description": f"Noaniq kiritish: {text[:50]}",
-                            "confidence": 0.1
-                        }],
-                        "total_confidence": 0.1
-                    }
-            
-            # Tranzaksiyalarni ko'rsatish
+                # Agar validatsiya o'tmasa, tushunmagan deb qaytaramiz
+                return {
+                    "success": True,
+                    "message": "❌ **Tushunmadim**\n\n" +
+                              "Iltimos, tranzaksiyangizni aniqroq kiriting:\n" +
+                              "• Summani ko'rsating (masalan: 50000 so'm)\n" +
+                              "• Nima uchun xarajat yoki kirim qilganingizni ayting\n\n" +
+                              "**Misol:** _50000 so'm ichimlik sotib oldim_",
+                    "auto_save": False
+                }
+
+            # Tranzaksiyalarni ko'rsatish (lekin confidence past bo'ladi)
             return await self._analyze_and_show_transactions(data, user_id, text)
-            
+
         except Exception as e:
             logging.error(f"Force AI analysis xatolik: {e}")
-            # Oxirgi fallback - eslatma kalit so'zlarini tekshiramiz
-            reminder_keywords = ['eslatasan', 'eslat', 'kerak', 'borishim', 'ketishim', 'uchrashuv', 'meeting', 'dars', 'ko\'rishisim']
-            text_lower = text.lower()
-            has_reminder_keywords = any(keyword in text_lower for keyword in reminder_keywords)
-            
-            # Agar eslatma kalit so'zlari bo'lsa, tranzaksiya qaytarmaymiz
-            if has_reminder_keywords:
-                fallback_data = {
-                    "transactions": [],
-                    "total_confidence": 0
-                }
-            else:
-            # Oxirgi fallback - har doim bitta tranzaksiya
-                fallback_data = {
-                    "transactions": [{
-                        "amount": 0,
-                        "type": "expense",
-                        "category": "boshqa",
-                        "description": f"Xatolik: {text[:30]}",
-                        "confidence": 0.1
-                    }],
-                    "total_confidence": 0.1
-                }
-            return await self._analyze_and_show_transactions(fallback_data, user_id, text)
+            # Xatolik bo'lsa, tushunmagan deb qaytaramiz
+            return {
+                "success": True,
+                "message": "❌ **Tushunmadim**\n\n" +
+                          "Iltimos, tranzaksiyangizni aniqroq kiriting:\n" +
+                          "• Summani ko'rsating (masalan: 50000 so'm)\n" +
+                          "• Nima uchun xarajat yoki kirim qilganingizni ayting\n\n" +
+                          "**Misol:** _50000 so'm ichimlik sotib oldim_",
+                "auto_save": False
+            }
 
     async def _show_single_transaction_confirmation(self, transaction_item: Dict[str, Any], user_id: int, original_text: str = "") -> Dict[str, Any]:
         """Bitta aniq tranzaksiya uchun tasdiqlash - YANGI FORMAT"""
